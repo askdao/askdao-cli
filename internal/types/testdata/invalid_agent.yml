@@ -1,0 +1,36 @@
+# Invalid AgentSpec fixture: contains an unknown top-level field which strict
+# decoding (yaml.Decoder.KnownFields(true)) MUST reject. Used to verify the
+# schema's negative path.
+apiVersion: askdao.ai/v1
+kind: AgentSpec
+
+metadata:
+  name: my-agent
+  version: 0.1.0
+
+persona:
+  model_class: balanced
+  model_preferences:
+    - { provider: anthropic, id: claude-sonnet-4-6 }
+
+capabilities:
+  shell:        { enabled: true, permission: allow }
+  filesystem:   { enabled: true, permission: allow }
+  web:          { enabled: true, permission: allow }
+  code_execution: { enabled: true, permission: allow }
+
+mcp_servers: []
+custom_tools: []
+skills: []
+workspace:
+  base_image: ""
+  startup_command: ""
+  networking:
+    mode: limited
+    allow_mcp_servers: true
+    allow_package_managers: false
+vault_hints: {}
+preferred_harness: anthropic_managed_agents
+
+# This field is NOT in the AgentSpec schema; strict decoding must surface it.
+mystery_field: this_should_break_strict_decoding

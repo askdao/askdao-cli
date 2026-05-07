@@ -9,7 +9,7 @@
 
 <directory>
 cmd/askdao/ - CLI 入口（main.go），未来挂载子命令
-internal/ - 业务实现（待建：scanner / providers / recommender / types）
+internal/ - 业务实现（已建：types/ 双 schema；待建：scanner / providers / recommender / render）
 docs/ - 设计文档与调研报告（design.md 主稿 + investigations/ 子目录两份 spike 报告）
 </directory>
 
