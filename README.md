@@ -67,6 +67,8 @@ askdao-cli/
 │   ├── recommender/        # LLM-driven yaml generation
 │   └── types/              # detection.json + agent.yml schemas
 ├── docs/                   # Design documents
+│   ├── design.md           # Main design draft
+│   └── investigations/     # Spike reports informing the design
 └── Makefile
 ```
 

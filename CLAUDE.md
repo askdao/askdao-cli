@@ -10,7 +10,7 @@
 <directory>
 cmd/askdao/ - CLI 入口（main.go），未来挂载子命令
 internal/ - 业务实现（待建：scanner / providers / recommender / types）
-docs/ - 设计文档（design.md 引用 harness-design 设计稿）
+docs/ - 设计文档与调研报告（design.md 主稿 + investigations/ 子目录两份 spike 报告）
 </directory>
 
 <config>
@@ -46,12 +46,12 @@ askdao agent deploy                   # 推送到 Anthropic + Conductor
 
 - **独立仓库 + 独立发版**（按 memory `feedback_kol_local_tool_must_be_oss.md`：KOL 本地工具必须独立 repo + 开源 = 信任锚点）
 - 与 `askdao-cloud-conductor` 共享 `AgentSpec` schema（CI diff 校验对齐，避免双写漂移）
-- 设计文档源在 `harness-design/designs/askdao-cli-environment-bootstrap.md`
+- 设计文档：[`docs/design.md`](docs/design.md)（含两份 spike 报告：[`docs/investigations/syft-spike-for-askdao-cli.md`](docs/investigations/syft-spike-for-askdao-cli.md) + [`docs/investigations/nixpacks-provider-pattern.md`](docs/investigations/nixpacks-provider-pattern.md)）
 
 ---
 
 ## 工程量估算（Phase 1）
 
-参考 `harness-design/designs/askdao-cli-environment-bootstrap.md` §6：约 2400 行 Go，3-4 周可交付。
+参考 [`docs/design.md`](docs/design.md) §6：约 2400 行 Go，3-4 周可交付。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
