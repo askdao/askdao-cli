@@ -5,7 +5,12 @@
 
 ## 成员清单
 
-- **design.md** — askdao-cli `init --auto` 的完整设计：四层流水线（syft → dev-filter → providers → LLM）、detection.json schema、agent.yml schema、Phase 1 MVP 范围、~2400 行 Go 工程量估算、3 个待决策项
+- **HANDOFF.md** — 新会话上手 / 上下文切换的入口文档（current status / quick start / document map / decisions / pitfalls）
+- **design.md** — askdao-cli `init --auto` 的完整设计 v0.5：四层流水线（syft → dev-filter → providers → LLM）、detection.json schema、harness-neutral 中间格式 yaml schema、Dockerfile 兼容 5 字段、KOL 中等详情卡片 UX、Phase 1-3 路线图
+- **review-2026-05-06.md** — v0.2 review（Anthropic 三资源模型重审）
+- **review-v0.3-2026-05-06.md** — v0.3 review（harness-neutral 中间格式）
+- **review-v0.4-2026-05-06.md** — v0.4 review（Dockerfile 兼容性补强）
+- **review-v0.5-2026-05-06.md** — v0.5 review（中等详情卡片 UX）
 - **investigations/** - spike 报告与外部技术参考（详见子目录 CLAUDE.md）
 
 ## 文档来源
