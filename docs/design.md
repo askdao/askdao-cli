@@ -1,16 +1,28 @@
 # askdao-cli Agent Bootstrap (`askdao agent init --auto`)
 
 > **Scope**: plan/06-deploy-cli.md §4.2 `askdao agent init` 命令的智能化补强 ——
-> 让 KOL 在自己项目目录下跑一行命令，自动产出 `agent.yml` 草稿（含 Anthropic Managed Agents 三资源完整配置），而不是从空白模板手填。
+> 让 KOL 在自己项目目录下跑一行命令，自动产出 **harness-neutral 中间格式** 的 agent spec 草稿，
+> conductor 端按 KOL 偏好的 runtime（Anthropic Managed Agents / OpenAI Agents SDK / ...）转换为对应 API 调用。
 >
-> **Version**: v0.2 (2026-05-06)
+> **Version**: v0.3 (2026-05-06)
 > **Status**: Design draft — pending review
 > **Owner**: Sam
-> **Aligns with**: memory `project_askdao_cli_design_pivot_2026_05_05.md`（Go + 借鉴 Oz Environment 一等抽象）
+> **Aligns with**: memory `project_askdao_cli_design_pivot_2026_05_05.md`（Go + 借鉴 Oz Environment 一等抽象）；archived `harness-selection-analysis.md`（多 harness 路径）
 
 ---
 
 ## ChangeLog
+
+### v0.3 · 2026-05-06 — Harness-neutral 中间格式重构
+
+哥指出 askdao-cli 是开源项目，yaml 字段直接绑定 Anthropic SDK 字段名（即使三块布局正确）也会让对外叙事坍缩为"我们只为 Anthropic 服务"。重审两套 harness（Anthropic Managed Agents + OpenAI Agents SDK）后做以下修订（细节见 [`review-v0.3-2026-05-06.md`](./review-v0.3-2026-05-06.md)）：
+
+- **§5 yaml 完全重写为 harness-neutral 中间格式**：顶层 8 个 harness-neutral 块（metadata / persona / capabilities / mcp_servers / custom_tools / skills / workspace / vault_hints）+ `apiVersion: askdao.ai/v1` + `kind: AgentSpec` + harness 独有特性进 `harness_specific:` escape hatch
+- **§2 系统架构加 conductor adapter 层**：L4 LLM 输出中间格式，conductor 端 AnthropicAdapter / OpenAIAdapter 转译到具体 harness API
+- **§4 detection.json 加 `detected_harness_signals`**：探查用户机器是否已装 Claude Code / Codex / Cursor，影响 harness 推荐
+- **§6 工程量分两侧**：askdao-cli 端 ~3000 行 Go（v0.2 + 字段重命名）；conductor 端 Phase 1 AnthropicAdapter ~1 周；Phase 2 OpenAIAdapter ~2000 行 Python / 4-6 周
+- **§7 三阶段路线图**：Phase 1 中间格式 + 单 adapter（不阻塞 askdao-cli MVP）/ Phase 2 OpenAIAdapter（开源前必做）/ Phase 3 更多 harness
+- **§9 决策记录加 9.5**（中间格式选择）+ **9.6**（分阶段切分）
 
 ### v0.2 · 2026-05-06 — Anthropic 三资源模型重构
 
@@ -18,7 +30,7 @@
 
 - **§5 agent.yml schema 重写为三块布局**：`agent` (Anthropic Agent 资源) + `environment` (Anthropic Environment 资源) + `vault_hints` (订阅者 onboarding 引导)。v0.1 把所有字段塞 `environment` 块的设计被推翻 —— Agent 才是富资源，Environment 只是容器配置
 - **§4 detection.json 增加 4 个探查字段**：`detected_mcp_configs` / `detected_skills` / `detected_required_secrets` / `detected_tool_risk_hints`
-- **§6 工程量估算调整为 ~2760 行 Go**（+360）：4 个新 scanner 模块（mcp_config / skills_dir / secrets_hint / policy 推断）
+- **§6 工程量估算调整为 ~2950 行 Go**（+550）：4 个新 scanner 模块（mcp_config / skills_dir / secrets_hint / policy 推断）
 - **§9 决策回填**：决策 9.1（LLM 走 Conductor）、9.2（syft 走 CLI 进程）哥已确认；决策 9.3 拆为 3a (yaml 三块布局) + 3b (conductor PG agent_spec 加 2 列：`managed_agent_version` + `vault_hints_json`)
 
 ### v0.1 · 2026-05-05 — 初稿
@@ -47,9 +59,42 @@ KOL 体验：盯着空白 `agent.yml` 不知怎么填 model / tools / packages /
 
 Warp 给工程师的 IDE 体验是：跑 `/create-environment` → Warp 扫仓库 → 自动推荐 Docker image + setup commands → 用户确认即可。这个模式本质是「**把模糊的"配 environment" 变成"审阅推荐"**」。
 
-askdao-cli 的 `init --auto` 应该 1:1 对齐这个 UX，但**输出对象从 Docker image 换成 Anthropic Managed Agents environment YAML**。
+askdao-cli 的 `init --auto` 应该 1:1 对齐这个 UX，但**输出对象不是单一 harness 的配置，而是 harness-neutral 中间格式**（见 §1.3）。
 
-### 1.3 与 plan/06 现有方向的衔接
+### 1.3 Harness-neutral 中间格式（v0.3 核心修订）
+
+askdao-cli **是开源项目**（face 工程师社区）。这意味着：
+
+- 工程师社区有人用 **Claude Code**（背后 Anthropic Managed Agents）
+- 也有人用 **OpenAI Codex**（背后 OpenAI Agents SDK）
+- 未来还有 LangGraph / Vercel OA / 本地 Ollama 等更多 harness
+
+如果 yaml 字段直接对齐 Anthropic SDK（即使三块布局正确），开源出去就是在告诉社区"我们只为 Anthropic 服务"。
+
+**v0.3 的根本决策**：askdao-cli 输出的是 **harness-neutral 中间格式**（`apiVersion: askdao.ai/v1` + `kind: AgentSpec`），由 conductor 端 adapter 翻译成具体 harness API：
+
+```
+askdao-cli                        conductor
+─────────                         ─────────
+detection.json                    AnthropicAdapter
+   ↓                              → POST /v1/agents (Anthropic API)
+LLM 推荐                          → POST /v1/environments
+   ↓                              → ...
+中间格式 yaml         ────►       OpenAIAdapter           (Phase 2)
+(harness-neutral)                 → SandboxAgent + Manifest + Runner.run()
+                                  → ...
+                                  
+                                  其他 adapter            (Phase 3)
+                                  → LangGraph / Vercel OA / ...
+```
+
+**Phase 1**（即将做）：中间格式 + 仅 AnthropicAdapter（保持当前 conductor M0-M2 路径）  
+**Phase 2**（开源前必做）：加 OpenAIAdapter，conductor 端支持双 runtime  
+**Phase 3**（中长期）：加更多 harness
+
+详细路线图见 §7。
+
+### 1.4 与 plan/06 现有方向的衔接
 
 本设计**不替代** plan/06 §4.2-§4.4，是它的**前置增强**：
 
@@ -62,7 +107,9 @@ askdao-cli 的 `init --auto` 应该 1:1 对齐这个 UX，但**输出对象从 D
 
 ---
 
-## 2. 系统架构（四层流水线）
+## 2. 系统架构（askdao-cli 四层流水线 + conductor adapter 层）
+
+### 2.1 askdao-cli 端（用户本地，离线为主）
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -84,35 +131,65 @@ askdao-cli 的 `init --auto` 应该 1:1 对齐这个 UX，但**输出对象从 D
 ┌──────────────────────────────────────────────────────────┐
 │  L3 · providers (移植 nixpacks) + policy 推断器             │  启发式
 │  • providers.detect()/Plan() 每语言一个 provider           │
-│  • policy.infer() 生产信号 → tool permission_policy        │
-│  → detected_frameworks + apt_pkgs + tool_risk_hints        │
+│  • policy.infer() 生产信号 → permission_policy             │
+│  • harness_signals (detect Claude Code / Codex 已装)       │
+│  → detected_frameworks + apt_pkgs + tool_risk + harness    │
 └──────────────┬───────────────────────────────────────────┘
                │
                ▼
 ┌──────────────────────────────────────────────────────────┐
 │  L4 · LLM 推荐器（调 conductor 后端）                      │  模糊推断
-│  把 detection.json 喂 LLM 生成 3 块 yaml + reasoning       │
-│  • Block 1 · agent (model + system + tools + skills + …)  │
-│  • Block 2 · environment (packages + networking)           │
-│  • Block 3 · vault_hints (required_credentials)            │
+│  把 detection.json 喂 LLM 生成中间格式 yaml + reasoning    │
+│  • metadata + persona + capabilities + mcp_servers         │
+│  • custom_tools + skills + workspace + vault_hints         │
+│  • preferred_harness (基于 harness_signals 推断)           │
+│  • harness_specific (escape hatch)                         │
 └──────────────┬───────────────────────────────────────────┘
                │
                ▼
-            agent.yml (3 blocks) + .askdao/detection.json
+       agent.yml (中间格式 v1) + .askdao/detection.json
 ```
 
-**层间分离原则**：L1-L3 全确定性，离线可跑，零成本；L4 才调 LLM。
-**Anthropic 资源映射**：yaml 的三块对应 Anthropic Managed Agents 的三个 API 资源（Agent / Environment / 加 Vault），deploy 命令按顺序调三个 API。
+**层间分离原则**：L1-L3 全确定性，离线可跑，零成本；L4 才调 LLM。  
+**输出**：harness-neutral 中间格式，与具体 SDK 字段解耦。
+
+### 2.2 conductor 端（云端 deploy 流程）
+
+```
+agent.yml (中间格式)
+       │
+       ▼
+┌─────────────────────────────────────────────┐
+│  conductor: AgentSpec 验证 + adapter 路由     │
+│  根据 yaml.preferred_harness 选择 adapter    │
+└──────┬───────────────────────┬──────────────┘
+       │                       │
+       ▼                       ▼ (Phase 2)
+┌─────────────────┐    ┌─────────────────┐
+│ AnthropicAdapter│    │ OpenAIAdapter   │
+│ (Phase 1)       │    │ (Phase 2)       │
+└────┬────────────┘    └────┬────────────┘
+     │                      │
+     ▼                      ▼
+┌──────────────────┐    ┌──────────────────────────────┐
+│ POST /v1/agents  │    │ SandboxAgent + Manifest      │
+│ POST /v1/        │    │ + Capabilities + Runner.run()│
+│   environments   │    │ (in-process Python loop)     │
+└──────────────────┘    └──────────────────────────────┘
+```
+
+**层间分离原则**：askdao-cli 不知道也不应知道 yaml 最终落到哪个 SDK；conductor 端 adapter 是唯一的"翻译边界"。  
+**Phase 切分**：Phase 1 仅 AnthropicAdapter；Phase 2 加 OpenAIAdapter；Phase 3 更多 harness。
 
 ---
 
 ## 3. 命令骨架（plan/06 §4.2 增量）
 
-### 3.1 `askdao agent init <name> [--auto] [--from <path>]`
+### 3.1 `askdao agent init <name> [--auto] [--from <path>] [--harness <id>]`
 
 无 `--auto`：保持现状（生成空目录骨架）。
 
-加 `--auto`：触发扫描流水线 +生成填好的 `agent.yml` 草稿：
+加 `--auto`：触发扫描流水线 + 生成中间格式 yaml 草稿：
 
 ```bash
 $ cd ~/WorkSpace/my-fastapi-project
@@ -122,22 +199,29 @@ $ askdao agent init my-agent --auto
 → Detected: Python 3.12 + FastAPI + SQLAlchemy + PostgreSQL
 → Detected 28 production deps (filtered out 14 dev deps)
 → Detected 1 MCP config (.mcp.json: github)
-→ Detected 0 custom skills + recommending 1 anthropic skill (xlsx)
+→ Detected 0 custom skills + recommending 1 builtin skill (xlsx)
 → Detected 2 required secrets from .env.example
-→ Detected production deploy signal → bash/write set to always_ask
+→ Detected production deploy signal → shell/filesystem.write permission=ask_for_dangerous
+→ Detected harness signals: Claude Code installed (~/.claude/), Codex not installed
 → Inferred system packages: libpq-dev, gcc
 → Calling LLM (via conductor) for system_prompt + reasoning ...
 
-✓ Generated my-agent/agent.yml (draft, 3 blocks: agent / environment / vault_hints)
+✓ Generated my-agent/agent.yml (askdao.ai/v1 AgentSpec — harness-neutral)
+   Recommended harness: anthropic_managed_agents (based on Claude Code presence)
 ✓ Saved my-agent/.askdao/detection.json (provenance)
 
 Next:
   cd my-agent && vim agent.yml persona.md
   askdao agent validate
-  askdao agent deploy   # 3 API calls: environment.create → agent.create → write conductor
+  askdao agent deploy   # conductor adapter routes to chosen harness
 ```
 
 `--from <path>` 允许从非 cwd 的目录扫（KOL 项目散在多目录时）。
+
+`--harness <id>`（可选）显式指定 `preferred_harness`，覆盖 LLM 自动推断。当前支持值：
+- `anthropic_managed_agents`（Phase 1 唯一可用 adapter）
+- `openai_agents_sdk`（Phase 2 启用；当前 `init` 接受但 `deploy` 会拒绝）
+- `auto`（默认，按 detected_harness_signals 推断）
 
 ### 3.2 `askdao detect [path]`（仅诊断）
 
@@ -150,11 +234,23 @@ Frameworks: FastAPI (conf=0.95) · SQLAlchemy (conf=0.92)
 Production deps: 28 pip / 12 npm
 System pkgs: libpq-dev gcc libjpeg-dev
 Lockfiles: uv.lock pnpm-lock.yaml
+Harness signals: claude-code ✓ codex ✗ cursor ✗
 ```
 
 ### 3.3 `askdao agent regenerate`（init 后再扫）
 
 KOL 项目演进后想刷新 yaml 推荐。读 `.askdao/detection.json` 做 diff，提示哪些字段变了。
+
+### 3.4 `askdao agent deploy [--harness <id>]`
+
+按 yaml 的 `preferred_harness`（或命令行 `--harness` 覆盖）选择 conductor 端 adapter：
+
+- **AnthropicAdapter**（Phase 1 + 之后）：environment.create → agent.create → 写回 conductor PG
+- **OpenAIAdapter**（Phase 2 启用）：上传 manifest 到 conductor → conductor 内存实例化 SandboxAgent → 写回 conductor PG
+
+deploy 失败的常见情形：
+- `preferred_harness=openai_agents_sdk` 但 conductor 部署版本 < Phase 2 → 报错并提示切换
+- 中间格式里有某 harness 不支持的字段（如 OpenAI 不支持 Anthropic `fast_mode`）→ adapter 输出 translation report，KOL 决定继续或修改
 
 ---
 
@@ -299,6 +395,27 @@ KOL 项目演进后想刷新 yaml 推荐。读 `.askdao/detection.json` 做 diff
       { "tool": "write", "policy": "always_ask",
         "reason": "Production deploy detected; write should require approval" }
     ]
+  },
+
+  "detected_harness_signals": {
+    "claude_code": {
+      "installed": true,
+      "evidence": ["~/.claude/ exists", "~/.claude/skills/ has 3 SKILL.md"]
+    },
+    "codex": {
+      "installed": false,
+      "evidence": []
+    },
+    "cursor": {
+      "installed": false,
+      "evidence": []
+    },
+    "gemini_cli": {
+      "installed": false,
+      "evidence": []
+    },
+    "recommended_harness": "anthropic_managed_agents",
+    "recommendation_reason": "Claude Code is the primary local harness on this machine; Anthropic Managed Agents is the natural cloud counterpart"
   }
 }
 ```
@@ -321,134 +438,181 @@ KOL 项目演进后想刷新 yaml 推荐。读 `.askdao/detection.json` 做 diff
 | **🆕 `detected_skills`** | 5+ 个 skill dir 约定（`.claude/skills/` / `.agents/skills/` ...）+ 依赖反推内置 skill | 自己写（~80 行 Go） |
 | **🆕 `detected_required_secrets`** | `.env.example` keys + service mapping → MCP server 反查 | 自己写（~120 行 Go） |
 | **🆕 `detected_tool_risk_hints`** | 生产信号检测（deploy.yml / prod config）+ 用户数据信号 → permission_policy | 自己写（~100 行 Go） |
+| **🆕 `detected_harness_signals`** | 探查 `~/.claude/` / `~/.codex/` / `~/.cursor/` 等 dir 是否存在 + 推荐 harness | 自己写（~60 行 Go） |
 
 ---
 
-## 5. agent.yml schema（v0.2 三块布局）
+## 5. agent.yml schema（v0.3 中间格式 · harness-neutral）
 
-`init --auto` 最终落盘的 yaml 与 Anthropic Managed Agents **三资源 1:1 映射**：
+`init --auto` 最终落盘的 yaml 是 **askdao 自定义中间格式**（`apiVersion: askdao.ai/v1` + `kind: AgentSpec`），不直接对齐任何 harness SDK 的字段命名。conductor 端的 adapter 负责翻译到具体 harness API。
+
+### 5.1 顶层结构（harness-neutral 8 块）
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  agent.yml                                                   │
-│                                                              │
-│  ┌────────────┐    ┌──────────────┐    ┌────────────────┐  │
-│  │ Block 1    │    │ Block 2      │    │ Block 3        │  │
-│  │ agent      │    │ environment  │    │ vault_hints    │  │
-│  └─────┬──────┘    └──────┬───────┘    └────────┬───────┘  │
-└────────┼──────────────────┼─────────────────────┼──────────┘
-         │                  │                     │
-         ▼                  ▼                     ▼
-   POST /v1/agents    POST /v1/environments    KOL 引导订阅者
-   → agent_id +       → environment_id          填 vault → vault_id
-     version
-                                                (session 时三件套绑定)
+agent.yml (apiVersion: askdao.ai/v1)
+├── metadata           # name / description / visibility / domain / ...
+├── persona            # model_class + model_preferences + system_prompt
+├── capabilities       # shell / filesystem / web / code_execution（语义 + 权限）
+├── mcp_servers        # 标准 MCP 协议（两边直通）
+├── custom_tools       # name + schema + handler（adapter 翻译执行机制）
+├── skills             # builtin / custom_local / git_repo
+├── workspace          # packages + mounts + networking + environment_vars
+├── vault_hints        # 订阅者 onboarding 必填 secrets
+├── preferred_harness  # auto / anthropic_managed_agents / openai_agents_sdk
+├── fallback_harnesses # Phase 2 启用
+└── harness_specific   # escape hatch: { anthropic: {...}, openai: {...} }
 ```
 
-完整示例：
+**与 Anthropic / OpenAI SDK 的映射**（conductor 端 adapter 完成）：
+
+```
+askdao agent.yml                  AnthropicAdapter        OpenAIAdapter
+─────────────────                 ────────────────        ─────────────
+metadata, persona       ───►      Agent.name/system        SandboxAgent.name/instructions
+capabilities            ───►      tools[*].configs         Capabilities + tools list
+mcp_servers             ───►      mcp_servers (1:1)        mcp_servers (1:1)
+custom_tools            ───►      tools[type=custom]       function_tool decorators
+skills                  ───►      skills[type=anthropic]   Skills capability
+                                  + custom upload          + GitRepo/LocalDir
+workspace.packages      ───►      Environment.packages     Manifest setup commands
+workspace.mounts        ───►      ✗ 不支持，translation     Manifest GitRepo/S3Mount
+                                    report 警告
+workspace.networking    ───►      Environment.networking   provider-specific
+vault_hints             ───►      Vault per-user 资源       Manifest.environment + provider
+preferred_harness       ───►      adapter 路由              adapter 路由
+harness_specific.openai ───►      ✗ 忽略                    sandbox_provider / compaction
+harness_specific.anthropic ───►   fast_mode / callable      ✗ 忽略
+```
+
+### 5.2 完整 yaml 示例
 
 ```yaml
 # my-agent/agent.yml (auto-generated draft, KOL should review/edit)
-
-# 顶层 metadata（plan/06 §5 已有，保留）
-name: my-agent
-version: 0.1.0
-visibility: private
-expertise_level: pro
-domain:
-  - backend-engineering          # LLM 从 frameworks 反推
-group_name: "My Agent Group"
-persona_file: persona.md         # plan/06 长篇 persona（聚合进 agent.system 或独立资源）
+apiVersion: askdao.ai/v1
+kind: AgentSpec
 
 # ============================================================
-# Block 1 · Anthropic Agent 资源 → POST /v1/agents
+# metadata（业务标识，与 harness 无关）
 # ============================================================
-agent:
-  # —— Model
-  model:
-    id: claude-opus-4-6           # LLM 推断（多步推理 → opus）
-    speed: standard               # 默认 standard；KOL 可改 fast 走 premium pricing
+metadata:
+  name: my-agent
+  description: "..."                 # KOL 给订阅者看的介绍
+  version: 0.1.0
+  visibility: private
+  expertise_level: pro
+  domain:
+    - backend-engineering            # LLM 从 frameworks 反推
+  group_name: "My Agent Group"
+  persona_file: persona.md           # 长篇 persona（plan/06 已有概念）
+  labels:
+    askdao.kol_id: "kol_sam"
+    askdao.pricing_tier: "paid"
 
-  description: "..."              # KOL 给订阅者看的 agent 介绍
-
-  # —— System prompt（LLM 生成，KOL 应审阅）
-  system: |
+# ============================================================
+# persona · 模型 + 角色（语义层）
+# ============================================================
+persona:
+  model_class: high_reasoning        # high_reasoning / balanced / fast / multimodal / coding
+  model_preferences:                 # 顺序优先；adapter 选第一个其 runtime 支持的
+    - { provider: anthropic, id: claude-opus-4-6, speed: standard }
+    - { provider: openai,    id: gpt-5.4 }
+    - { provider: anthropic, id: claude-sonnet-4-6 }   # fallback
+  
+  system_prompt: |
     You are an AI assistant for {KOL name}, helping with backend engineering
     topics including FastAPI, SQLAlchemy migrations, and Postgres ops.
     
-    Code execution rules:
-    - Use the bash/write tools to create deliverable files in /mnt/session/outputs/
+    Execution rules:
+    - Use shell/filesystem tools to create deliverable files in ./output/
     - When users ask about migrations, always suggest a dry-run first
     ...
 
-  # —— Tools 配置（按 detected_tool_risk_hints 自动设 policy）
-  tools:
-    - type: agent_toolset_20260401
-      default_config:
-        enabled: true
-        permission_policy: { type: always_allow }   # KOL 服务订阅者场景默认
-      configs:
-        # 检测到生产部署文件，对 bash/write 单独要求 ask
-        - { name: bash,  permission_policy: { type: always_ask } }
-        - { name: write, permission_policy: { type: always_ask } }
-
-    # 来自 detected_mcp_configs（仅含 anthropic_compatible=true 的）
-    - type: mcp_toolset
-      mcp_server_name: github
-
-  # —— MCP servers（来自 detected_mcp_configs）
-  mcp_servers:
-    - { type: url, name: github, url: "https://api.githubcopilot.com/mcp/" }
-
-  # —— Skills（detected_skills + LLM 推荐内置）
-  skills:
-    # detected_skills.implied_anthropic_skills
-    - { type: anthropic, skill_id: xlsx }      # detected pandas+openpyxl → xlsx
-    # detected_skills 里的 custom_local（deploy 时上传到 Anthropic）
-    - { type: custom, skill_id: skill_xxx, version: latest }   # 由 deploy 命令上传后回填
-
-  # —— Metadata（业务标签）
-  metadata:
-    askdao.kol_id: "kol_sam"
-    askdao.pricing_tier: "paid"
-    askdao.cli_version: "0.1.0"
+# ============================================================
+# capabilities · 语义化能力 + 权限策略
+# adapter 翻译：Anthropic 端 → tools[*].configs；OpenAI 端 → Capabilities
+# ============================================================
+capabilities:
+  shell:
+    enabled: true
+    permission: ask_for_dangerous    # always_allow / always_ask / ask_for_dangerous
+    # ask_for_dangerous: 默认 allow，但对 rm -rf / sudo / 敏感路径要求 ask
+  
+  filesystem:
+    enabled: true
+    permission: allow
+    scopes: [./output, ./tmp]        # 可选：限制读写范围
+  
+  web:
+    enabled: true                    # web search + web fetch
+    permission: allow
+  
+  code_execution:
+    enabled: true                    # python / sandbox 执行
+    permission: allow
 
 # ============================================================
-# Block 2 · Anthropic Environment 资源 → POST /v1/environments
+# mcp_servers · 标准 MCP 协议（两边直通）
 # ============================================================
-environment:
-  name: my-agent-env             # 必须 org+workspace 内唯一
-  description: "FastAPI + Postgres runtime"
-
-  config:
-    type: cloud
-    
-    packages:
-      # 来自 detected_packages.{pip,npm,...}[is_prod=true]
-      pip:
-        - fastapi==0.135.1
-        - sqlalchemy==2.0.48
-        - asyncpg==0.31.0
-        - alembic==1.18.4
-        - anthropic==0.97.0
-        # ... 28 项（已自动过滤 pytest/mypy/ruff 等 dev 依赖）
-      apt:
-        # 来自 inferred_apt_packages
-        - libpq-dev
-        - gcc
-        - libjpeg-dev
-    
-    networking:
-      type: limited
-      allow_mcp_servers: true
-      allow_package_managers: false
-      allowed_hosts:
-        # 从 detected_external_services + detected_required_secrets 反推
-        - api.anthropic.com
+mcp_servers:
+  - name: github
+    type: url
+    url: "https://api.githubcopilot.com/mcp/"
+  # 注：detected_mcp_configs 中 type=stdio 的 server 在此处过滤掉
+  # （Anthropic 不支持 stdio；OpenAI 端可在 harness_specific.openai 启用）
 
 # ============================================================
-# Block 3 · Vault hints（不调 Anthropic API）
-# 订阅者首次 onboarding 时，KOL 平台引导填这些 secrets 进 vault
+# custom_tools · schema 中性，handler 由 adapter 适配
+# ============================================================
+custom_tools: []                     # MVP 空；KOL 后续可手加
+
+# ============================================================
+# skills · 多源
+# ============================================================
+skills:
+  - type: builtin
+    provider: anthropic              # 当前仅 anthropic 提供 builtin skills
+    id: xlsx                         # detected pandas+openpyxl → xlsx
+  
+  - type: custom_local
+    path: ./skills/portfolio-analyzer
+    # adapter 行为：Anthropic 端 → 上传到 Anthropic Skills；
+    #              OpenAI 端 → 物化进 sandbox manifest
+
+# ============================================================
+# workspace · 运行时环境配置（替代 v0.2 environment）
+# ============================================================
+workspace:
+  packages:                          # 两边都能转
+    pip:
+      - fastapi==0.135.1
+      - sqlalchemy==2.0.48
+      - asyncpg==0.31.0
+      - alembic==1.18.4
+      - anthropic==0.97.0
+      # ... 已自动过滤 pytest/mypy/ruff 等 dev 依赖
+    apt:
+      - libpq-dev                    # 来自 inferred_apt_packages
+      - gcc
+      - libjpeg-dev
+  
+  mounts: []                         # OpenAI SDK Manifest 用；Anthropic adapter 跳过
+  # 示例（Phase 2 OpenAI 端可用）：
+  # - { type: git_repo, repo: "owner/agent-data", ref: main, dest: ./repo }
+  # - { type: s3, bucket: kol-bucket, key: data/, dest: ./data, mode: ro }
+  
+  networking:
+    mode: limited                    # limited / unrestricted
+    allowed_hosts:
+      - api.anthropic.com
+      - api.openai.com
+    allow_mcp_servers: true          # 是否放行 mcp_servers 列表里的 url
+    allow_package_managers: false    # 运行时是否允许 pip install / npm install
+  
+  environment_vars:                  # 启动时注入（不含 secrets）
+    LOG_LEVEL: info
+
+# ============================================================
+# vault_hints · 订阅者 onboarding 时引导填的 secrets
 # ============================================================
 vault_hints:
   required_credentials:
@@ -458,47 +622,42 @@ vault_hints:
       from: .env.example
       required: true
     - name: ANTHROPIC_API_KEY
-      purpose: "Anthropic API 调用"
+      purpose: "LLM 调用（若 KOL 走 BYOK 而非 platform 代收）"
       used_by: { agent: true }
       from: .env.example
-      required: true                 # 但 conductor 通常代收，订阅者不必单独填
-      note: "If subscribers use platform-managed billing, this is auto-injected"
-
-  optional_credentials:
-    - name: STRIPE_API_KEY
-      purpose: "可选支付集成（仅当 KOL 启用了订阅订单 skill）"
-      from: .env.example
       required: false
+      note: "If subscribers use platform-managed billing, this is auto-injected"
+  
+  optional_credentials: []
 
 # ============================================================
-# Provenance（v0.1 已有，保留）
+# preferred_harness · 部署目标 runtime
 # ============================================================
-provenance:
-  detection_report: .askdao/detection.json
-  
-  reasoning_summary: |
-    项目是 Python 3.12 FastAPI 后端 + Postgres。检测到生产部署 workflow，
-    所以 agent.tools 对 bash/write 设 always_ask；其他工具默认 always_allow。
-    Skills 推荐 xlsx（基于 pandas+openpyxl 依赖）。
-    MCP server github 需要订阅者填 GITHUB_TOKEN 进 vault。
-  
-  reasoning_decisions:
-    - decision: "model=claude-opus-4-6"
-      reason: "复杂后端业务多步推理"
-      confidence: 0.78
-    - decision: "tools.bash + tools.write 设 always_ask"
-      reason: "检测到 .github/workflows/deploy.yml + config/production.toml — 高风险信号"
-      confidence: 0.85
-    - decision: "推荐 anthropic skill xlsx"
-      reason: "依赖 pandas + openpyxl 强暗示报表场景"
-      confidence: 0.82
-  
-  generated_at: 2026-05-06T14:23:11Z
-  generator_version: askdao-cli/0.2.0
+preferred_harness: anthropic_managed_agents
+# 当前 Phase 1 唯一可用 adapter；Phase 2 可改为 openai_agents_sdk
+
+fallback_harnesses: []
+# Phase 2 启用：例如 [openai_agents_sdk] 表示首选失败时退到此
 
 # ============================================================
-# Memory / Guardrails（plan/06 §5 已有，保留）
-# 注：这两块是 conductor 业务字段，不上送 Anthropic
+# harness_specific · escape hatch（中间格式无法表达的特性）
+# adapter 只读自己 provider 那一块
+# ============================================================
+harness_specific:
+  anthropic:
+    fast_mode: false                 # speed=fast 走 premium pricing
+    callable_agents: []              # multi-agent 编排（research preview）
+    metadata:                        # Anthropic Agent.metadata 直传
+      askdao.kol_id: "kol_sam"
+  
+  openai:
+    sandbox_provider: docker         # docker / e2b / modal / unix_local / daytona / vercel
+    compaction:
+      enabled: true
+      trigger_at_tokens: 100000
+
+# ============================================================
+# memory / guardrails · conductor 业务字段（不上送任何 harness）
 # ============================================================
 memory:
   fact_extraction: enabled
@@ -509,32 +668,82 @@ guardrails:
   kol_memory_redact: enabled
 
 # ============================================================
-# Status（首次 init 为空；apply 后回写）
+# provenance · 透明度
+# ============================================================
+provenance:
+  detection_report: .askdao/detection.json
+  
+  reasoning_summary: |
+    项目是 Python 3.12 FastAPI 后端 + Postgres。检测到 Claude Code 已装于此机器，
+    推荐 anthropic_managed_agents 作为 preferred_harness。LLM 推断 model_class=
+    high_reasoning（多步推理），首选 claude-opus-4-6。检测到生产部署文件，
+    capabilities.shell.permission=ask_for_dangerous（adapter 翻译为 bash 工具
+    单独 always_ask）。
+  
+  reasoning_decisions:
+    - decision: "preferred_harness=anthropic_managed_agents"
+      reason: "Claude Code installed locally; Anthropic 是自然延伸"
+      confidence: 0.85
+    - decision: "model_preferences[0]=claude-opus-4-6"
+      reason: "FastAPI + Alembic 迁移逻辑复杂，需要 high_reasoning"
+      confidence: 0.78
+    - decision: "capabilities.shell.permission=ask_for_dangerous"
+      reason: "检测到 .github/workflows/deploy.yml + config/production.toml"
+      confidence: 0.85
+  
+  generated_at: 2026-05-06T14:23:11Z
+  generator_version: askdao-cli/0.3.0
+
+# ============================================================
+# status · apply 后回写
 # ============================================================
 status:
   last_applied_at: null
-  remote_agent_id: null            # 例如 "agt_xyz789"
-  remote_agent_version: null       # 🆕 Agent 版本钉（v0.2 新加）
-  remote_environment_id: null      # 例如 "env_abc123"
-  vault_setup_complete: false      # 🆕 订阅者 vault 是否已配齐
+  active_harness: null               # apply 时记录实际使用的 adapter
+  remote_ids:
+    # 各 harness 各自的远端 ID（adapter 写入对应键）
+    anthropic_agent_id: null         # 例如 "agt_xyz789"
+    anthropic_agent_version: null    # versioned
+    anthropic_environment_id: null   # 例如 "env_abc123"
+    openai_session_state_id: null    # OpenAI 端无 versioned agent，存 RunState ref
+  vault_setup_complete: false
   drift_detected: false
 ```
 
-**对 plan/06 §5 的兼容性**：
-- 旧字段（name/version/visibility/expertise_level/group_name/persona_file/memory/guardrails）100% 保留
-- **重大重构**：旧的扁平字段（model / tools / skills / resources）全部移入 `agent` block 内
-- **新增** `agent` / `environment` / `vault_hints` 三块顶层布局
-- **新增** `provenance` / `status` 块作为元数据
-- 需配套修订 `plan/06 §5` 描述（落地路径 §10 已列出）
+### 5.3 与 plan/06 §5 的兼容性
 
-**与 conductor 的衔接**：
-- `askdao agent deploy` 按顺序调三个 API：先 environment.create → 再 agent.create（引用 mcp_servers 但不带 vault）→ 写回 PG agent_spec 表
-- conductor PG `agent_spec` 表需 alembic 017 加 2 列：`managed_agent_version: int` + `vault_hints_json: jsonb`
-- vault 不在 deploy 时创建，KOL onboarding 订阅者时由 conductor 引导填 vault
+- 旧字段（visibility / expertise_level / group_name / persona_file / memory / guardrails）保留，移入 `metadata` / 顶层
+- **结构性变更**：旧的扁平字段全部进 `persona` / `capabilities` / `workspace` 等中间格式块
+- conductor 端 pydantic AgentSpec 模型需重写为中间格式 schema（不再直接对应 Anthropic SDK 字段）
+- plan/06 §5 整段示例 yaml 需要重写
+
+### 5.4 与 conductor 的衔接（Phase 1 / Phase 2）
+
+**Phase 1**（仅 AnthropicAdapter）：
+- `askdao agent deploy` → conductor 收 yaml → AnthropicAdapter 翻译：
+  - 调 `POST /v1/environments`（来自 `workspace`）
+  - 调 `POST /v1/agents`（来自 `persona` + `capabilities` + `mcp_servers` + `custom_tools` + `skills` + `harness_specific.anthropic`）
+  - 写回 `agent_spec` 表
+- conductor PG `agent_spec` 表需 alembic 017 加列：
+  - `managed_agent_version: int NOT NULL DEFAULT 1`
+  - `vault_hints_json: jsonb`
+  - `runtime_id: text NOT NULL DEFAULT 'anthropic_managed_agents'`（Phase 2 用）
+- vault 不在 deploy 时创建，KOL onboarding 订阅者时引导填
+
+**Phase 2**（加 OpenAIAdapter）：
+- `askdao agent deploy --harness openai_agents_sdk` → conductor 收 yaml → OpenAIAdapter 翻译：
+  - 解析 `persona` → SandboxAgent.instructions / model_preferences[0..n]
+  - 解析 `capabilities` → Capabilities 列表
+  - 解析 `workspace` → Manifest（packages 转 setup commands；mounts 直接转 GitRepo/S3Mount）
+  - 解析 `harness_specific.openai.sandbox_provider` → 选 SandboxClient
+  - 写回 `agent_spec` 表（`runtime_id='openai_agents_sdk'`）
+- chat.py 三岔路径（managed_agents / openai_sdk / sandbox_template）
 
 ---
 
-## 6. Go 工程量估算
+## 6. 工程量估算（分 askdao-cli + conductor 两侧）
+
+### 6.1 askdao-cli 端（Go）
 
 | 模块 | 来源 | 估算 |
 |-----|------|------|
@@ -543,47 +752,116 @@ status:
 | `internal/scanner/dockerfile.go` | wrap `moby/buildkit` parser | 80 行 |
 | `internal/scanner/dev_filter.go` | manifest 主文件 dev/prod 区分（Python/Node/Rust） | 200 行 |
 | `internal/scanner/runtimes.go` | `.nvmrc` / `.python-version` etc. 解析 | 80 行 |
-| **🆕 `internal/scanner/mcp_config.go`** | `.mcp.json` / `claude_desktop_config.json` JSON 解析 + Anthropic 兼容性检测（type=url 过滤） | 60 行 |
-| **🆕 `internal/scanner/skills_dir.go`** | 5+ 个 skill dir 约定扫描（`.claude/skills/` / `.agents/skills/` ...）+ 依赖反推内置 skill 推荐 | 80 行 |
-| **🆕 `internal/scanner/secrets_hint.go`** | `.env.example` keys 抽取 + service-to-secret 映射 + MCP server 反查 | 120 行 |
+| `internal/scanner/mcp_config.go` | `.mcp.json` / `claude_desktop_config.json` 解析 + 标记 anthropic_compatible | 60 行 |
+| `internal/scanner/skills_dir.go` | 5+ 个 skill dir 约定扫描 + 依赖反推 builtin skill | 80 行 |
+| `internal/scanner/secrets_hint.go` | `.env.example` keys 抽取 + service-to-secret 映射 | 120 行 |
+| **🆕 `internal/scanner/harness_signals.go`** | 探查 `~/.claude/` / `~/.codex/` / `~/.cursor/` 推荐 harness | 60 行 |
 | `internal/providers/provider.go` | Provider interface + App/Env 抽象 | 120 行 |
 | `internal/providers/python.go` | 移植 nixpacks python.rs | 250 行 |
 | `internal/providers/node.go` | 移植 nixpacks node/mod.rs | 300 行 |
 | `internal/providers/go.go` | 移植 | 150 行 |
 | `internal/providers/rust.go` | 移植 | 150 行 |
 | `internal/providers/apt_map.go` | 反向映射表（数据为主） | 100 行 |
-| **🆕 `internal/recommender/policy.go`** | tool permission_policy 启发式（生产信号检测 → bash/write 单独 always_ask） | 100 行 |
-| `internal/recommender/llm.go` | 调 conductor LLM endpoint 生成三块 yaml + reasoning | 250 行（v0.1: 200, +50 因为多了 agent block 推断） |
-| `internal/types/detection.go` | detection.json schema（含 4 个新字段） | 200 行（v0.1: 150, +50） |
-| `internal/types/agent_yml.go` | agent.yml schema（三块布局，与 conductor pydantic 对齐） | 350 行（v0.1: 250, +100 因 Agent block 字段全） |
-| `cmd/askdao/init_auto.go` | 命令实现 | 150 行 |
+| `internal/recommender/policy.go` | tool permission_policy 启发式 | 100 行 |
+| `internal/recommender/llm.go` | 调 conductor LLM endpoint 生成中间格式 yaml | 280 行（v0.2: 250，+30 因 model_preferences 等多源选择） |
+| `internal/types/detection.go` | detection.json schema（含 5 个新字段） | 220 行（v0.2: 200, +20 加 harness_signals） |
+| **🆕 `internal/types/agent_spec.go`** | 中间格式 yaml schema（apiVersion + 8 块 + escape hatch） | 400 行（v0.2 agent_yml.go: 350，**重写**为中间格式） |
+| `cmd/askdao/init_auto.go` | 命令实现（带 `--harness`） | 180 行（v0.2: 150, +30） |
 | `cmd/askdao/detect.go` | 命令实现 | 80 行 |
-| 总计（Phase 1） | | **~2950 行 Go** |
+| **🆕 `cmd/askdao/deploy.go`** | 命令实现（带 `--harness`，调 conductor adapter） | 150 行 |
+| askdao-cli 端总计 | | **~3290 行 Go** |
 
-包括基础测试，**Phase 1 估算仍在 3-4 周区间**（一个工程师全职；4 个新模块都是数据驱动 + 简单解析，比 nixpacks providers 移植轻）。
+vs v0.2（~2950 行）：增量 ~340 行（harness_signals scanner + agent_spec.go 重写 + deploy 命令）
+
+**askdao-cli 端 Phase 1 工期估算**：仍在 3-4 周区间。
+
+### 6.2 conductor 端 · Phase 1（AnthropicAdapter）
+
+| 模块 | 内容 | 估算 |
+|-----|------|------|
+| `app/agents/spec.py` | AgentSpec pydantic 模型（中间格式） | 400 行（含 validation） |
+| `app/agents/adapters/anthropic_adapter.py` | 中间格式 → Anthropic Agent + Environment + skill upload | 400 行 |
+| `app/agents/adapters/translation_report.py` | adapter 共用：lossy translation 警告格式 | 100 行 |
+| `app/api/cli.py` | `POST /api/v1/cli/recommend` + `POST /api/v1/cli/deploy` | 200 行 |
+| 测试 | | 200 行 |
+| alembic 017 | 加 `managed_agent_version` + `vault_hints_json` + `runtime_id` 列 | 50 行 |
+| conductor 端 Phase 1 总计 | | **~1350 行 Python** |
+
+**conductor 端 Phase 1 工期估算**：~1-2 周（adapter 是核心，其他都是 boilerplate）。
+
+### 6.3 conductor 端 · Phase 2（OpenAIAdapter）
+
+| 模块 | 内容 | 估算 |
+|-----|------|------|
+| `app/agents/adapters/openai_adapter.py` | 中间格式 → SandboxAgent + Manifest + Capabilities | 500 行 |
+| `app/openai_sdk/client.py` | wrap `Runner.run_streamed()`，对齐现有 SSE 输出 | 400 行 |
+| `app/openai_sdk/session.py` | 实现 `Session` Protocol 对接 OpenViking MemoryProvider | 200 行 |
+| `app/openai_sdk/sandbox_router.py` | 把 Manifest 落到 E2B / Docker / UnixLocal 选择 | 300 行 |
+| `app/api/chat_openai.py` | OpenAI 路径的流式 endpoint（chat.py 三岔之一） | 400 行 |
+| `app/artifacts/sweeper_openai.py` | 文件系统型 artifact 回收（不是 Files API） | 300 行 |
+| 测试 + 集成 | | ~400 行 |
+| conductor 端 Phase 2 总计 | | **~2500 行 Python** |
+
+**conductor 端 Phase 2 工期估算**：4-6 周（含与现有 chat.py 的三岔重构 + 测试）。
+
+### 6.4 总览
+
+| 阶段 | 范围 | 工期 |
+|-----|------|------|
+| Phase 1 | askdao-cli ~3290 行 Go + conductor ~1350 行 Python | 5-6 周（两条流水线并行） |
+| Phase 2 | conductor ~2500 行 Python（OpenAIAdapter） | 4-6 周 |
+| Phase 3 | 更多 harness（按需） | 不在当前估算 |
 
 ---
 
-## 7. Phase 1 MVP vs Phase 2
+## 7. 三阶段路线图
 
-### Phase 1 MVP（修身期够用）
+### Phase 1 · 中间格式 + 单 adapter（即将做，不阻塞 askdao-cli MVP）
 
-- ✅ L1：syft 调 CLI 进程模式（不 import）
-- ✅ L2：Python (uv/poetry/pip-tools) + Node (npm/pnpm/yarn) 两个生态的 dev/prod 过滤
-- ✅ L3：移植 nixpacks 4 个 provider（python/node/go/rust）+ apt 反向映射表
-- ✅ L4：调 conductor 现有 `_managed_agents_stream` 生成 system_prompt + reasoning（用 KOL 自己的 Anthropic key 还是 conductor 中转 → 见 §9 决策项）
-- ✅ `askdao agent init --auto` + `askdao detect` 两个命令
-- ✅ 保守 networking（type=limited，只放 anthropic.com）
+**askdao-cli 端**：
+- ✅ L1：syft 调 CLI 进程模式
+- ✅ L2：Python (uv/poetry/pip-tools) + Node (npm/pnpm/yarn) dev/prod 过滤
+- ✅ L3：nixpacks 移植 4 provider（python/node/go/rust）+ apt 反向映射
+- ✅ L4：调 conductor LLM endpoint 生成中间格式 yaml
+- ✅ 三个命令：`init --auto` + `detect` + `deploy`
+- ✅ 5 个 scanner 含 `harness_signals.go`
+- ✅ yaml 即中间格式，但 `preferred_harness` 仅 `anthropic_managed_agents`
 
-### Phase 2 增强
+**conductor 端**：
+- ✅ AgentSpec pydantic 模型（中间格式）
+- ✅ AnthropicAdapter（中间格式 → Anthropic 三资源 API）
+- ✅ alembic 017 加 3 列（`managed_agent_version` + `vault_hints_json` + `runtime_id`）
+- ✅ `POST /api/v1/cli/recommend` + `POST /api/v1/cli/deploy`
 
-- ⏳ L1：syft 改 Go library 直接 import（去外部依赖）
-- ⏳ L3：扩展到 Java/Ruby/PHP/Elixir
-- ⏳ Monorepo 多 workspace 支持（pnpm-workspace / cargo workspaces）
-- ⏳ `askdao agent regenerate` diff 模式
-- ⏳ Skill 自动初始化（从 README 抽核心能力建议初始 Skill）
-- ⏳ Secret in code 扫描（gitleaks 集成）
-- ⏳ 增量扫描 + cache（大仓库提速）
+**Phase 1 总工期**：5-6 周（两条流水线并行）
+
+### Phase 2 · 加 OpenAIAdapter（开源前必做）
+
+**conductor 端**：
+- ⏳ OpenAIAdapter（中间格式 → SandboxAgent + Manifest）
+- ⏳ `app/openai_sdk/` 全新建（client / session / sandbox_router / chat_handler / artifact_sweeper）
+- ⏳ chat.py 三岔（managed_agents / openai_sdk / sandbox_template）
+- ⏳ 多 sandbox provider 支持（Phase 2.1: docker / unix_local；Phase 2.2: e2b / modal）
+
+**askdao-cli 端**：
+- ⏳ yaml `preferred_harness` 加 `openai_agents_sdk` 选项
+- ⏳ deploy 命令 `--harness openai_agents_sdk` 实测打通
+- ⏳ Translation report 渲染（adapter 返 lossy 警告时友好显示）
+
+**Phase 2 总工期**：4-6 周（conductor 端是大头）
+
+### Phase 3 · 演化（中长期）
+
+- ⏳ askdao-cli 端：
+  - L1：syft 改 Go library 直接 import（去外部依赖）
+  - L3：扩展到 Java/Ruby/PHP/Elixir
+  - Monorepo 多 workspace 支持（pnpm-workspace / cargo workspaces）
+  - `askdao agent regenerate` diff 模式
+  - Skill 自动初始化（从 README 抽核心能力建议初始 Skill）
+  - Secret-in-code 扫描（gitleaks 集成）
+- ⏳ conductor 端：
+  - 加更多 harness（LangGraph / Vercel OA / 本地 Ollama）
+  - 中间格式演化到 v2（`apiVersion: askdao.ai/v2`）
 
 ---
 
@@ -591,11 +869,12 @@ status:
 
 | plan/06 ADR | 本设计的关系 |
 |------------|------------|
-| §4.2 `agent init` 空骨架 | **扩展**：加 `--auto` 模式，骨架基础上自动填 |
-| §4.3 `agent validate` | **复用**：自动生成的 yaml 也走同一个 validator |
-| §4.4 `agent deploy` 事务三件套 | **不变**：deploy 仍读 yaml，本设计只影响"yaml 怎么来的" |
-| §5 AgentSpec yaml schema | **新增 environment + provenance 两个 block**，需要更新 conductor pydantic AgentSpec 模型 |
-| §6.1 CLI 框架（Typer） | **冲突**：本设计假设 askdao-cli 用 Go（按 memory pivot）。若仍用 Python 则全部估算翻倍（Python 没有 syft/enry/nixpacks 同等成熟生态） |
+| §4.2 `agent init` 空骨架 | **扩展**：加 `--auto` 模式，骨架基础上自动填中间格式 yaml |
+| §4.3 `agent validate` | **扩展**：validator 校验中间格式 schema（apiVersion + 8 块） |
+| §4.4 `agent deploy` 事务三件套 | **重构**：deploy 通过 conductor adapter 路由到具体 harness API；旧 plan/06 §4.4 步骤需要重写 |
+| §5 AgentSpec yaml schema | **完全重写为中间格式**：8 块顶层 + harness_specific escape hatch；plan/06 §5 yaml 示例需替换 |
+| §6.1 CLI 框架（Typer） | **冲突**：本设计假设 askdao-cli 用 Go（按 memory pivot）。Python 没有 syft/enry/nixpacks 同等成熟生态 |
+| plan/03 multi-runtime ADR | **明确为 Phase 2**：alembic `agent_spec.runtime_id` 列 + chat.py 三岔；本设计的 Phase 2 即对应这条 ADR |
 
 ---
 
@@ -637,37 +916,86 @@ status:
 3. Custom skills 探查到后是直传 Anthropic 还是先存 OpenViking？（涉及 conductor skill 上传管线）
 4. 探查到 stdio MCP 怎么处理？（当前选择：标记 `anthropic_compatible: false` 并提醒 KOL）
 
+### 9.5 yaml 输出格式：harness-neutral 中间格式 ✅ 已定（v0.3）
+
+- v0.2 仍 1:1 对齐 Anthropic SDK 字段命名（即使三块布局正确）；askdao-cli 是开源项目，对外暴露这种 yaml 等于宣告"只服务 Anthropic"
+- v0.3 决定：yaml **顶层 8 块全 harness-neutral**（`metadata / persona / capabilities / mcp_servers / custom_tools / skills / workspace / vault_hints`）+ `apiVersion: askdao.ai/v1` + `kind: AgentSpec` + harness 独有特性进 `harness_specific:` escape hatch
+- 理由：yaml 字段不应暗示单一 harness；当前 Phase 1 只支持 Anthropic 是实施权宜，Phase 2 起支持 OpenAI Codex / 更多
+- 实现要点：见 §5 重写后的 schema；conductor 端 AgentSpec pydantic 模型完全重写为中间格式
+
+### 9.6 多 harness 支持分三阶段 ✅ 已定（v0.3）
+
+- **Phase 1**（即将做）：中间格式 + AnthropicAdapter，单 harness 选项
+- **Phase 2**（开源前必做）：OpenAIAdapter + chat.py 三岔 + alembic 加 `runtime_id` 列
+- **Phase 3**（中长期）：更多 harness（LangGraph / Vercel OA / Ollama）
+- 理由：Phase 1 不阻塞 askdao-cli MVP；Phase 2 给开源前留足时间；Phase 3 是演化空间
+- 实现要点：详见 §6.2 / §6.3 工程量分项；conductor 端 plan/03 配套修订（M3+ 新增 OpenAI runtime 章节）
+
 ---
 
-## 10. 落地路径（建议下一步）
+## 10. 落地路径
 
-1. **本设计文档 v0.2 评审 → ADR 编号**：编入 `harness-design/primitives/`（待 ADR 体系扩展，可能编为 `06-agent-bootstrap.md` 涵盖三资源整合而非单独 environment）
+### Phase 1（即将做）
+
+1. **本设计文档 v0.3 评审 → ADR 编号**：编入 `harness-design/primitives/`（建议 `07-harness-neutral-agent-spec.md`，因为这次决策范围超出 environment-bootstrap，覆盖中间格式 + adapter 架构）
 2. **更新 plan/06**：
-   - §4.2 改写为带 `--auto` 路径
-   - §5 AgentSpec 重写为三块布局（agent / environment / vault_hints）
+   - §4.2 改写为带 `--auto` + `--harness` 路径
+   - §5 AgentSpec yaml schema 完全重写为中间格式 8 块
+   - §6.1 CLI 框架：明确 Go（按 memory pivot）
 3. **更新 plan/01 + alembic**：
-   - alembic 017 加 2 列：`managed_agent_version` + `vault_hints_json`
-   - 同步更新 plan/02 conductor 业务字段说明
+   - alembic 017 加 3 列：`managed_agent_version` + `vault_hints_json` + `runtime_id`
+   - 同步更新 plan/02 conductor 业务字段
 4. **更新 plan/03 + Conductor**：
-   - 加 `POST /api/v1/cli/recommend` endpoint（决策 9.1）
-   - 现有 ManagedAgentsClient 适配 yaml 三块布局
-5. **GitHub Issue 拆分**：按 §6 工程量切成 ~7 个 task（多了 4 个 scanner + policy 推断器），进 askdao-cli repo
+   - 新增 `app/agents/spec.py`（中间格式 pydantic）+ `app/agents/adapters/anthropic_adapter.py`
+   - 加 `POST /api/v1/cli/recommend` + `POST /api/v1/cli/deploy`
+   - 现有 `ManagedAgentsClient` 改造为 Anthropic adapter 的下游消费者
+5. **GitHub Issue 拆分**：按 §6 工程量切成 8-10 个 task：
+   - askdao-cli 端：5 个（5 个 scanner / 4 个 provider / recommender / cmd × 3）
+   - conductor 端：3 个（spec + anthropic_adapter / cli endpoint / alembic）
+
+### Phase 2（开源前必做）
+
+6. **新增 ADR**：`harness-design/primitives/08-multi-harness-runtime.md`（OpenAIAdapter + sandbox provider 选择）
+7. **plan/03 加章节**：M-OpenAI 阶段（`app/openai_sdk/` 新建 + chat.py 三岔重构）
+8. **askdao-cli 端**：deploy 命令 `--harness openai_agents_sdk` 通路打通
+9. **GitHub Issue 拆分**：~6 个 task（openai_adapter / 5 个 openai_sdk 子模块 / chat 三岔 / 测试）
 
 ---
 
 ## 附录 · 参考资料
 
-- v0.2 设计 review 详细记录：[`review-2026-05-06.md`](./review-2026-05-06.md)
-- 上游 spike 报告：[`investigations/syft-spike-for-askdao-cli.md`](./investigations/syft-spike-for-askdao-cli.md)
-- 上游 spike 报告：[`investigations/nixpacks-provider-pattern.md`](./investigations/nixpacks-provider-pattern.md)
-- Anthropic Managed Agents 官方文档（v0.2 重读后引用，同 org 私有仓库）：
-  - `harness-design/claude-managed-agents-docs/docs/managed-agents/agent-setup.md`
-  - `harness-design/claude-managed-agents-docs/docs/managed-agents/environments.md`
-  - `harness-design/claude-managed-agents-docs/docs/managed-agents/skills.md`
-  - `harness-design/claude-managed-agents-docs/docs/managed-agents/mcp-connector.md`
-  - `harness-design/claude-managed-agents-docs/docs/managed-agents/vaults.md`
-  - `harness-design/claude-managed-agents-docs/api/python/managed-agents/agents/create.md`
-  - `harness-design/claude-managed-agents-docs/api/python/managed-agents/environments/create.md`
-- Warp Oz 设计参考：`harness-design/warp-oz-docs/cloud-agents/environments.md`（同 org 私有仓库）
-- Anthropic SDK environment schema：`anthropic/types/beta/environment_create_params.py`（SDK 公开源码）
-- 相关 memory：`project_askdao_cli_design_pivot_2026_05_05.md`
+### v0.3 design review
+- [`review-v0.3-2026-05-06.md`](./review-v0.3-2026-05-06.md) — 中间格式可行性 + 字段重叠度评估 + 三阶段路线图
+
+### v0.2 design review
+- [`review-2026-05-06.md`](./review-2026-05-06.md) — Anthropic 三资源模型重审
+
+### 上游 spike 报告
+- [`investigations/syft-spike-for-askdao-cli.md`](./investigations/syft-spike-for-askdao-cli.md)
+- [`investigations/nixpacks-provider-pattern.md`](./investigations/nixpacks-provider-pattern.md)
+
+### Anthropic Managed Agents 官方文档（同 org 私有仓库）
+- `harness-design/claude-managed-agents-docs/docs/managed-agents/overview.md`
+- `harness-design/claude-managed-agents-docs/docs/managed-agents/agent-setup.md`
+- `harness-design/claude-managed-agents-docs/docs/managed-agents/environments.md`
+- `harness-design/claude-managed-agents-docs/docs/managed-agents/skills.md`
+- `harness-design/claude-managed-agents-docs/docs/managed-agents/mcp-connector.md`
+- `harness-design/claude-managed-agents-docs/docs/managed-agents/vaults.md`
+- `harness-design/claude-managed-agents-docs/api/python/managed-agents/agents/create.md`
+- `harness-design/claude-managed-agents-docs/api/python/managed-agents/environments/create.md`
+
+### OpenAI Agents SDK 官方文档（v0.3 重读后引用，同 org 私有仓库）
+- `harness-design/openai-agents-sdk-docs/01-agents-sdk-overview.md`
+- `harness-design/openai-agents-sdk-docs/03-agent-definitions.md`
+- `harness-design/openai-agents-sdk-docs/04-models-and-providers.md`
+- `harness-design/openai-agents-sdk-docs/06-sandbox-agents.md`
+- `harness-design/openai-agents-python/` — Python SDK 源码
+
+### Warp Oz 设计参考（同 org 私有仓库）
+- `harness-design/warp-oz-docs/cloud-agents/environments.md`
+
+### 历史选型分析
+- `harness-design/archived-version/harness-selection-analysis.md` — 原始多 harness 推荐路径
+
+### 相关 memory
+- `project_askdao_cli_design_pivot_2026_05_05.md` — Go + Oz Environment 一等抽象 + multi-runtime ADR
