@@ -4,7 +4,7 @@
 > 让 KOL 在自己项目目录下跑一行命令，自动产出 **harness-neutral 中间格式** 的 agent spec 草稿，
 > conductor 端按 KOL 偏好的 runtime（Anthropic Managed Agents / OpenAI Agents SDK / ...）转换为对应 API 调用。
 >
-> **Version**: v0.3 (2026-05-06)
+> **Version**: v0.4 (2026-05-06)
 > **Status**: Design draft — pending review
 > **Owner**: Sam
 > **Aligns with**: memory `project_askdao_cli_design_pivot_2026_05_05.md`（Go + 借鉴 Oz Environment 一等抽象）；archived `harness-selection-analysis.md`（多 harness 路径）
@@ -12,6 +12,18 @@
 ---
 
 ## ChangeLog
+
+### v0.4 · 2026-05-06 — Dockerfile 兼容性补强（选项 B）
+
+哥追问"v0.3 是否考虑了 Dockerfile 常用内容和写法的兼容？"。承认 v0.3 在这点上覆盖不够（仅识别 + 抽 base_image，丢失多阶段构建、自定义镜像、复杂 RUN 链、USER 切换、EXPOSE 端口等常见模式）。详细分析见 [`review-v0.4-2026-05-06.md`](./review-v0.4-2026-05-06.md)：
+
+- **§4 detection.json `detected_dockerfile` 字段扩展**：新增 `stages` / `run_commands` / `users` / `workdir` / `env_vars` / `cmd` / `entrypoint` / `build_args` / `extracted_apt_packages` / `extracted_pip_packages` / `extracted_setup_commands`，Dockerfile 完整 AST + 提取产物
+- **§5 yaml `workspace` 块加 5 个新字段**：`base_image` / `setup_commands` / `users` / `workdir` / `exposed_ports`。Anthropic adapter 视为不支持并输出警告；OpenAI adapter（Phase 2）真正消费
+- **§5 加 5.5 Translation Report 子章节**：定义 adapter 输出格式（`translation_warnings: [{field, action, reason, severity, fallback_attempted}]`）
+- **§6.1 askdao-cli 端 `dockerfile.go` 行数 80 → 200 行**（用 `moby/buildkit` parser 完整解析）
+- **§6.2 conductor 端加 ~100 行**：AnthropicAdapter 加 translation_report 输出 + `extracted_*` 字段兜底合并到 packages
+- **§9 决策记录加 9.7**（Dockerfile 选项 B）+ **9.8**（不做 GPU 声明 —— 哥确认 AskDAO 不跑 ML 类任务）
+- **未做的字段（哥确认）**：`resources.gpu` / `dockerfile.path` 直挂 / `build_args` build-time secrets / `volumes` / `healthcheck` / `labels`
 
 ### v0.3 · 2026-05-06 — Harness-neutral 中间格式重构
 
@@ -311,8 +323,60 @@ deploy 失败的常见情形：
   "detected_dockerfile": {
     "exists": true,
     "path": "./Dockerfile",
-    "base_image": "python:3.12-slim",
-    "exposed_ports": [8000]
+
+    // —— 完整 AST（v0.4 新增）
+    "stages": [
+      { "from": "node:20", "as": "builder",
+        "commands": [
+          { "instruction": "WORKDIR", "value": "/app" },
+          { "instruction": "COPY", "value": ". ." },
+          { "instruction": "RUN", "value": "npm ci && npm run build" }
+        ] },
+      { "from": "python:3.12-slim", "as": null,
+        "commands": [
+          { "instruction": "WORKDIR", "value": "/app" },
+          { "instruction": "COPY", "value": "--from=builder /app/dist /app" },
+          { "instruction": "RUN", "value": "apt-get update && apt-get install -y libpq-dev gcc && rm -rf /var/lib/apt/lists/*" },
+          { "instruction": "RUN", "value": "pip install --no-cache-dir -r requirements.txt" },
+          { "instruction": "USER", "value": "appuser" },
+          { "instruction": "EXPOSE", "value": "8000" },
+          { "instruction": "CMD", "value": "[\"uvicorn\", \"app.main:app\", \"--host\", \"0.0.0.0\"]" }
+        ] }
+    ],
+    "final_stage_name": null,        // 多阶段时 --target 默认值；最后一段无 AS 时为 null
+    "base_image": "python:3.12-slim",  // 最终阶段的 FROM
+    
+    // —— 各 instruction 抽出的字段
+    "run_commands": [
+      "npm ci && npm run build",
+      "apt-get update && apt-get install -y libpq-dev gcc && rm -rf /var/lib/apt/lists/*",
+      "pip install --no-cache-dir -r requirements.txt"
+    ],
+    "users": [
+      { "name": "appuser", "uid": null, "gid": null }   // 从 RUN useradd / USER 抽
+    ],
+    "workdir": "/app",                 // 最终 WORKDIR
+    "env_vars": {                      // ENV 抽出（不含 secrets）
+      "PYTHONUNBUFFERED": "1"
+    },
+    "exposed_ports": [8000],
+    "cmd": ["uvicorn", "app.main:app", "--host", "0.0.0.0"],
+    "entrypoint": null,
+    "build_args": [],                  // ARG 列表
+    
+    // —— 自动提取产物（喂给 yaml workspace）
+    "extracted_apt_packages": ["libpq-dev", "gcc"],          // 从 RUN apt-get install
+    "extracted_pip_packages": [],                              // 从 RUN pip install（仅明确写出包名的）
+    "extracted_setup_commands": [                              // 无法归到 packages 的 RUN
+      "rm -rf /var/lib/apt/lists/*"
+    ],
+    
+    // —— v0.4 标记 Anthropic 兼容性
+    "anthropic_compatible_warnings": [
+      { "field": "stages", "issue": "multi-stage build not supported; only final stage's packages can be migrated" },
+      { "field": "users", "issue": "USER appuser ignored; Anthropic runs as fixed user" },
+      { "field": "exposed_ports", "issue": "EXPOSE 8000 ignored; no port preview" }
+    ]
   },
 
   "detected_external_services": [
@@ -429,7 +493,7 @@ deploy 失败的常见情形：
 | `detected_manifests` | manifest 主文件解析（dev/prod 区分） | 自己写 |
 | `detected_packages` | syft + dev-filter 标注 | `anchore/syft` + 自己写 |
 | `detected_frameworks` | nixpacks-port providers 启发式 | 移植 |
-| `detected_dockerfile` | Dockerfile AST 解析 | `moby/buildkit` parser |
+| `detected_dockerfile` | Dockerfile **完整 AST**：stages / RUN / USER / WORKDIR / ENV / EXPOSE / CMD / ENTRYPOINT / ARG + 提取产物（apt/pip/setup_commands） | `moby/buildkit` parser + 自己写抽取规则（v0.4 升级） |
 | `detected_external_services` | 依赖+import+.env 三源交叉 | 自己写（30 行规则） |
 | `detected_env_files` | dotenv 解析（仅读 keys，不读 values） | 自己写 |
 | `inferred_apt_packages` | nixpacks 反向映射表 | 移植 |
@@ -582,7 +646,36 @@ skills:
 # workspace · 运行时环境配置（替代 v0.2 environment）
 # ============================================================
 workspace:
-  packages:                          # 两边都能转
+  # —— v0.4 新增：Dockerfile 兼容字段（OpenAI adapter 消费；Anthropic adapter 忽略 + 警告）
+  base_image: null                   # 自定义基础镜像；如 "python:3.12-slim" / "pytorch/pytorch:2.1-cuda12"
+                                     # null 表示用 adapter 默认
+                                     # Anthropic 端：忽略 + warn (cloud type 强制默认镜像)
+                                     # OpenAI 端：DockerSandboxClient(image=...) 参数
+  
+  workdir: /app                      # 工作目录；两边都用
+  
+  setup_commands: []                 # 命令式编译/配置补充
+  # 示例（来自 detected_dockerfile.extracted_setup_commands）：
+  # - "git clone https://github.com/foo/native-lib && cd native-lib && cmake . && make install"
+  # Anthropic 端：忽略 + warn（仅声明式 packages 支持；可能从命令里抽 apt/pip 兜底）
+  # OpenAI 端：进 Manifest setup phase 顺序执行
+  
+  users: []                          # OS users / groups 创建
+  # 示例（来自 detected_dockerfile.users）：
+  # - { name: appuser, uid: 1000, gid: 1000 }
+  # Anthropic 端：忽略 + warn（runs as fixed user）
+  # OpenAI 端：Manifest.users / groups
+  
+  exposed_ports: []                  # 端口暴露（用于 web service 预览）
+  # 示例：[8000, 5432]
+  # Anthropic 端：忽略 + warn（no port preview）
+  # OpenAI 端：exposed ports capability + SandboxClient port forwarding
+  
+  startup_command: null              # ENTRYPOINT/CMD 参考；agent runtime 通常不需要
+                                     # 留位为后续 long-running service 类 agent 用
+
+  # —— packages（两边都能转）
+  packages:
     pip:
       - fastapi==0.135.1
       - sqlalchemy==2.0.48
@@ -591,7 +684,7 @@ workspace:
       - anthropic==0.97.0
       # ... 已自动过滤 pytest/mypy/ruff 等 dev 依赖
     apt:
-      - libpq-dev                    # 来自 inferred_apt_packages
+      - libpq-dev                    # 来自 inferred_apt_packages + dockerfile.extracted_apt_packages
       - gcc
       - libjpeg-dev
   
@@ -734,10 +827,64 @@ status:
 - `askdao agent deploy --harness openai_agents_sdk` → conductor 收 yaml → OpenAIAdapter 翻译：
   - 解析 `persona` → SandboxAgent.instructions / model_preferences[0..n]
   - 解析 `capabilities` → Capabilities 列表
-  - 解析 `workspace` → Manifest（packages 转 setup commands；mounts 直接转 GitRepo/S3Mount）
+  - 解析 `workspace` → Manifest（packages 转 setup commands；mounts 直接转 GitRepo/S3Mount；users / workdir / exposed_ports / setup_commands 直传）
   - 解析 `harness_specific.openai.sandbox_provider` → 选 SandboxClient
   - 写回 `agent_spec` 表（`runtime_id='openai_agents_sdk'`）
 - chat.py 三岔路径（managed_agents / openai_sdk / sandbox_template）
+
+### 5.5 Translation Report（v0.4 新增）
+
+每次 `askdao agent deploy` 时，conductor 端 adapter 把无法承载的字段输出为 translation report，KOL 在 deploy 输出 + status 文件中可见。
+
+```json
+{
+  "harness": "anthropic_managed_agents",
+  "translation_warnings": [
+    {
+      "field": "workspace.base_image",
+      "value": "pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime",
+      "action": "ignored",
+      "reason": "Anthropic Managed Agents uses fixed cloud container image; custom base image not supported",
+      "severity": "high"
+    },
+    {
+      "field": "workspace.setup_commands",
+      "count": 3,
+      "action": "partial",
+      "reason": "Anthropic Managed Agents only supports declarative packages; imperative setup commands cannot run",
+      "severity": "high",
+      "fallback_attempted": "extracted apt/pip names from commands and merged into workspace.packages"
+    },
+    {
+      "field": "workspace.users",
+      "count": 1,
+      "action": "ignored",
+      "reason": "Anthropic Managed Agents runs as fixed user",
+      "severity": "medium"
+    },
+    {
+      "field": "workspace.exposed_ports",
+      "value": [8000],
+      "action": "ignored",
+      "reason": "Anthropic Managed Agents does not support port preview; use OpenAI SDK + DockerSandboxClient for that",
+      "severity": "low"
+    }
+  ]
+}
+```
+
+**KOL 看到 high severity warning 时的处置**：
+1. 接受降级：忽略警告继续 deploy
+2. 切换 harness：改为 `--harness openai_agents_sdk`（Phase 2 起可用）
+3. 修改 yaml：删掉无法承载的字段
+
+**adapter 行为约定**：
+- `severity: high` —— 必显示，KOL 必须明确确认才能 deploy
+- `severity: medium` —— 默认显示，KOL 可加 `--quiet-medium` 隐藏
+- `severity: low` —— 仅 `--verbose` 模式显示
+- `action: ignored` —— 字段完全无效
+- `action: partial` —— 部分能力降级（如 setup_commands 抽出 apt/pip 名）
+- `fallback_attempted` —— adapter 已尝试的兜底动作（透明告诉 KOL）
 
 ---
 
@@ -749,7 +896,7 @@ status:
 |-----|------|------|
 | `internal/scanner/syft.go` | wrap `anchore/syft` | 80 行 |
 | `internal/scanner/enry.go` | wrap `go-enry/enry` | 50 行 |
-| `internal/scanner/dockerfile.go` | wrap `moby/buildkit` parser | 80 行 |
+| `internal/scanner/dockerfile.go` | wrap `moby/buildkit` parser + 完整 AST 抽取（stages / RUN / USER / WORKDIR / ENV / EXPOSE / CMD / ENTRYPOINT / ARG）+ extracted_apt/pip/setup_commands 提取规则 | 200 行（v0.3: 80，**+120 因 v0.4 升级**） |
 | `internal/scanner/dev_filter.go` | manifest 主文件 dev/prod 区分（Python/Node/Rust） | 200 行 |
 | `internal/scanner/runtimes.go` | `.nvmrc` / `.python-version` etc. 解析 | 80 行 |
 | `internal/scanner/mcp_config.go` | `.mcp.json` / `claude_desktop_config.json` 解析 + 标记 anthropic_compatible | 60 行 |
@@ -769,9 +916,10 @@ status:
 | `cmd/askdao/init_auto.go` | 命令实现（带 `--harness`） | 180 行（v0.2: 150, +30） |
 | `cmd/askdao/detect.go` | 命令实现 | 80 行 |
 | **🆕 `cmd/askdao/deploy.go`** | 命令实现（带 `--harness`，调 conductor adapter） | 150 行 |
-| askdao-cli 端总计 | | **~3290 行 Go** |
+| askdao-cli 端总计 | | **~3410 行 Go** |
 
-vs v0.2（~2950 行）：增量 ~340 行（harness_signals scanner + agent_spec.go 重写 + deploy 命令）
+vs v0.3（~3290 行）：增量 ~120 行（dockerfile.go 升级到完整 AST 解析）。
+vs v0.2（~2950 行）：累计增量 ~460 行。
 
 **askdao-cli 端 Phase 1 工期估算**：仍在 3-4 周区间。
 
@@ -780,12 +928,12 @@ vs v0.2（~2950 行）：增量 ~340 行（harness_signals scanner + agent_spec.
 | 模块 | 内容 | 估算 |
 |-----|------|------|
 | `app/agents/spec.py` | AgentSpec pydantic 模型（中间格式） | 400 行（含 validation） |
-| `app/agents/adapters/anthropic_adapter.py` | 中间格式 → Anthropic Agent + Environment + skill upload | 400 行 |
+| `app/agents/adapters/anthropic_adapter.py` | 中间格式 → Anthropic Agent + Environment + skill upload + **v0.4: extracted_* 字段兜底合并到 packages + translation_report 输出** | 500 行（v0.3: 400, +100 因 v0.4 加合并 + report） |
 | `app/agents/adapters/translation_report.py` | adapter 共用：lossy translation 警告格式 | 100 行 |
 | `app/api/cli.py` | `POST /api/v1/cli/recommend` + `POST /api/v1/cli/deploy` | 200 行 |
 | 测试 | | 200 行 |
 | alembic 017 | 加 `managed_agent_version` + `vault_hints_json` + `runtime_id` 列 | 50 行 |
-| conductor 端 Phase 1 总计 | | **~1350 行 Python** |
+| conductor 端 Phase 1 总计 | | **~1450 行 Python**（v0.3: 1350, +100 因 v0.4 anthropic_adapter 合并 + report） |
 
 **conductor 端 Phase 1 工期估算**：~1-2 周（adapter 是核心，其他都是 boilerplate）。
 
@@ -808,7 +956,7 @@ vs v0.2（~2950 行）：增量 ~340 行（harness_signals scanner + agent_spec.
 
 | 阶段 | 范围 | 工期 |
 |-----|------|------|
-| Phase 1 | askdao-cli ~3290 行 Go + conductor ~1350 行 Python | 5-6 周（两条流水线并行） |
+| Phase 1 | askdao-cli ~3410 行 Go + conductor ~1450 行 Python | 5-6 周（两条流水线并行；v0.4 增量在 5-6 周区间内消化） |
 | Phase 2 | conductor ~2500 行 Python（OpenAIAdapter） | 4-6 周 |
 | Phase 3 | 更多 harness（按需） | 不在当前估算 |
 
@@ -825,20 +973,24 @@ vs v0.2（~2950 行）：增量 ~340 行（harness_signals scanner + agent_spec.
 - ✅ L4：调 conductor LLM endpoint 生成中间格式 yaml
 - ✅ 三个命令：`init --auto` + `detect` + `deploy`
 - ✅ 5 个 scanner 含 `harness_signals.go`
-- ✅ yaml 即中间格式，但 `preferred_harness` 仅 `anthropic_managed_agents`
+- ✅ Dockerfile 完整 AST 解析（v0.4 升级；含 stages / RUN / USER / WORKDIR / EXPOSE / extracted_*）
+- ✅ yaml 即中间格式 + 5 个 workspace Dockerfile 兼容字段（base_image / setup_commands / users / workdir / exposed_ports）
+- ✅ `preferred_harness` 仅 `anthropic_managed_agents`
 
 **conductor 端**：
-- ✅ AgentSpec pydantic 模型（中间格式）
+- ✅ AgentSpec pydantic 模型（中间格式 + workspace 5 字段）
 - ✅ AnthropicAdapter（中间格式 → Anthropic 三资源 API）
+- ✅ AnthropicAdapter 加 translation_report 输出（Dockerfile 字段忽略警告）+ extracted_apt/pip 兜底合并
 - ✅ alembic 017 加 3 列（`managed_agent_version` + `vault_hints_json` + `runtime_id`）
-- ✅ `POST /api/v1/cli/recommend` + `POST /api/v1/cli/deploy`
+- ✅ `POST /api/v1/cli/recommend` + `POST /api/v1/cli/deploy`（含 translation_report 返回）
 
-**Phase 1 总工期**：5-6 周（两条流水线并行）
+**Phase 1 总工期**：5-6 周（两条流水线并行；v0.4 增量在区间内消化）
 
 ### Phase 2 · 加 OpenAIAdapter（开源前必做）
 
 **conductor 端**：
 - ⏳ OpenAIAdapter（中间格式 → SandboxAgent + Manifest）
+- ⏳ OpenAI adapter 真正消费 v0.4 加的 5 个 workspace 字段（base_image → DockerSandboxClient image / setup_commands → Manifest setup phase / users → Manifest.users / workdir → Manifest workdir / exposed_ports → exposed ports capability）
 - ⏳ `app/openai_sdk/` 全新建（client / session / sandbox_router / chat_handler / artifact_sweeper）
 - ⏳ chat.py 三岔（managed_agents / openai_sdk / sandbox_template）
 - ⏳ 多 sandbox provider 支持（Phase 2.1: docker / unix_local；Phase 2.2: e2b / modal）
@@ -859,6 +1011,10 @@ vs v0.2（~2950 行）：增量 ~340 行（harness_signals scanner + agent_spec.
   - `askdao agent regenerate` diff 模式
   - Skill 自动初始化（从 README 抽核心能力建议初始 Skill）
   - Secret-in-code 扫描（gitleaks 集成）
+  - **Dockerfile 选项 C 直挂能力**（`workspace.dockerfile.path` + `target_stage` + `build_args`）
+  - **多阶段构建 target_stage 选择**
+  - **build_args / build-time secrets**
+  - **volumes / healthcheck / labels** 字段（按 KOL 反馈）
 - ⏳ conductor 端：
   - 加更多 harness（LangGraph / Vercel OA / 本地 Ollama）
   - 中间格式演化到 v2（`apiVersion: askdao.ai/v2`）
@@ -931,23 +1087,37 @@ vs v0.2（~2950 行）：增量 ~340 行（harness_signals scanner + agent_spec.
 - 理由：Phase 1 不阻塞 askdao-cli MVP；Phase 2 给开源前留足时间；Phase 3 是演化空间
 - 实现要点：详见 §6.2 / §6.3 工程量分项；conductor 端 plan/03 配套修订（M3+ 新增 OpenAI runtime 章节）
 
+### 9.7 Dockerfile 兼容采用选项 B（5 字段中等修订）✅ 已定（v0.4）
+
+- v0.3 仅识别 + 抽 base_image，丢失多阶段、自定义镜像、复杂 RUN 链、USER 切换、EXPOSE 端口等模式
+- v0.4 决定：workspace 加 5 字段（`base_image` / `setup_commands` / `users` / `workdir` / `exposed_ports`），Anthropic adapter 输出 translation_report，OpenAI adapter Phase 2 真正消费
+- 理由：Anthropic 故意做得很薄注定承载不全，但中间格式应按 OpenAI 上限留位；选项 C 直挂 Dockerfile 心智复杂度太高，留 Phase 3
+- 实现要点：详见 §4 detection.json 升级 + §5.5 Translation Report 子章节 + §6.1 dockerfile.go 升级（80 → 200 行）+ §6.2 anthropic_adapter 加合并 + report（+100 行）
+
+### 9.8 不做 GPU 资源声明 ✅ 已定（v0.4）
+
+- 哥决定：AskDAO 不跑 ML 类任务，不需要 `workspace.resources.gpu` 字段
+- 理由：聚焦 KOL 知识/服务场景，GPU 是远期事；当前 Anthropic 也完全不支持 GPU
+- 影响：v0.4 yaml 不加 `resources.gpu` / `resources.memory_mb` 等资源字段；Phase 3 重新评估时再讨论
+
 ---
 
 ## 10. 落地路径
 
 ### Phase 1（即将做）
 
-1. **本设计文档 v0.3 评审 → ADR 编号**：编入 `harness-design/primitives/`（建议 `07-harness-neutral-agent-spec.md`，因为这次决策范围超出 environment-bootstrap，覆盖中间格式 + adapter 架构）
+1. **本设计文档 v0.4 评审 → ADR 编号**：编入 `harness-design/primitives/`（建议 `07-harness-neutral-agent-spec.md` 含 v0.3 中间格式 + v0.4 Dockerfile 兼容子条款）
 2. **更新 plan/06**：
    - §4.2 改写为带 `--auto` + `--harness` 路径
-   - §5 AgentSpec yaml schema 完全重写为中间格式 8 块
+   - §5 AgentSpec yaml schema 完全重写为中间格式 8 块（含 v0.4 workspace 5 个 Dockerfile 兼容字段）
    - §6.1 CLI 框架：明确 Go（按 memory pivot）
 3. **更新 plan/01 + alembic**：
    - alembic 017 加 3 列：`managed_agent_version` + `vault_hints_json` + `runtime_id`
    - 同步更新 plan/02 conductor 业务字段
 4. **更新 plan/03 + Conductor**：
    - 新增 `app/agents/spec.py`（中间格式 pydantic）+ `app/agents/adapters/anthropic_adapter.py`
-   - 加 `POST /api/v1/cli/recommend` + `POST /api/v1/cli/deploy`
+   - AnthropicAdapter 实现 v0.4 translation_report 输出 + extracted_apt/pip 兜底合并
+   - 加 `POST /api/v1/cli/recommend` + `POST /api/v1/cli/deploy`（含 translation_report 返回）
    - 现有 `ManagedAgentsClient` 改造为 Anthropic adapter 的下游消费者
 5. **GitHub Issue 拆分**：按 §6 工程量切成 8-10 个 task：
    - askdao-cli 端：5 个（5 个 scanner / 4 个 provider / recommender / cmd × 3）
@@ -963,6 +1133,9 @@ vs v0.2（~2950 行）：增量 ~340 行（harness_signals scanner + agent_spec.
 ---
 
 ## 附录 · 参考资料
+
+### v0.4 design review
+- [`review-v0.4-2026-05-06.md`](./review-v0.4-2026-05-06.md) — Dockerfile 兼容性补强（选项 B：5 字段；不做 GPU 声明）
 
 ### v0.3 design review
 - [`review-v0.3-2026-05-06.md`](./review-v0.3-2026-05-06.md) — 中间格式可行性 + 字段重叠度评估 + 三阶段路线图
