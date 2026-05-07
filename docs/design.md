@@ -4,7 +4,7 @@
 > 让 KOL 在自己项目目录下跑一行命令，自动产出 **harness-neutral 中间格式** 的 agent spec 草稿，
 > conductor 端按 KOL 偏好的 runtime（Anthropic Managed Agents / OpenAI Agents SDK / ...）转换为对应 API 调用。
 >
-> **Version**: v0.4 (2026-05-06)
+> **Version**: v0.5 (2026-05-06)
 > **Status**: Design draft — pending review
 > **Owner**: Sam
 > **Aligns with**: memory `project_askdao_cli_design_pivot_2026_05_05.md`（Go + 借鉴 Oz Environment 一等抽象）；archived `harness-selection-analysis.md`（多 harness 路径）
@@ -12,6 +12,17 @@
 ---
 
 ## ChangeLog
+
+### v0.5 · 2026-05-06 — KOL 审阅 UX 中等详情卡片
+
+哥指出 v0.4 yaml 字段非常丰富（230+ 行）让 KOL 直接确认心智负担过大；第一版纯摘要（35 行）又被批评"过于摘要、模糊"丢失关键文件路径 / skill / dep 等具体内容。详细分析见 [`review-v0.5-2026-05-06.md`](./review-v0.5-2026-05-06.md)：
+
+- **核心决策**：采用**中等详情卡片**（mid-density，7 块顶层结构 / ~80-90 行屏幕空间）+ inline reasoning（`↳ Why:` 引导符）+ 入口扩展（D/F/M/W/P 子命令查看更多细节）
+- **7 块结构**：PERSONA / SKILLS / MCP SERVERS / CAPABILITIES / RUNTIME / SUBSCRIBER ONBOARDING / TRANSLATION WARNINGS
+- **字段三档分类**：必列具体（Skills / MCP / Vault credentials / 关键文件路径 / Tool overrides / apt libs）；列计数+入口（28 个 Python deps 列前 8；dev deps 计数）；展开 reasoning（Model 选择 / Tool override / Skill 推荐 / Translation warning）
+- **§3 命令骨架修订**：`init --auto` 改交互式 [A/E/R/S/D/F/M/W/P/Q]；`deploy` 加 diff preview（KOL 改了 yaml 后显示与推荐版本的差异）；新增 `askdao agent show <name> [--full|--reasoning|--warnings]`
+- **§6.1 askdao-cli 加 7 个 render 模块**：~870 行 Go（summary / reasoning / diff / warnings / lists / show 命令 / init+deploy 改造）
+- **§9 决策记录加 9.9**（中等详情 UX 选定）
 
 ### v0.4 · 2026-05-06 — Dockerfile 兼容性补强（选项 B）
 
@@ -201,7 +212,7 @@ agent.yml (中间格式)
 
 无 `--auto`：保持现状（生成空目录骨架）。
 
-加 `--auto`：触发扫描流水线 + 生成中间格式 yaml 草稿：
+加 `--auto`：触发扫描流水线 + LLM 推荐 + **交互式中等详情卡片审阅**（v0.5）：
 
 ```bash
 $ cd ~/WorkSpace/my-fastapi-project
@@ -209,28 +220,147 @@ $ askdao agent init my-agent --auto
 
 → Scanning ./ ...
 → Detected: Python 3.12 + FastAPI + SQLAlchemy + PostgreSQL
-→ Detected 28 production deps (filtered out 14 dev deps)
+→ Detected 28 prod deps (14 dev deps filtered)
 → Detected 1 MCP config (.mcp.json: github)
-→ Detected 0 custom skills + recommending 1 builtin skill (xlsx)
+→ Detected 1 custom skill + recommending 1 builtin (xlsx)
 → Detected 2 required secrets from .env.example
-→ Detected production deploy signal → shell/filesystem.write permission=ask_for_dangerous
-→ Detected harness signals: Claude Code installed (~/.claude/), Codex not installed
-→ Inferred system packages: libpq-dev, gcc
+→ Detected production deploy signal → shell permission=ask_for_dangerous
+→ Detected harness signals: claude-code ✓ codex ✗
 → Calling LLM (via conductor) for system_prompt + reasoning ...
 
-✓ Generated my-agent/agent.yml (askdao.ai/v1 AgentSpec — harness-neutral)
-   Recommended harness: anthropic_managed_agents (based on Claude Code presence)
-✓ Saved my-agent/.askdao/detection.json (provenance)
+✓ Generated draft for "my-agent"
 
-Next:
-  cd my-agent && vim agent.yml persona.md
-  askdao agent validate
-  askdao agent deploy   # conductor adapter routes to chosen harness
+═══════════════════════════════════════════════════════════════
+ PERSONA
+═══════════════════════════════════════════════════════════════
+
+  Name           : my-agent
+  Description    : Backend engineering assistant
+  Model class    : high_reasoning
+  Primary model  : Claude Opus 4.6 (standard speed)
+                   ↳ Why: FastAPI + Alembic migration logic complex
+                          Confidence: 0.78
+  Fallback       : gpt-5.4, claude-sonnet-4-6
+  Persona file   : persona.md  (empty — KOL to write)
+  System prompt  : 380 chars  [P] view
+
+
+═══════════════════════════════════════════════════════════════
+ SKILLS  (2)
+═══════════════════════════════════════════════════════════════
+
+  ✓ xlsx  (Anthropic builtin)
+    Why : detected pandas + openpyxl in your dependencies
+    Conf: 0.85
+
+  ✓ portfolio-analyzer  (custom local)
+    Path: ./skills/portfolio-analyzer/SKILL.md  (4.2 KB)
+    Will be uploaded to Anthropic on deploy.
+
+
+═══════════════════════════════════════════════════════════════
+ MCP SERVERS  (1 active, 1 filtered)
+═══════════════════════════════════════════════════════════════
+
+  ✓ github
+    URL  : https://api.githubcopilot.com/mcp/
+    Type : url (Anthropic compatible ✓)
+    Token: GITHUB_TOKEN  (from .env.example)
+
+  ⊘ filesystem  (filtered out)
+    Type : stdio (not supported by Anthropic)
+    [M] see filtered + alternatives
+
+
+═══════════════════════════════════════════════════════════════
+ CAPABILITIES (Tool permissions)
+═══════════════════════════════════════════════════════════════
+
+  shell          ⚠️  ask_for_dangerous
+                 ↳ Why: .github/workflows/deploy.yml + production.toml
+                        suggest production-touching code
+  filesystem     ✓  allow (scopes: ./output, ./tmp)
+  web            ✓  allow
+  code_execution ✓  allow
+
+
+═══════════════════════════════════════════════════════════════
+ RUNTIME  (Anthropic Managed Agents environment)
+═══════════════════════════════════════════════════════════════
+
+  Python production deps (28 total, 14 dev filtered):
+    • fastapi==0.135.1          • alembic==1.18.4
+    • sqlalchemy==2.0.48         • anthropic==0.97.0
+    • asyncpg==0.31.0            • pydantic==2.12.5
+    • uvicorn==0.36.0            • httpx==0.28.0
+    ... and 20 more   [D] view all   [F] view 14 filtered
+
+  System libs (apt, all 3):
+    • libpq-dev   ↳ asyncpg/psycopg need postgres headers
+    • gcc         ↳ Python C extensions compile
+    • libjpeg-dev ↳ Pillow image processing
+
+  Networking: limited
+    Allowed hosts: api.anthropic.com, api.openai.com,
+                   api.githubcopilot.com  (3 total)
+  Workdir: /app
+
+
+═══════════════════════════════════════════════════════════════
+ SUBSCRIBER ONBOARDING  (Vault hints)
+═══════════════════════════════════════════════════════════════
+
+  Required (1):
+    🔑 GITHUB_TOKEN
+       Used by: MCP server "github"
+       From   : .env.example
+       Subscribers need to provide their own.
+
+  Optional: none
+
+
+═══════════════════════════════════════════════════════════════
+ ⚠️  TRANSLATION WARNINGS  (Anthropic Managed Agents)
+═══════════════════════════════════════════════════════════════
+
+  HIGH (2):
+    • workspace.base_image = "pytorch/pytorch:2.1.0-cuda12.1"
+      → IGNORED. Anthropic uses fixed cloud image.
+      → Phase 2 OpenAIAdapter supports custom image.
+
+    • workspace.setup_commands (2 commands)
+      → PARTIALLY IGNORED. apt/pip names extracted; raw commands lost.
+      [W] see commands
+
+  MEDIUM (1) · LOW (0)   [W] see all
+
+
+═══════════════════════════════════════════════════════════════
+ ACTIONS
+═══════════════════════════════════════════════════════════════
+
+  [A] Approve and deploy        [P] View persona / system prompt
+  [E] Edit yaml in $EDITOR       [D] View all 28 Python deps
+  [R] View full reasoning trace  [F] View filtered dev deps
+  [S] Show full yaml in pager    [W] View all warnings
+                                 [M] View filtered MCP
+
+  [Q] Quit (saved as draft)
+
+>
 ```
 
-`--from <path>` 允许从非 cwd 的目录扫（KOL 项目散在多目录时）。
+**字段三档分类原则**（v0.5 核心设计）：
 
-`--harness <id>`（可选）显式指定 `preferred_harness`，覆盖 LLM 自动推断。当前支持值：
+| 档位 | 字段 | 处理方式 |
+|------|------|---------|
+| **必列具体** | Skills / MCP / Vault credentials / 关键文件路径 / Tool overrides / apt libs | 每条逐项展开 |
+| **列计数 + 入口** | 28 个 Python deps（前 8 + and 20 more）/ dev deps 计数 / 网络白名单（前 5） | "[D] view all" 入口 |
+| **展开 reasoning** | Model 选择 / Tool override / Skill 推荐 / Translation warning | inline `↳ Why:` 引导符 |
+
+`--from <path>` 允许从非 cwd 的目录扫。
+
+`--harness <id>`（可选）显式指定 `preferred_harness`，覆盖 LLM 自动推断：
 - `anthropic_managed_agents`（Phase 1 唯一可用 adapter）
 - `openai_agents_sdk`（Phase 2 启用；当前 `init` 接受但 `deploy` 会拒绝）
 - `auto`（默认，按 detected_harness_signals 推断）
@@ -249,16 +379,52 @@ Lockfiles: uv.lock pnpm-lock.yaml
 Harness signals: claude-code ✓ codex ✗ cursor ✗
 ```
 
-### 3.3 `askdao agent regenerate`（init 后再扫）
+### 3.3 `askdao agent show <name> [--full|--reasoning|--warnings|--persona|--deps|--mcp]`（v0.5 新增）
+
+显示已创建 agent 的中等详情卡片。子选项控制详情深度：
+
+- 无选项 → 默认显示 7 块中等详情卡片（同 init --auto 后的视图）
+- `--full` → 完整 yaml（pipe 友好；同 `[S]` 键）
+- `--reasoning` → 只显示 provenance.reasoning_decisions（同 `[R]` 键）
+- `--warnings` → 只显示 translation warnings（同 `[W]` 键）
+- `--persona` → 只显示 system_prompt + persona_file 内容（同 `[P]` 键）
+- `--deps` → 完整 Python deps 列表（同 `[D]` 键）
+- `--mcp` → MCP 完整列表 + 被过滤的（同 `[M]` 键）
+
+### 3.4 `askdao agent regenerate`（init 后再扫）
 
 KOL 项目演进后想刷新 yaml 推荐。读 `.askdao/detection.json` 做 diff，提示哪些字段变了。
 
-### 3.4 `askdao agent deploy [--harness <id>]`
+### 3.5 `askdao agent deploy [--harness <id>]`
 
 按 yaml 的 `preferred_harness`（或命令行 `--harness` 覆盖）选择 conductor 端 adapter：
 
 - **AnthropicAdapter**（Phase 1 + 之后）：environment.create → agent.create → 写回 conductor PG
 - **OpenAIAdapter**（Phase 2 启用）：上传 manifest 到 conductor → conductor 内存实例化 SandboxAgent → 写回 conductor PG
+
+**v0.5 加 diff preview**：KOL 改了 yaml 后，deploy 时显示与原推荐版本的差异：
+
+```
+$ askdao agent deploy
+
+→ Reading my-agent/agent.yml ...
+→ You modified 2 fields since the last recommendation:
+
+  persona.model_preferences[0].id:
+    -  claude-opus-4-6
+    +  claude-sonnet-4-6
+    
+  capabilities.shell.permission:
+    -  ask_for_dangerous
+    +  always_allow
+
+→ Impact on translation report:
+  • OK: both fields supported by anthropic_managed_agents
+  • Warning (medium): always_allow + production deploy detected
+    → subscribers won't be asked before bash runs
+
+  [A] Approve and deploy   [E] Edit again   [Q] Cancel
+```
 
 deploy 失败的常见情形：
 - `preferred_harness=openai_agents_sdk` 但 conductor 部署版本 < Phase 2 → 报错并提示切换
@@ -913,15 +1079,22 @@ status:
 | `internal/recommender/llm.go` | 调 conductor LLM endpoint 生成中间格式 yaml | 280 行（v0.2: 250，+30 因 model_preferences 等多源选择） |
 | `internal/types/detection.go` | detection.json schema（含 5 个新字段） | 220 行（v0.2: 200, +20 加 harness_signals） |
 | **🆕 `internal/types/agent_spec.go`** | 中间格式 yaml schema（apiVersion + 8 块 + escape hatch） | 400 行（v0.2 agent_yml.go: 350，**重写**为中间格式） |
-| `cmd/askdao/init_auto.go` | 命令实现（带 `--harness`） | 180 行（v0.2: 150, +30） |
+| `cmd/askdao/init_auto.go` | 命令实现（带 `--harness` + **v0.5 交互式 [A/E/R/S/D/F/M/W/P/Q]**） | 230 行（v0.4: 180, +50） |
 | `cmd/askdao/detect.go` | 命令实现 | 80 行 |
-| **🆕 `cmd/askdao/deploy.go`** | 命令实现（带 `--harness`，调 conductor adapter） | 150 行 |
-| askdao-cli 端总计 | | **~3410 行 Go** |
+| `cmd/askdao/deploy.go` | 命令实现（带 `--harness`，调 conductor adapter + **v0.5 diff preview**） | 200 行（v0.4: 150, +50） |
+| **🆕 `cmd/askdao/show.go`** | show 命令（subcmd D/F/M/W/P 分发） | 120 行 |
+| **🆕 `internal/render/summary.go`** | 中等详情卡片渲染器（7 块 + box drawing + 截断策略） | 320 行 |
+| **🆕 `internal/render/reasoning.go`** | inline reasoning（`↳ Why:` 引导符 + confidence 颜色） | 100 行 |
+| **🆕 `internal/render/diff.go`** | yaml diff（`github.com/r3labs/diff` 集成） | 100 行 |
+| **🆕 `internal/render/warnings.go`** | translation warnings 渲染（severity 颜色分组） | 80 行 |
+| **🆕 `internal/render/lists.go`** | 通用 "前 N + and M more" 列表渲染器 | 100 行 |
+| askdao-cli 端总计 | | **~4280 行 Go** |
 
-vs v0.3（~3290 行）：增量 ~120 行（dockerfile.go 升级到完整 AST 解析）。
-vs v0.2（~2950 行）：累计增量 ~460 行。
+vs v0.4（~3410 行）：增量 ~870 行（5 个 render 模块 + show 命令 + init/deploy 改造）。
+vs v0.3（~3290 行）：累计增量 ~990 行。
+vs v0.2（~2950 行）：累计增量 ~1330 行。
 
-**askdao-cli 端 Phase 1 工期估算**：仍在 3-4 周区间。
+**askdao-cli 端 Phase 1 工期估算**：仍在 3-4 周区间（render 模块都是数据驱动 + Go 模板字符串，比 scanner / provider 移植轻）。
 
 ### 6.2 conductor 端 · Phase 1（AnthropicAdapter）
 
@@ -956,7 +1129,7 @@ vs v0.2（~2950 行）：累计增量 ~460 行。
 
 | 阶段 | 范围 | 工期 |
 |-----|------|------|
-| Phase 1 | askdao-cli ~3410 行 Go + conductor ~1450 行 Python | 5-6 周（两条流水线并行；v0.4 增量在 5-6 周区间内消化） |
+| Phase 1 | askdao-cli ~4280 行 Go + conductor ~1450 行 Python | 5-6 周（两条流水线并行；v0.4 + v0.5 增量都在区间内消化） |
 | Phase 2 | conductor ~2500 行 Python（OpenAIAdapter） | 4-6 周 |
 | Phase 3 | 更多 harness（按需） | 不在当前估算 |
 
@@ -971,11 +1144,13 @@ vs v0.2（~2950 行）：累计增量 ~460 行。
 - ✅ L2：Python (uv/poetry/pip-tools) + Node (npm/pnpm/yarn) dev/prod 过滤
 - ✅ L3：nixpacks 移植 4 provider（python/node/go/rust）+ apt 反向映射
 - ✅ L4：调 conductor LLM endpoint 生成中间格式 yaml
-- ✅ 三个命令：`init --auto` + `detect` + `deploy`
+- ✅ 四个命令：`init --auto` / `detect` / `deploy` / `show`（v0.5 加 show）
 - ✅ 5 个 scanner 含 `harness_signals.go`
 - ✅ Dockerfile 完整 AST 解析（v0.4 升级；含 stages / RUN / USER / WORKDIR / EXPOSE / extracted_*）
 - ✅ yaml 即中间格式 + 5 个 workspace Dockerfile 兼容字段（base_image / setup_commands / users / workdir / exposed_ports）
 - ✅ `preferred_harness` 仅 `anthropic_managed_agents`
+- ✅ **v0.5 中等详情卡片 UX**：7 块顶层（Persona / Skills / MCP / Capabilities / Runtime / Onboarding / Warnings）+ inline reasoning（`↳ Why:`）+ 入口扩展（[A/E/R/S/D/F/M/W/P/Q]）
+- ✅ **v0.5 deploy diff preview**：KOL 改 yaml 后显示与原推荐的差异 + 对 translation_report 的影响
 
 **conductor 端**：
 - ✅ AgentSpec pydantic 模型（中间格式 + workspace 5 字段）
@@ -984,7 +1159,7 @@ vs v0.2（~2950 行）：累计增量 ~460 行。
 - ✅ alembic 017 加 3 列（`managed_agent_version` + `vault_hints_json` + `runtime_id`）
 - ✅ `POST /api/v1/cli/recommend` + `POST /api/v1/cli/deploy`（含 translation_report 返回）
 
-**Phase 1 总工期**：5-6 周（两条流水线并行；v0.4 增量在区间内消化）
+**Phase 1 总工期**：5-6 周（两条流水线并行；v0.4 + v0.5 增量都在区间内消化）
 
 ### Phase 2 · 加 OpenAIAdapter（开源前必做）
 
@@ -1100,6 +1275,20 @@ vs v0.2（~2950 行）：累计增量 ~460 行。
 - 理由：聚焦 KOL 知识/服务场景，GPU 是远期事；当前 Anthropic 也完全不支持 GPU
 - 影响：v0.4 yaml 不加 `resources.gpu` / `resources.memory_mb` 等资源字段；Phase 3 重新评估时再讨论
 
+### 9.9 KOL 审阅 UX 采用「中等详情卡片 + 入口扩展」 ✅ 已定（v0.5）
+
+- v0.4 完整 yaml 230+ 行让 KOL 心智负担过大；第一版纯摘要（35 行）丢失关键文件路径 / skill / dep 等具体内容
+- v0.5 决定：**中等详情卡片**（mid-density，7 块顶层 / ~80-90 行）+ inline reasoning（`↳ Why:`）+ 入口扩展（[D/F/M/W/P]）
+- **7 块顶层结构**：PERSONA / SKILLS / MCP SERVERS / CAPABILITIES / RUNTIME / SUBSCRIBER ONBOARDING / TRANSLATION WARNINGS
+- **字段三档分类**：
+  - 必列具体（Skills / MCP / Vault credentials / 关键文件路径 / Tool overrides / apt libs）
+  - 列计数 + 入口（Python deps 前 8 + and N more / dev deps 计数 / 网络白名单前 5）
+  - 展开 reasoning（Model 选择 / Tool override / Skill 推荐 / Translation warning）
+- **inline reasoning 风格**：`↳ Why:` 引导符 + confidence 数字
+- **deploy 加 diff preview**：KOL 改 yaml 后显示与原推荐的差异 + 对 translation_report 的影响
+- 实现要点：`internal/render/` 5 个新模块（summary / reasoning / diff / warnings / lists）+ `cmd/askdao/show.go` + init/deploy 改造（共 ~870 行 Go）
+- Phase 切分：归 Phase 1（不拆 Phase 1.5）
+
 ---
 
 ## 10. 落地路径
@@ -1120,7 +1309,7 @@ vs v0.2（~2950 行）：累计增量 ~460 行。
    - 加 `POST /api/v1/cli/recommend` + `POST /api/v1/cli/deploy`（含 translation_report 返回）
    - 现有 `ManagedAgentsClient` 改造为 Anthropic adapter 的下游消费者
 5. **GitHub Issue 拆分**：按 §6 工程量切成 8-10 个 task：
-   - askdao-cli 端：5 个（5 个 scanner / 4 个 provider / recommender / cmd × 3）
+   - askdao-cli 端：6 个（5 个 scanner / 4 个 provider / recommender / cmd × 4 含 show / **render UX 5 模块**）
    - conductor 端：3 个（spec + anthropic_adapter / cli endpoint / alembic）
 
 ### Phase 2（开源前必做）
@@ -1133,6 +1322,9 @@ vs v0.2（~2950 行）：累计增量 ~460 行。
 ---
 
 ## 附录 · 参考资料
+
+### v0.5 design review
+- [`review-v0.5-2026-05-06.md`](./review-v0.5-2026-05-06.md) — KOL 审阅 UX 中等详情卡片（7 块结构 + inline reasoning + 入口扩展）
 
 ### v0.4 design review
 - [`review-v0.4-2026-05-06.md`](./review-v0.4-2026-05-06.md) — Dockerfile 兼容性补强（选项 B：5 字段；不做 GPU 声明）
