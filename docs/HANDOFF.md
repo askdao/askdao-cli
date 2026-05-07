@@ -170,7 +170,7 @@ agent.yml (askdao.ai/v1)              ↓ Runner.run_streamed()
 ```
 哥，我要继续 askdao-cli Phase 1 的工作。
 
-请先读 /Users/sunmu/WorkSpace/askdao-cloud/askdao-cli/docs/HANDOFF.md，
+请先读 docs/HANDOFF.md，
 然后再读 docs/design.md 进入语境。
 
 我准备从 issue #1 (Foundation: schemas) 开始。
