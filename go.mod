@@ -3,6 +3,7 @@ module github.com/askdao/askdao-cli
 go 1.26
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/go-enry/go-enry/v2 v2.9.6
 	github.com/moby/buildkit v0.29.0
 	gopkg.in/yaml.v3 v3.0.1
