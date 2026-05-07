@@ -1,0 +1,130 @@
+# Valid AgentSpec fixture for round-trip serialization tests.
+# Mirrors design.md §5.2 (lightly trimmed) to exercise every top-level block.
+# Convention: omitempty fields with empty values are OMITTED entirely so
+# marshal→unmarshal→DeepEqual round-trips cleanly.
+apiVersion: askdao.ai/v1
+kind: AgentSpec
+
+metadata:
+  name: my-agent
+  description: "Backend engineering assistant for FastAPI + Postgres"
+  version: 0.1.0
+  visibility: private
+  expertise_level: pro
+  domain:
+    - backend-engineering
+  group_name: "My Agent Group"
+  persona_file: persona.md
+  labels:
+    askdao.kol_id: kol_sam
+    askdao.pricing_tier: paid
+
+persona:
+  model_class: high_reasoning
+  model_preferences:
+    - { provider: anthropic, id: claude-opus-4-6, speed: standard }
+    - { provider: openai,    id: gpt-5.4 }
+    - { provider: anthropic, id: claude-sonnet-4-6 }
+  system_prompt: |
+    You are an AI assistant for backend engineering topics.
+
+capabilities:
+  shell:
+    enabled: true
+    permission: ask_for_dangerous
+  filesystem:
+    enabled: true
+    permission: allow
+    scopes: [./output, ./tmp]
+  web:
+    enabled: true
+    permission: allow
+  code_execution:
+    enabled: true
+    permission: allow
+
+mcp_servers:
+  - name: github
+    type: url
+    url: "https://api.githubcopilot.com/mcp/"
+
+custom_tools: []
+
+skills:
+  - type: builtin
+    provider: anthropic
+    id: xlsx
+  - type: custom_local
+    path: ./skills/portfolio-analyzer
+
+workspace:
+  base_image: ""
+  workdir: /app
+  startup_command: ""
+  packages:
+    pip:
+      - fastapi==0.135.1
+      - sqlalchemy==2.0.48
+    apt:
+      - libpq-dev
+      - gcc
+  networking:
+    mode: limited
+    allowed_hosts:
+      - api.anthropic.com
+      - api.openai.com
+    allow_mcp_servers: true
+    allow_package_managers: false
+  environment_vars:
+    LOG_LEVEL: info
+
+vault_hints:
+  required_credentials:
+    - name: GITHUB_TOKEN
+      purpose: "MCP github server authentication"
+      used_by: { mcp_server: github }
+      from: .env.example
+      required: true
+
+preferred_harness: anthropic_managed_agents
+
+harness_specific:
+  anthropic:
+    fast_mode: false
+    metadata:
+      askdao.kol_id: kol_sam
+  openai:
+    sandbox_provider: docker
+    compaction:
+      enabled: true
+      trigger_at_tokens: 100000
+
+memory:
+  fact_extraction: enabled
+  episode_summary: enabled
+
+guardrails:
+  credential_filter: enabled
+  kol_memory_redact: enabled
+
+provenance:
+  detection_report: .askdao/detection.json
+  reasoning_summary: |
+    FastAPI backend; Claude Code installed locally; recommend Anthropic.
+  reasoning_decisions:
+    - decision: "preferred_harness=anthropic_managed_agents"
+      reason: "Claude Code installed locally"
+      confidence: 0.85
+  generated_at: 2026-05-06T14:23:11Z
+  generator_version: askdao-cli/0.3.0
+
+status:
+  last_applied_at: null
+  active_harness: ""
+  remote_ids:
+    anthropic_agent_id: ""
+    anthropic_agent_version: ""
+    anthropic_environment_id: ""
+    openai_session_state_id: ""
+  vault_setup_complete: false
+  drift_detected: false
