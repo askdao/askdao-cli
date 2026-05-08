@@ -1,0 +1,85 @@
+═══════════════════════════════════════════════════════════════
+ PERSONA
+═══════════════════════════════════════════════════════════════
+
+  Name           : my-agent
+  Description    : Backend engineering assistant
+  Model class    : high_reasoning
+  Primary model  : claude-opus-4-6 (standard)  [anthropic]
+                   ↳ Why: FastAPI + Alembic migration logic complex
+                          Confidence: 0.78
+  Fallback       : gpt-5.4, claude-sonnet-4-6
+  Persona file   : persona.md  (empty — KOL to write)
+  System prompt  : 380 chars  [P] view
+
+═══════════════════════════════════════════════════════════════
+ SKILLS  (2)
+═══════════════════════════════════════════════════════════════
+
+  ✓ xlsx  (anthropic builtin)
+  ✓ portfolio-analyzer  (custom local)
+    Path: ./skills/portfolio-analyzer
+    Will be uploaded on deploy.
+
+═══════════════════════════════════════════════════════════════
+ MCP SERVERS  (1 active, 1 filtered)
+═══════════════════════════════════════════════════════════════
+
+  ✓ github
+    URL  : https://api.githubcopilot.com/mcp/
+    Type : url  (Anthropic compatible ✓)
+
+  ⊘ filesystem  (filtered out)
+    Type : stdio  (not supported by Anthropic)
+    [M] see filtered + alternatives
+
+═══════════════════════════════════════════════════════════════
+ CAPABILITIES (Tool permissions)
+═══════════════════════════════════════════════════════════════
+
+  shell          ⚠️ ask_for_dangerous
+  filesystem     ✓ allow  (scopes: ./output, ./tmp)
+  web            ✓ allow
+  code_execution ✓ allow
+
+═══════════════════════════════════════════════════════════════
+ RUNTIME  (Anthropic Managed Agents environment)
+═══════════════════════════════════════════════════════════════
+
+  Python production deps (28 total, 14 dev filtered):
+    • fastapi==0.135.1         • alembic==1.18.4
+    • sqlalchemy==2.0.48       • anthropic==0.97.0
+    • asyncpg==0.31.0          • pydantic==2.12.5
+    • uvicorn==0.36.0          • httpx==0.28.0
+    ... and 4 more   [D] view all   [F] view filtered
+
+  System libs (apt, all 3):
+    • libpq-dev
+    • gcc
+    • libjpeg-dev
+
+  Networking: limited
+    Allowed hosts: api.anthropic.com, api.openai.com, api.githubcopilot.com  (3 total)
+  Workdir: /app
+
+═══════════════════════════════════════════════════════════════
+ SUBSCRIBER ONBOARDING  (Vault hints)
+═══════════════════════════════════════════════════════════════
+
+  Required (1):
+    🔑 GITHUB_TOKEN
+       Used by: mcp_server=github
+       From   : .env.example
+
+═══════════════════════════════════════════════════════════════
+ ⚠️  TRANSLATION WARNINGS  (Anthropic Managed Agents)
+═══════════════════════════════════════════════════════════════
+
+  HIGH (2):
+    • workspace.base_image = IGNORED
+      → Anthropic uses fixed cloud image.
+    • workspace.setup_commands = PARTIALLY IGNORED
+      → apt/pip names extracted; raw commands lost.
+      → Fallback applied where possible.
+
+  MEDIUM (1) · LOW (0)   [W] see all
