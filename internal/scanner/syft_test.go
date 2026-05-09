@@ -89,12 +89,15 @@ func TestScanPackages_BadJSON(t *testing.T) {
 }
 
 // TestScanPackages_Integration runs the real syft binary against this repo if
-// installed. Skipped on machines that don't have syft on PATH.
+// installed. Skipped on machines that don't have syft on PATH. The path is
+// "../.." because go test runs each package from its own source dir, so
+// internal/scanner/.. = internal/ (no manifests there). "../.." resolves to
+// the repo root, which has go.mod with real require entries to enumerate.
 func TestScanPackages_Integration(t *testing.T) {
 	if _, err := exec.LookPath("syft"); err != nil {
 		t.Skip("syft not installed; skipping integration test")
 	}
-	got, err := ScanPackages(context.Background(), "..", SyftOptions{})
+	got, err := ScanPackages(context.Background(), "../..", SyftOptions{})
 	if err != nil {
 		t.Fatalf("syft integration: %v", err)
 	}
