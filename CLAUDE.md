@@ -8,8 +8,8 @@
 ---
 
 <directory>
-cmd/askdao/ - CLI 入口（main.go），未来挂载子命令
-internal/ - 业务实现（已建：types/ 双 schema；待建：scanner / providers / recommender / render）
+cmd/askdao/ - CLI 入口（main.go）+ 五个用户命令（detect / bundle / agent init / agent show / agent deploy）
+internal/ - 业务实现（types/ 双 schema · scanner/ 确定性扫描 11 件 · providers/ 框架推断 · recommender/ L4 LLM · render/ 审阅卡片）
 docs/ - 设计文档与调研报告（design.md 主稿 + investigations/ 子目录两份 spike 报告）
 </directory>
 
@@ -34,11 +34,14 @@ LICENSE - MIT
 ## 命令骨架（Phase 1 MVP）
 
 ```
-askdao detect [path]                  # 打印 detection report，不创建 agent
+askdao detect [path]                  # 打印 detection report（含 archetype + 部署清单），不创建 agent
+askdao bundle [path]                  # 预览部署清单：上云会打包哪些文件 / 哪些 skill 走引用重装 / 哪些被排除
 askdao agent init <name> [--auto]     # 创建 agent 目录骨架（--auto 自动扫推）
-askdao agent validate                 # 校验 agent.yml
-askdao agent deploy                   # 推送到 Anthropic + Conductor
+askdao agent show <name>              # 渲染中等详情审阅卡片
+askdao agent deploy                   # 推送到 Anthropic + Conductor（Phase 1 stub）
 ```
+
+部署清单分类规则（确定性，零 LLM）：**在 `skills-lock.json` 里的 skill = 外部依赖 → 产引用，云端 `skill install` 重拉（npm ci 语义）；不在 lockfile 里的 = repo 原生 → 随包上传文件**。`node_modules` / `output*` / `input` / 编辑器&OS 垃圾 / `.env*` 等自动排除并给理由；`CLAUDE.md` / `skills-lock.json` / manifest 自动纳入。`.askdaoignore`（syntax 同 gitignore，`!` 反向纳入）做兜底覆盖。`askdao bundle --bundle-skill <name>` 把某外部 skill 强制改成随包上传。
 
 ---
 

@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/askdao/askdao-cli/internal/pipeline"
+	"github.com/askdao/askdao-cli/internal/render"
 )
 
 // runDetect implements `askdao detect [path]`. Prints detection.json to stdout
@@ -124,6 +125,8 @@ func printDetectSummary(res *pipeline.Result) {
 	fmt.Printf("claude-code %s · codex %s · cursor %s · gemini-cli %s\n",
 		check(hs.ClaudeCode.Installed), check(hs.Codex.Installed),
 		check(hs.Cursor.Installed), check(hs.GeminiCLI.Installed))
+
+	render.RenderPayload(render.New(), d.Scan.Root, d.DeploymentPayload, d.Archetype, false)
 }
 
 func check(b bool) string {

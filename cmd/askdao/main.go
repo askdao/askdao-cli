@@ -30,6 +30,8 @@ func main() {
 		printRootHelp(os.Stdout)
 	case "detect":
 		os.Exit(runDetect(ctx, os.Args[2:]))
+	case "bundle":
+		os.Exit(runBundle(ctx, os.Args[2:]))
 	case "agent":
 		os.Exit(runAgent(ctx, os.Args[2:]))
 	default:
@@ -74,6 +76,7 @@ USAGE:
 
 COMMANDS:
     detect [path]                  Print detection report (L1-L3, no LLM)
+    bundle [path]                  Preview the deployment payload (what gets uploaded)
     agent init <name> [--auto]     Generate agent.yml + persona.md
     agent show <name> [flags]      Show the mid-density review card
     agent deploy [--harness id]    Push agent to conductor (Phase 1: stub)

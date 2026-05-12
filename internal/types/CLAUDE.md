@@ -5,7 +5,7 @@ askdao-cli pipeline 的两份 schema 真相源。所有上层模块（scanner / 
 
 ## 成员清单
 
-- **detection.go** — `Detection` schema (detection.json L1-L3 产物)。含 v0.4 完整 Dockerfile AST + v0.3 五个新字段（mcp_configs / skills / required_secrets / tool_risk_hints / harness_signals）。`DetectionSchemaVersion = "askdao/detection/v1"` 是版本戳。JSON tag only。
+- **detection.go** — `Detection` schema (detection.json L1-L3 产物)。含 v0.4 完整 Dockerfile AST + v0.3 五个新字段（mcp_configs / skills / required_secrets / tool_risk_hints / harness_signals）+ v0.6 两个新字段（`Archetype ProjectArchetype` = code_app/skill_pipeline/mixed/unknown + confidence + evidence；`DeploymentPayload` = `Includes`/`Excludes` 两份 `PayloadEntry` 清单 + `SkillReferences []SkillRef`（lockfile-pinned 外部 skill，云端重装而非上传文件）+ `TotalBytes`/`TotalFiles`/`IgnoreSources`）。`DetectedSkill` 扩了 `Description` / `BundleBytes` / `BundleFiles` / `LockedSource` / `IsLocalOriginal`（全 omitempty，不破坏既有调用方）。`DetectionSchemaVersion = "askdao/detection/v1"` 是版本戳。JSON tag only。
 - **agent_spec.go** — `AgentSpec` schema (agent.yml L4 输出 · harness-neutral 中间格式)。`apiVersion: askdao.ai/v1` + 八块顶层（metadata / persona / capabilities / mcp_servers / custom_tools / skills / workspace / vault_hints）+ `harness_specific` escape hatch + memory/guardrails/provenance/status conductor 业务字段。同时提供 yaml + json tags。`AgentSpecAPIVersion` / `AgentSpecKind` 是版本戳。
 - **detection_test.go** — Detection JSON marshal→unmarshal→DeepEqual round-trip 测试 + schema_version 钉死。
 - **agent_spec_test.go** — AgentSpec YAML round-trip 测试（基于 testdata/valid_agent.yml）+ strict 模式（KnownFields=true）拒收 invalid fixture + apiVersion/kind 钉死。
@@ -17,6 +17,7 @@ askdao-cli pipeline 的两份 schema 真相源。所有上层模块（scanner / 
 - 仅 schema + tags，不带 `Validate()` / builder。校验逻辑留给 scanner / recommender / cmd 层。
 - 区分 nullable scalar 用 `*T`（如 `FinalStageName *string`、`LastAppliedAt *time.Time`）；nullable slice/map 用裸类型，nil 即 null。
 - 异构列表（如 `DetectedSkill` 同时承载 custom_local skill 与 implied builtin skill 两种形态）通过 `omitempty` 字段 union 实现，避免自定义 unmarshaler。
+- `DeploymentPayload` 是「上传清单」的真相源：`PayloadEntry.Path` 目录以 `/` 结尾、`Bytes`/`Files` 为递归总和；`SkillReferences` 表达「这个 skill 不传文件、云端 `skill install` 重拉」（npm ci 语义）。Conductor 端 deploy adapter 按这份清单打包上送 + 按 references 重装 skill。
 
 ## 版本演进协议
 

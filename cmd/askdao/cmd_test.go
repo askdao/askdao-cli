@@ -90,6 +90,47 @@ func TestDetect_SmokeOnTempProject(t *testing.T) {
 	}
 }
 
+func TestBundle_PreviewsDeploymentPayload(t *testing.T) {
+	root := withWorkdir(t)
+	mustW := func(rel, content string) {
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustW("CLAUDE.md", "# manual\n")
+	mustW("skills-lock.json", `{"version":1,"skills":{"tts":{"source":"marswaveai/skills","sourceType":"github","skillPath":"tts/SKILL.md","computedHash":"x"}}}`)
+	mustW(".agents/skills/homework-gen/SKILL.md", "---\nname: homework-gen\n---\n# body\n")
+	mustW(".agents/skills/tts/SKILL.md", "---\nname: tts\n---\n# tts\n")
+	mustW("output/page.html", "<html></html>")
+	mustW("node_modules/x/index.js", "x")
+
+	out, restore := captureStdout(t)
+	defer restore()
+	if code := runBundle(context.Background(), nil); code != 0 {
+		t.Fatalf("runBundle exit = %d", code)
+	}
+	got := out()
+	for _, want := range []string{"DEPLOYMENT PAYLOAD", "WILL UPLOAD", "homework-gen", "SKILL REFERENCES", "tts", "EXCLUDED", "node_modules", "output/"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("bundle output missing %q:\n%s", want, got)
+		}
+	}
+	// JSON mode should emit a parseable deployment_payload.
+	out2, restore2 := captureStdout(t)
+	defer restore2()
+	if code := runBundle(context.Background(), []string{"--json"}); code != 0 {
+		t.Fatalf("runBundle --json exit = %d", code)
+	}
+	js := out2()
+	if !strings.Contains(js, `"deployment_payload"`) || !strings.Contains(js, `"skill_references"`) {
+		t.Errorf("--json output not as expected:\n%s", js)
+	}
+}
+
 func TestShow_DefaultRendersMidDensityCard(t *testing.T) {
 	root := withWorkdir(t)
 	writeMinimalAgent(t, root, "test-agent")
