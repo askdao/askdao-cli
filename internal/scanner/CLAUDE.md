@@ -1,7 +1,7 @@
 # internal/scanner/
 > L2 | 父级: ../../CLAUDE.md
 
-L1-L3 流水线确定性扫描器。issue #2 起底（syft / enry / dockerfile），issue #3 补齐六位（dev_filter / runtimes / mcp_config / skills_dir / secrets_hint / harness_signals）。所有函数都返回 `internal/types.Detection` 的 sub-types，由上层 cmd 装配落 `.askdao/detection.json`。
+L1-L3 流水线确定性扫描器。issue #2 起底（syft / enry / dockerfile），issue #3 补齐六位（dev_filter / runtimes / mcp_config / skills_dir / secrets_hint / harness_signals），v0.6 补部署清单两位（archetype / payload）。所有函数都返回 `internal/types.Detection` 的 sub-types，由上层 cmd 装配落 `.askdao/detection.json`。
 
 ## 成员清单
 
@@ -17,9 +17,14 @@ L1-L3 流水线确定性扫描器。issue #2 起底（syft / enry / dockerfile�
 - **dev_filter.go** — `ApplyDevFilter(root, pkgs)` 原地 mutate syft 输出，把 manifest 主文件中标 dev/test 的包翻成 `IsProd=false`。pip 端覆盖 uv `[dependency-groups].{dev,test,tests,lint,type,typing,docs,bench}` + Poetry `[tool.poetry.group.dev.dependencies]` + PEP 621 `[project.optional-dependencies]` 三种 flavor。npm 端读 `devDependencies` + `optionalDependencies`。cargo 端读 `[dev-dependencies]` + `[build-dependencies]`。`normalizeDepName` 按 PEP 503 归一（pip 把 `_` / `.` 折成 `-`，所有 ecosystem 全 lowercase）。`parsePEP508Name` 把 `requests[security]>=2,<3 ; python_version<'3.10'` 抽到 `requests`。manifest 不存在 → 静默跳过该 ecosystem。
 - **runtimes.go** — `DetectRuntimes(root)` 解析五类 pin 文件：pyproject.toml `[project].requires-python`（含 constraint 范围）+ `.python-version` fallback / `.nvmrc`（自动 strip `v` 前缀）/ go.mod 的 `go X.Y.Z` 行 / `rust-toolchain.toml` 的 `[toolchain].channel` + `rust-toolchain` 单行 fallback。`.tool-versions`（asdf）作为 fallback 补未识别的 runtime —— 同 kind 不重复。
 - **mcp_config.go** — `DetectMCPConfigs(root)` 探查三个候选源 `.mcp.json` / `.cursor/mcp.json` / `claude_desktop_config.json`。三者都遵循 `{"mcpServers": {name: {type, url, command}}}` 形态；type 缺失时按 url/command 推断。`AnthropicCompatible = (type == "url")`，stdio 输出固定 warning（"Anthropic Managed Agents only supports type=url ..."）。malformed JSON 静默跳过该源（不 fail 整个扫描）。
-- **skills_dir.go** — `DetectSkills(root, pkgs)` 扫五个候选目录（`.claude/skills` / `.agents/skills` / `.cursor/skills` / `skills` / `agents/skills`），凡 `<dir>/<name>/SKILL.md` 存在即一条 `kind=custom_local` skill。然后跑 `inferBuiltinSkills`：依规则表反向推 builtin（pandas+openpyxl→xlsx / PyPDF2→pdf / pdfplumber→pdf / python-docx→docx），同 skill_id 去重保留高 confidence。返回的最后一条记录用 `ImpliedAnthropicSkills` union 字段（detection.go 的异构 list 形态）。
+- **skills_dir.go** — `DetectSkills(root, pkgs)` 扫五个候选目录（`SkillDirCandidates`：`.claude/skills` / `.agents/skills` / `.cursor/skills` / `skills` / `agents/skills`），凡 `<dir>/<name>/SKILL.md` 存在即一条 `kind=custom_local` skill；每条补 `parseSkillFrontmatter`（无 YAML dep，行级解析 `--- ... ---` 取 `name` / `description`）、`dirSize`（整个 skill 子树字节数 + 文件数 → `BundleBytes` / `BundleFiles`）、以及 `LoadSkillsLock` 的关联：name 在 `skills-lock.json` 里 → `LockedSource` 非空 + `IsLocalOriginal=false`（vendored 外部依赖），否则 `IsLocalOriginal=true`（repo 原生）。`LoadSkillsLock(root)` 找 `skills-lock.json`（root + 各候选目录及父级），解析 `{version, skills:{name:{source,sourceType,skillPath,computedHash}}}` → name→SkillRef map，缺失/malformed 返回 nil（不 fail）。`hashFile` = SKILL.md 的 hex sha256（payload 层只记录不据此判 drift —— lockfile 工具的 computedHash 不是裸文件 hash，无法可靠复算）。然后跑 `inferBuiltinSkills`：依规则表反向推 builtin（pandas+openpyxl→xlsx / PyPDF2→pdf / pdfplumber→pdf / python-docx→docx），同 skill_id 去重保留高 confidence。返回的最后一条记录用 `ImpliedAnthropicSkills` union 字段（detection.go 的异构 list 形态）。
 - **secrets_hint.go** — `DetectRequiredSecrets(root, mcpConfigs)` 读 `.env.example` / `.env.sample` / `.env.template`，**只采 key 不读 value**（`readEnvKeys` 内部丢弃等号右侧）。规则表分两层：精确后缀（`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GITHUB_TOKEN` / `DATABASE_URL` ...）+ 宽匹配子串（`_API_KEY` / `_TOKEN` / `_SECRET`）。MCP 反查：当 `GITHUB_TOKEN` + 名含 "github" 的 MCP server 同时存在 → 填 `UsedByGuess.MCPServer`。未匹配规则的 key 输出 `purpose_guess="Unknown — KOL should review and decide"` + `required=false`。多文件 dedupe 保留首次出现。
 - **harness_signals.go** — `DetectHarnessSignals(opts)` 探查 HOME 目录下的 `~/.claude/` / `~/.codex/` / `~/.cursor/`（macOS 也试 `Library/Application Support/Cursor`）/ `~/.gemini/` 痕迹。`HarnessProbeOpts.HomeDir` 注入让单测用 t.TempDir 假 HOME。Claude Code 的 evidence 含 `~/.claude/skills/` 下 SKILL.md 计数。推荐顺序：claude_code → anthropic_managed_agents；codex → openai_agents_sdk（Phase 2 路径，目前 deploy 仍走 anthropic）；都没装 → 默认 anthropic_managed_agents。
+
+### v0.6 — 项目原型 + 部署清单（确定性，零 LLM）
+
+- **archetype.go** — `InferArchetype(det)` 纯函数，输入已装配的 Detection。打分：本地原创 skill 数（`IsLocalOriginal`，跳过 implied-builtin 占位）= pipeline 信号；service framework 命中 / 后端语言占比 >50% = app 信号。两个信号都有 → `mixed`；只 pipeline → `skill_pipeline`（confidence = 命中正向证据数 / 3，证据含「N 个 repo-native skill」「无 service framework」「语言以 Markdown/HTML/JSON 为主」）；只 app → `code_app`（framework + 后端双中 conf 0.9，否则 0.7）；都无 → `unknown`。语言桶：`backendLanguages` vs `docLanguages`，`dominantLanguageBucket` 判 >50%。
+- **payload.go** — `DetectDeploymentPayload(root, det, opts)` 把项目目录分类成上传清单。三阶段：(1) ignore 规则 = `builtinIgnore`（编辑器/OS 垃圾、可重装的依赖缓存、build 输出、**secrets 文件 `.env*`/`*.pem`/`*.key` —— 永不上传**）→ `.gitignore` → `.dockerignore` → `.askdaoignore`（新约定，syntax 同 gitignore，`!pattern` 反向纳入），匹配复用 `glob.go` 的 `compileGlobs`/`matchAny`；(2) skill 单元 = 每个 `<skillDir>/<name>/` 一条：`IsLocalOriginal` 或 `--bundle-skill` 命中 → 整个子树进 Includes（`--no-evals` 时减掉 `evals/`），否则 vendored → 进 `SkillReferences`（透传 source/hash + `Resolvable`：source org 不在 `publicSkillOrgs` allowlist 或像 ssh URL → "unknown" + warning）+ 子树进 Excludes 标 "re-installed from … via skills-lock.json"；(3) 顶层条目：`agentDocNames`（CLAUDE.md/AGENTS.md/persona.md/README）→ agent_doc；`manifestNames`（package.json/go.mod/skills-lock.json/Dockerfile/…）→ manifest；`generatedDirNames` + `*-old`/`*-bak` 后缀 → generated 排除；`userDataDirNames`（input/data/samples/tmp…）→ 仅 archetype==skill_pipeline 时排除；`.github` → 排除；其余 → 默认纳入（source/manifest）。负向 pattern 用 `resolveNegation` 在文件级把被排除目录里的具体文件捞回 Includes。warning：无 skills-lock.json 且 >1 skill 单元（保守全打包提醒）/ vendored skill 源不可达 / 总体积 > 50 MiB。`humanBytes` 渲消息用。**不做 drift 检测**（见 skills_dir.go 说明）。
 
 ## 设计约束
 
@@ -46,9 +51,11 @@ L1-L3 流水线确定性扫描器。issue #2 起底（syft / enry / dockerfile�
 | `detected_dockerfile` | `ParseDockerfile` | v0.4 全 AST + extracted_* + warnings |
 | `detected_runtimes` | `DetectRuntimes` | 五类 pin 文件 + .tool-versions fallback |
 | `detected_mcp_configs` | `DetectMCPConfigs` | 三候选源 + type=url 兼容标记 |
-| `detected_skills` | `DetectSkills` | 五候选目录 + builtin 反向推 |
+| `detected_skills` | `DetectSkills` | 五候选目录 + frontmatter description + bundle 体积 + lockfile 关联 + builtin 反向推 |
 | `detected_required_secrets` | `DetectRequiredSecrets` | env sample only；MCP 反查 cross-link |
 | `detected_harness_signals` | `DetectHarnessSignals` | HOME 探查 + 推荐 harness |
+| `archetype` | `InferArchetype` | code_app / skill_pipeline / mixed / unknown + confidence + evidence |
+| `deployment_payload` | `DetectDeploymentPayload` | includes / excludes / skill_references / 总体积 / ignore_sources（builtin + 各 ignore 文件）|
 
 ## 后续 issue 挂载点
 

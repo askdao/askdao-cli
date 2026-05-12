@@ -41,6 +41,68 @@ type Detection struct {
 	DetectedRequiredSecrets  []DetectedRequiredSecret  `json:"detected_required_secrets"`
 	DetectedToolRiskHints    DetectedToolRiskHints     `json:"detected_tool_risk_hints"`
 	DetectedHarnessSignals   DetectedHarnessSignals    `json:"detected_harness_signals"`
+
+	// Archetype classifies what kind of project this is (code_app vs
+	// skill_pipeline vs mixed) so downstream layers know whether the "agent"
+	// is a service or a skill bundle. Deterministic; no LLM.
+	Archetype ProjectArchetype `json:"archetype"`
+	// DeploymentPayload is the explicit answer to "what gets uploaded when this
+	// directory is deployed to the cloud" — an include list, an exclude list
+	// (with reasons), and the vendored skills that are re-installed from their
+	// lockfile sources rather than shipped inline.
+	DeploymentPayload DeploymentPayload `json:"deployment_payload"`
+}
+
+// ProjectArchetype is the deterministic classification of the scanned project.
+// Kind is one of "code_app" | "skill_pipeline" | "mixed" | "unknown".
+type ProjectArchetype struct {
+	Kind       string   `json:"kind"`
+	Confidence float64  `json:"confidence"`
+	Evidence   []string `json:"evidence"`
+}
+
+// DeploymentPayload is the upload manifest: what files travel with the agent,
+// what is deliberately left out (with reasons), and which vendored skills are
+// re-installed remotely from their lockfile sources instead of shipped inline.
+type DeploymentPayload struct {
+	Includes        []PayloadEntry `json:"includes"`
+	Excludes        []PayloadEntry `json:"excludes"`
+	SkillReferences []SkillRef     `json:"skill_references"`
+	TotalBytes      int64          `json:"total_bytes"`
+	TotalFiles      int            `json:"total_files"`
+	// IgnoreSources lists which ignore mechanisms actually matched something:
+	// "builtin" | ".gitignore" | ".dockerignore" | ".askdaoignore".
+	IgnoreSources []string `json:"ignore_sources"`
+}
+
+// PayloadEntry is one path in the include or exclude list. For directories,
+// Bytes/Files are the recursive totals and Path ends with "/".
+type PayloadEntry struct {
+	Path   string `json:"path"`
+	Bytes  int64  `json:"bytes"`
+	Files  int    `json:"files"`
+	Reason string `json:"reason"`
+	// Kind buckets the entry: skill | agent_doc | manifest | source | junk |
+	// generated | user_data | vendored | other.
+	Kind string `json:"kind"`
+}
+
+// SkillRef is a vendored (lockfile-pinned) skill that the cloud re-installs
+// from its source rather than receiving as uploaded files — the skill analogue
+// of `npm ci` from a lockfile instead of shipping node_modules.
+type SkillRef struct {
+	Name       string `json:"name"`
+	SourceType string `json:"source_type"` // "github" | ... (passthrough from skills-lock.json)
+	Source     string `json:"source"`      // e.g. "marswaveai/skills"
+	SkillPath  string `json:"skill_path"`  // e.g. "tts/SKILL.md"
+	LockedHash string `json:"locked_hash"`
+	LocalHash  string `json:"local_hash,omitempty"`
+	// Drift is true when the on-disk copy no longer matches LockedHash — the
+	// skill has been forked locally and must be shipped inline.
+	Drift bool `json:"drift"`
+	// Resolvable is "yes" when the source looks publicly reachable, "unknown"
+	// when it may be private (cloud might lack access).
+	Resolvable string `json:"resolvable"`
 }
 
 // ScanInfo records what was scanned and how long it took.
@@ -64,7 +126,7 @@ type DetectedLanguage struct {
 // DetectedRuntime is a runtime declaration parsed from version pin files
 // (.nvmrc, .python-version, rust-toolchain.toml, go.mod, ...).
 type DetectedRuntime struct {
-	Kind       string `json:"kind"`       // "python" | "node" | "go" | "rust"
+	Kind       string `json:"kind"` // "python" | "node" | "go" | "rust"
 	Version    string `json:"version"`
 	Source     string `json:"source"`     // file path
 	Constraint string `json:"constraint"` // semver range when present
@@ -207,6 +269,21 @@ type DetectedSkill struct {
 	Kind                   string                  `json:"kind,omitempty"` // "custom_local" | ...
 	SizeBytes              int64                   `json:"size_bytes,omitempty"`
 	ImpliedAnthropicSkills []ImpliedAnthropicSkill `json:"implied_anthropic_skills,omitempty"`
+
+	// Description is the `description:` from the SKILL.md YAML frontmatter, when
+	// present — feeds the L4 recommender's primary-vs-supporting judgement.
+	Description string `json:"description,omitempty"`
+	// BundleBytes / BundleFiles are the recursive totals for the whole skill
+	// directory (<dir>/<name>/), not just SKILL.md.
+	BundleBytes int64 `json:"bundle_bytes,omitempty"`
+	BundleFiles int   `json:"bundle_files,omitempty"`
+	// LockedSource is non-empty when this skill is pinned in skills-lock.json
+	// (a vendored external dependency); empty means it is repo-native (authored
+	// here, must travel with the agent).
+	LockedSource string `json:"locked_source,omitempty"`
+	// IsLocalOriginal == (LockedSource == ""). Materialized for JSON consumers
+	// that would rather read a bool than test emptiness.
+	IsLocalOriginal bool `json:"is_local_original"`
 }
 
 // ImpliedAnthropicSkill is a builtin skill recommendation derived from project

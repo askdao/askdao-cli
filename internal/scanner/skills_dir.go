@@ -1,24 +1,43 @@
+// [INPUT]: 依赖 标准库 (crypto/sha256, encoding/hex, encoding/json, io/fs, os, path/filepath, sort, strings),
+//
+//	internal/types 的 DetectedSkill / SkillRef / Package / ImpliedAnthropicSkill
+//
+// [OUTPUT]: 对外提供 DetectSkills（custom_local skill 枚举 + bundle 体积 + lockfile 关联 + builtin 反向推）、
+//
+//	LoadSkillsLock（skills-lock.json → name→SkillRef map）、SkillDirCandidates、hashFile
+//
+// [POS]: internal/scanner 的 skill 探测器；产物喂 payload.go 做上传清单分类、archetype.go 做原型判定、recommender 做 L4 推荐
+// [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package scanner
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/askdao/askdao-cli/internal/types"
 )
 
-// skillDirCandidates are the well-known on-disk locations KOLs use to author
-// custom skills. Each is checked relative to the project root.
-var skillDirCandidates = []string{
+// SkillDirCandidates are the well-known on-disk locations KOLs use to author
+// custom skills. Each is checked relative to the project root. Exported so
+// payload.go can classify the same directories.
+var SkillDirCandidates = []string{
 	".claude/skills",
 	".agents/skills",
 	".cursor/skills",
 	"skills",
 	"agents/skills",
 }
+
+// skillDirCandidates is an unexported alias so existing internal references
+// stay terse.
+var skillDirCandidates = SkillDirCandidates
 
 // builtinSkillRule maps Anthropic-provided builtin skill IDs to the dependency
 // fingerprint that suggests them.
@@ -39,9 +58,11 @@ var builtinSkillRules = []builtinSkillRule{
 }
 
 // DetectSkills walks every candidate skill directory and emits one
-// custom_local entry per `<dir>/<skill-name>/SKILL.md`. Then it appends a
-// single inferred-builtin entry whose ImpliedAnthropicSkills slice carries any
-// matched skill IDs.
+// custom_local entry per `<dir>/<skill-name>/SKILL.md`, enriched with the
+// frontmatter description, the whole-directory size, and (when a
+// skills-lock.json is present) whether the skill is a vendored dependency or
+// repo-native. Then it appends a single inferred-builtin entry whose
+// ImpliedAnthropicSkills slice carries any matched skill IDs.
 //
 // pkgs is the syft-derived package map (from ScanPackages) used as input to
 // the builtin-skill heuristic; pass nil to skip inference.
@@ -49,6 +70,8 @@ func DetectSkills(root string, pkgs map[string][]types.Package) ([]types.Detecte
 	if root == "" {
 		return nil, errors.New("scanner: root must be non-empty")
 	}
+
+	lock, _ := LoadSkillsLock(root) // best-effort; nil/empty when absent or malformed
 
 	var out []types.DetectedSkill
 	for _, rel := range skillDirCandidates {
@@ -69,12 +92,20 @@ func DetectSkills(root string, pkgs map[string][]types.Package) ([]types.Detecte
 			if err != nil {
 				continue
 			}
-			out = append(out, types.DetectedSkill{
-				Source:    filepath.ToSlash(filepath.Join(rel, e.Name(), "SKILL.md")),
-				SkillName: e.Name(),
-				Kind:      "custom_local",
-				SizeBytes: info.Size(),
-			})
+			ds := types.DetectedSkill{
+				Source:          filepath.ToSlash(filepath.Join(rel, e.Name(), "SKILL.md")),
+				SkillName:       e.Name(),
+				Kind:            "custom_local",
+				SizeBytes:       info.Size(),
+				IsLocalOriginal: true,
+			}
+			_, ds.Description = parseSkillFrontmatter(skillFile)
+			ds.BundleBytes, ds.BundleFiles = dirSize(filepath.Join(base, e.Name()))
+			if ref, ok := lock[e.Name()]; ok {
+				ds.LockedSource = ref.Source
+				ds.IsLocalOriginal = false
+			}
+			out = append(out, ds)
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Source < out[j].Source })
@@ -83,6 +114,127 @@ func DetectSkills(root string, pkgs map[string][]types.Package) ([]types.Detecte
 		out = append(out, types.DetectedSkill{ImpliedAnthropicSkills: implied})
 	}
 	return out, nil
+}
+
+// LoadSkillsLock finds a skills-lock.json (project root, plus each skill
+// directory candidate and its parent) and parses it into a name→SkillRef map.
+// A missing or malformed lockfile yields a nil map and nil error — callers
+// degrade gracefully (bundle everything, no references).
+func LoadSkillsLock(root string) (map[string]types.SkillRef, error) {
+	if root == "" {
+		return nil, errors.New("scanner: root must be non-empty")
+	}
+	candidates := []string{filepath.Join(root, "skills-lock.json")}
+	for _, rel := range skillDirCandidates {
+		candidates = append(candidates,
+			filepath.Join(root, rel, "skills-lock.json"),
+			filepath.Join(root, filepath.Dir(rel), "skills-lock.json"),
+		)
+	}
+	seen := map[string]bool{}
+	for _, path := range candidates {
+		if seen[path] {
+			continue
+		}
+		seen[path] = true
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var doc struct {
+			Skills map[string]struct {
+				Source       string `json:"source"`
+				SourceType   string `json:"sourceType"`
+				SkillPath    string `json:"skillPath"`
+				ComputedHash string `json:"computedHash"`
+			} `json:"skills"`
+		}
+		if err := json.Unmarshal(data, &doc); err != nil {
+			continue // malformed → skip this source
+		}
+		if len(doc.Skills) == 0 {
+			continue
+		}
+		out := make(map[string]types.SkillRef, len(doc.Skills))
+		for name, s := range doc.Skills {
+			out[name] = types.SkillRef{
+				Name:       name,
+				SourceType: s.SourceType,
+				Source:     s.Source,
+				SkillPath:  s.SkillPath,
+				LockedHash: s.ComputedHash,
+			}
+		}
+		return out, nil
+	}
+	return nil, nil
+}
+
+// parseSkillFrontmatter reads the leading `--- ... ---` YAML frontmatter of a
+// SKILL.md and returns its `name` / `description` values. It does a tiny
+// line-based parse (no YAML dep) — enough for the flat `key: value` shape
+// SKILL.md frontmatter uses in practice. Missing frontmatter → empty strings.
+func parseSkillFrontmatter(path string) (name, description string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", ""
+	}
+	lines := strings.Split(string(data), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return "", ""
+	}
+	end := -1
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			end = i
+			break
+		}
+	}
+	if end < 0 {
+		return "", ""
+	}
+	for _, ln := range lines[1:end] {
+		k, v, ok := strings.Cut(ln, ":")
+		if !ok {
+			continue
+		}
+		key := strings.TrimSpace(k)
+		val := strings.Trim(strings.TrimSpace(v), `"'`)
+		switch key {
+		case "name":
+			name = val
+		case "description":
+			description = val
+		}
+	}
+	return name, description
+}
+
+// dirSize returns the recursive byte total and file count under root.
+// Directories and unreadable entries are skipped silently.
+func dirSize(root string) (bytes int64, files int) {
+	_ = filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if info, err := d.Info(); err == nil {
+			bytes += info.Size()
+			files++
+		}
+		return nil
+	})
+	return bytes, files
+}
+
+// hashFile returns the hex sha256 of a file's contents, or "" on error. Used to
+// compare a vendored skill's on-disk SKILL.md against its locked computedHash.
+func hashFile(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 // inferBuiltinSkills walks builtinSkillRules; emits one ImpliedAnthropicSkill
