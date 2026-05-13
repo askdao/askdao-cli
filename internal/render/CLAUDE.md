@@ -36,11 +36,13 @@ KOL 审阅 UX 渲染层 —— v0.5 中等详情卡片（mid-density，7 块顶�
 | `agent show <name>` 默认视图 | `RenderSummary` | 同上 |
 | `agent show --reasoning` / `[R]` | `RenderReasoningTrace` | 全 decisions 编号列表 |
 | `agent show --warnings` / `[W]` | `RenderTranslationWarnings(view=ViewAll)` | HIGH+MEDIUM+LOW 全展开 |
-| `agent deploy` diff preview | `DiffAgentSpec` + `RenderDiff` | KOL 改 yaml 后 pre-deploy 看变更 |
+| `agent deploy` diff preview | `DiffAgentSpec` + `RenderDiff` | KOL 改 yaml 后 pre-deploy 看变更（vs `.askdao/recommendation.yml`） |
+| `agent deploy` translation report | `RenderTranslationWarnings` | conductor `/cli/deploy` 返回的 `translation_report` —— HIGH-block 路径 `ViewAll`，部署成功后摘要 `ViewSummary`（cmd 层把 conductor 小写 enum 转 `render.Severity*`） |
 
-## 后续 issue 挂载点
+## 消费方（cmd 层）
 
-- issue #8 `cmd/askdao agent init --auto` 把 detection.json + RecommendResponse + 用户交互（A/E/R/S/D/F/M/W/P/Q）连起来；本包是渲染 primitives，cmd 是 orchestrator
-- issue #8 加 `agent show` / `agent deploy` 两个命令，分别复用 `RenderSummary` / `RenderReasoningTrace` / `RenderDiff`
+- `agent init --auto`（issue #8）：detection.json + RecommendResponse + 交互菜单（A/E/R/S/D/F/M/W/P/Q）→ `RenderSummary` + `RenderReasoningTrace` + `RenderTranslationWarnings`；本包是渲染 primitives，cmd 是 orchestrator
+- `agent show`（issue #8）：复用 `RenderSummary` / `RenderReasoningTrace` / `RenderTranslationWarnings`（`--full` 直 pipe 原 yaml）
+- `agent deploy`（M4）：`DiffAgentSpec` + `RenderDiff` 做 pre-deploy diff（vs `.askdao/recommendation.yml`）；`RenderTranslationWarnings` 渲染 conductor `/cli/deploy` 返回的 `translation_report`（HIGH-block → `ViewAll` + exit 1；部署成功 → `ViewSummary` 折叠 MEDIUM/LOW）
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

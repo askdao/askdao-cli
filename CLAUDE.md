@@ -8,9 +8,9 @@
 ---
 
 <directory>
-cmd/askdao/ - CLI 入口（main.go），未来挂载子命令
-internal/ - 业务实现（已建：types/ 双 schema；待建：scanner / providers / recommender / render）
-docs/ - 设计文档与调研报告（design.md 主稿 + investigations/ 子目录两份 spike 报告）
+cmd/askdao/ - CLI 入口（main.go router + detect / agent init / agent show / agent deploy）
+internal/ - 业务实现（types/ 双 schema + scanner / providers / pipeline / recommender / render + deploy/ —— conductor /cli/deploy 客户端 + skill zip 打包）
+docs/ - 设计文档与调研报告（design.md 主稿 + HANDOFF.md + investigations/ 子目录两份 spike 报告）
 </directory>
 
 <config>
@@ -31,13 +31,14 @@ LICENSE - MIT
 
 ---
 
-## 命令骨架（Phase 1 MVP）
+## 命令骨架
 
 ```
-askdao detect [path]                  # 打印 detection report，不创建 agent
-askdao agent init <name> [--auto]     # 创建 agent 目录骨架（--auto 自动扫推）
-askdao agent validate                 # 校验 agent.yml
-askdao agent deploy                   # 推送到 Anthropic + Conductor
+askdao detect [path]                       # 打印 detection report，不创建 agent
+askdao agent init <name> [--auto]          # 创建 agent 目录骨架（--auto 跑 L1-L4 流水线 + 交互审阅）
+askdao agent show <name> [--full|...]      # 渲染 agent spec（中等详情卡片 / 聚焦视图）
+askdao agent deploy [--dir path] [--force] # 打包 custom skill + 经 Conductor /cli/deploy 推到 Anthropic Managed Agents
+askdao agent validate                      # 校验 agent.yml（计划，未实装）
 ```
 
 ---
@@ -50,8 +51,8 @@ askdao agent deploy                   # 推送到 Anthropic + Conductor
 
 ---
 
-## 工程量估算（Phase 1）
+## 状态
 
-参考 [`docs/design.md`](docs/design.md) §6：约 2400 行 Go，3-4 周可交付。
+Phase 1（detect / agent init / show / deploy 骨架 + L1-L4 流水线 + render UX）已交付（issue #1-8）。M4 补完 `agent deploy` —— 接 conductor `POST /api/v1/cli/deploy`（`multipart/form-data` + custom skill zip 上传 + `409 kol_profile_required` 隐式补全 + HIGH-warning gating），见 [`docs/HANDOFF.md`](docs/HANDOFF.md)。设计真相源：[`docs/design.md`](docs/design.md)。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

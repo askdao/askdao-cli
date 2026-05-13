@@ -120,8 +120,8 @@ preferred_harness: anthropic_managed_agents
 }
 
 // chooseLLMClient picks the conductor client when ASKDAO_CONDUCTOR_URL is set,
-// otherwise falls back to the in-process MockClient. This keeps Phase 1 usable
-// while conductor #11 is still being built.
+// otherwise falls back to the in-process MockClient — so `init` works offline
+// (deterministic mock recommendations) without a live conductor.
 func chooseLLMClient() recommender.LLMClient {
 	if base := os.Getenv("ASKDAO_CONDUCTOR_URL"); base != "" {
 		c := recommender.NewConductorClient(base)
