@@ -147,6 +147,9 @@ func TestDeploy_RefusesWithoutConductorURL(t *testing.T) {
 func TestDeploy_WithEditedSpecShowsDiff(t *testing.T) {
 	root := withWorkdir(t)
 	writeMinimalAgent(t, root, "test-agent")
+	// Stop at the diff preview: leave the conductor URL unset so the run can't
+	// reach a real endpoint even if the dev's shell has one configured.
+	t.Setenv("ASKDAO_CONDUCTOR_URL", "")
 
 	// Edit agent.yml — change the model id.
 	editedSpec := types.AgentSpec{}

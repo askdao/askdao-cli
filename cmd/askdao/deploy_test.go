@@ -1,0 +1,352 @@
+package main
+
+import (
+	"archive/zip"
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
+	"testing"
+
+	"github.com/askdao/askdao-cli/internal/deploy"
+)
+
+func TestDeploy_RefusesWithoutToken(t *testing.T) {
+	root := withWorkdir(t)
+	writeMinimalAgent(t, root, "test-agent")
+	t.Setenv("ASKDAO_CONDUCTOR_URL", "http://localhost:1")
+	t.Setenv("ASKDAO_CONDUCTOR_TOKEN", "")
+
+	out, restore := captureStdout(t)
+	defer restore()
+	code := runDeploy(context.Background(), []string{"--dir", "test-agent"})
+	got := out()
+	if code == 0 {
+		t.Errorf("deploy should refuse with no conductor token configured, got 0")
+	}
+	if !strings.Contains(got, "ASKDAO_CONDUCTOR_TOKEN") {
+		t.Errorf("expected token hint in output, got:\n%s", got)
+	}
+}
+
+func TestDeploy_EndToEnd_HappyPath(t *testing.T) {
+	root := withWorkdir(t)
+	writeAgentDirWithSkill(t, root, "kol-agent", "my-skill")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/cli/deploy" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			t.Errorf("auth = %q", r.Header.Get("Authorization"))
+		}
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			t.Errorf("ParseMultipartForm: %v", err)
+			return
+		}
+		if !strings.Contains(r.FormValue("agent_yaml"), "apiVersion: askdao.ai/v1") {
+			t.Errorf("agent_yaml field = %q", r.FormValue("agent_yaml"))
+		}
+		if got := r.FormValue("harness_id"); got != "anthropic_managed_agents" {
+			t.Errorf("harness_id = %q", got)
+		}
+		fhs := r.MultipartForm.File["my-skill"]
+		if len(fhs) != 1 {
+			t.Errorf("skill file part 'my-skill': got %d, want 1", len(fhs))
+			return
+		}
+		f, _ := fhs[0].Open()
+		zb, _ := io.ReadAll(f)
+		_ = f.Close()
+		zr, err := zip.NewReader(bytes.NewReader(zb), int64(len(zb)))
+		if err != nil {
+			t.Errorf("skill part is not a valid zip: %v", err)
+			return
+		}
+		found := false
+		for _, zf := range zr.File {
+			if zf.Name == "my-skill/SKILL.md" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("skill zip missing my-skill/SKILL.md")
+		}
+		writeJSON(w, http.StatusOK, deploy.DeployResponse{
+			AgentID:                "agt_abc",
+			AnthropicAgentID:       "agent_x",
+			AnthropicEnvironmentID: "env_x",
+			GroupID:                "grp_def",
+			GroupLink:              "https://askdao.ai/k/usr_1/g/grp_def",
+			Skills: []map[string]interface{}{{
+				"type": "custom_local", "path": "my-skill",
+				"anthropic_skill_id": "skill_xyz", "anthropic_skill_version": "1",
+			}},
+			TranslationReport: deploy.TranslationReport{Harness: "anthropic_managed_agents"},
+		})
+	}))
+	defer srv.Close()
+	t.Setenv("ASKDAO_CONDUCTOR_URL", srv.URL)
+	t.Setenv("ASKDAO_CONDUCTOR_TOKEN", "tok")
+
+	out, restore := captureStdout(t)
+	defer restore()
+	code := runDeploy(context.Background(), []string{"--dir", "kol-agent"})
+	got := out()
+	if code != 0 {
+		t.Fatalf("deploy exit = %d\n--- output ---\n%s", code, got)
+	}
+	for _, want := range []string{"Deployed.", "agt_abc", "grp_def", "https://askdao.ai/k/usr_1/g/grp_def", "my-skill", "skill_xyz"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output missing %q\n--- output ---\n%s", want, got)
+		}
+	}
+}
+
+func TestDeploy_KolProfileRequired_RetriesAfterSetup(t *testing.T) {
+	root := withWorkdir(t)
+	writeMinimalAgent(t, root, "test-agent")
+
+	var deployCalls, patchCalls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/cli/deploy":
+			n := atomic.AddInt32(&deployCalls, 1)
+			if n == 1 {
+				writeJSON(w, http.StatusConflict, map[string]interface{}{
+					"detail": map[string]interface{}{
+						"reason": "kol_profile_required",
+						"fields": []string{"kol_join_mode", "kol_bio"},
+						"hint":   "PATCH /api/v1/users/me/kol-profile with kol_join_mode='free'",
+					},
+				})
+				return
+			}
+			writeJSON(w, http.StatusOK, deploy.DeployResponse{
+				AgentID: "agt_after_setup", AnthropicAgentID: "agent_y", AnthropicEnvironmentID: "env_y",
+				GroupID: "grp_y", GroupLink: "https://askdao.ai/k/usr_2/g/grp_y",
+				TranslationReport: deploy.TranslationReport{Harness: "anthropic_managed_agents"},
+			})
+		case "/api/v1/users/me/kol-profile":
+			atomic.AddInt32(&patchCalls, 1)
+			if r.Method != http.MethodPatch {
+				t.Errorf("kol-profile method = %s, want PATCH", r.Method)
+			}
+			var body deploy.KolProfilePatch
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body.KolJoinMode != "free" || body.KolBio != "I build agents" {
+				t.Errorf("kol-profile body = %+v", body)
+			}
+			writeJSON(w, http.StatusOK, map[string]interface{}{"user_id": "usr_2", "is_kol": true, "kol_join_mode": "free"})
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("ASKDAO_CONDUCTOR_URL", srv.URL)
+	t.Setenv("ASKDAO_CONDUCTOR_TOKEN", "tok")
+
+	out, restore := captureStdout(t)
+	defer restore()
+	code := runDeploy(context.Background(), []string{"--dir", "test-agent", "--bio", "I build agents"})
+	got := out()
+	if code != 0 {
+		t.Fatalf("deploy exit = %d\n--- output ---\n%s", code, got)
+	}
+	if deployCalls != 2 {
+		t.Errorf("deploy called %d times, want 2 (initial + retry)", deployCalls)
+	}
+	if patchCalls != 1 {
+		t.Errorf("kol-profile PATCH called %d times, want 1", patchCalls)
+	}
+	for _, want := range []string{"KOL profile", "Retrying deploy", "agt_after_setup"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output missing %q\n--- output ---\n%s", want, got)
+		}
+	}
+}
+
+func TestDeploy_BlockingWarnings_NoForce(t *testing.T) {
+	root := withWorkdir(t)
+	writeMinimalAgent(t, root, "test-agent")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusConflict, map[string]interface{}{
+			"detail": map[string]interface{}{
+				"reason": "translation_report contains HIGH severity warnings; set force=true to deploy anyway",
+				"translation_report": map[string]interface{}{
+					"harness": "anthropic_managed_agents",
+					"translation_warnings": []map[string]interface{}{
+						{"field": "workspace.base_image", "severity": "high", "action": "ignored", "reason": "managed agents have no custom base image"},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+	t.Setenv("ASKDAO_CONDUCTOR_URL", srv.URL)
+	t.Setenv("ASKDAO_CONDUCTOR_TOKEN", "tok")
+
+	out, restore := captureStdout(t)
+	defer restore()
+	code := runDeploy(context.Background(), []string{"--dir", "test-agent"})
+	got := out()
+	if code == 0 {
+		t.Fatalf("deploy with HIGH warnings and no --force should fail, got 0\n--- output ---\n%s", got)
+	}
+	for _, want := range []string{"HIGH", "workspace.base_image", "--force"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output missing %q\n--- output ---\n%s", want, got)
+		}
+	}
+}
+
+func TestDeploy_Force_OverridesBlockingWarnings(t *testing.T) {
+	root := withWorkdir(t)
+	writeMinimalAgent(t, root, "test-agent")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseMultipartForm(10 << 20)
+		if r.FormValue("force") != "true" {
+			writeJSON(w, http.StatusConflict, map[string]interface{}{
+				"detail": map[string]interface{}{
+					"reason":             "translation_report contains HIGH severity warnings; set force=true to deploy anyway",
+					"translation_report": map[string]interface{}{"harness": "anthropic_managed_agents", "translation_warnings": []map[string]interface{}{{"field": "workspace.base_image", "severity": "high", "action": "ignored", "reason": "x"}}},
+				},
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, deploy.DeployResponse{
+			AgentID: "agt_forced", AnthropicAgentID: "agent_z", AnthropicEnvironmentID: "env_z",
+			GroupID: "grp_z", GroupLink: "https://askdao.ai/k/usr_3/g/grp_z",
+			TranslationReport: deploy.TranslationReport{
+				Harness:             "anthropic_managed_agents",
+				TranslationWarnings: []deploy.TranslationWarning{{Field: "workspace.base_image", Severity: "high", Action: "ignored", Reason: "x"}},
+			},
+		})
+	}))
+	defer srv.Close()
+	t.Setenv("ASKDAO_CONDUCTOR_URL", srv.URL)
+	t.Setenv("ASKDAO_CONDUCTOR_TOKEN", "tok")
+
+	out, restore := captureStdout(t)
+	defer restore()
+	code := runDeploy(context.Background(), []string{"--dir", "test-agent", "--force"})
+	got := out()
+	if code != 0 {
+		t.Fatalf("deploy --force should succeed, got %d\n--- output ---\n%s", code, got)
+	}
+	if !strings.Contains(got, "agt_forced") {
+		t.Errorf("output missing agt_forced\n--- output ---\n%s", got)
+	}
+}
+
+func TestDeploy_MissingSkillDir(t *testing.T) {
+	root := withWorkdir(t)
+	// agent.yml references a custom_local skill whose directory doesn't exist.
+	dir := filepath.Join(root, "broken-agent")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "agent.yml"), []byte(minimalAgentYAML("broken-agent", "  - {type: custom_local, path: ghost}\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ASKDAO_CONDUCTOR_URL", "http://localhost:1")
+	t.Setenv("ASKDAO_CONDUCTOR_TOKEN", "tok")
+
+	outStdout, restoreOut := captureStdout(t)
+	defer restoreOut()
+	errOut, restoreErr := captureStderr(t)
+	defer restoreErr()
+	code := runDeploy(context.Background(), []string{"--dir", "broken-agent"})
+	_ = outStdout()
+	gotErr := errOut()
+	if code != 1 {
+		t.Fatalf("deploy with a missing skill dir should exit 1, got %d", code)
+	}
+	if !strings.Contains(gotErr, "ghost") || !strings.Contains(gotErr, "directory not found") {
+		t.Errorf("stderr should explain the missing skill dir, got:\n%s", gotErr)
+	}
+}
+
+// --- helpers ---
+
+func writeJSON(w http.ResponseWriter, status int, v interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// minimalAgentYAML returns a valid agent.yml document. skillsBlock, if non-empty,
+// is appended under `skills:` (otherwise `skills: []`).
+func minimalAgentYAML(name, skillsBlock string) string {
+	skills := "skills: []\n"
+	if skillsBlock != "" {
+		skills = "skills:\n" + skillsBlock
+	}
+	return "apiVersion: askdao.ai/v1\n" +
+		"kind: AgentSpec\n" +
+		"metadata:\n  name: " + name + "\n  version: 0.1.0\n  visibility: private\n" +
+		"persona:\n  model_class: balanced\n  model_preferences:\n    - {provider: anthropic, id: claude-sonnet-4-6}\n  system_prompt: \"test agent\"\n" +
+		"capabilities:\n  shell: {enabled: true, permission: allow}\n  filesystem: {enabled: true, permission: allow}\n  web: {enabled: true, permission: allow}\n  code_execution: {enabled: true, permission: allow}\n" +
+		"mcp_servers: []\ncustom_tools: []\n" + skills +
+		"workspace:\n  networking: {mode: limited, allow_mcp_servers: true, allow_package_managers: false}\n" +
+		"vault_hints: {}\npreferred_harness: anthropic_managed_agents\n"
+}
+
+func writeAgentDirWithSkill(t *testing.T, root, name, skillName string) {
+	t.Helper()
+	dir := filepath.Join(root, name)
+	skillDir := filepath.Join(dir, "skills", skillName)
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "agent.yml"), []byte(minimalAgentYAML(name, "  - {type: custom_local, path: "+skillName+"}\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: "+skillName+"\ndescription: a test skill\n---\nDo a thing.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "persona.md"), []byte("# "+name+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// captureStderr mirrors captureStdout for os.Stderr. The returned getter may be
+// called once (a second call blocks); call it once and reuse the result.
+func captureStderr(t *testing.T) (func() string, func()) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := os.Stderr
+	os.Stderr = w
+	done := make(chan string, 1)
+	go func() {
+		buf := make([]byte, 0, 4096)
+		tmp := make([]byte, 1024)
+		for {
+			n, rerr := r.Read(tmp)
+			if n > 0 {
+				buf = append(buf, tmp[:n]...)
+			}
+			if rerr != nil {
+				done <- string(buf)
+				return
+			}
+		}
+	}()
+	get := func() string {
+		_ = w.Close()
+		return <-done
+	}
+	restore := func() { os.Stderr = prev }
+	return get, restore
+}
