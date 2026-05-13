@@ -1311,7 +1311,41 @@ vs v0.2（~2950 行）：累计增量 ~1330 行。
 
 **不做（划界）**：不改 LLM recommender 的产物结构 / prompt（那是后续第③层：把 `CLAUDE.md` 摘要 + 每个 `SKILL.md` 的 `description` + 部署清单一起喂 LLM 判断主/支撑 skill、预填 `persona.system_prompt`——`DetectedSkill.Description` 等字段已先铺好）；`askdao bundle` 只预览不打包/不上传（真上传等 conductor #11 deploy endpoint）；不实现 `.gitignore` 全套语义（嵌套 ignore、`**` 中段匹配等边角），不够用 `.askdaoignore` 兜底。
 
-**实现量**：`internal/scanner/{payload,archetype}.go` + `skills_dir.go` 扩展（frontmatter / bundle 体积 / lockfile 关联）+ `internal/render/payload.go` + `cmd/askdao/bundle.go` + types 新字段 + 测试，约 ~900 行 Go。Phase 切分：归 Phase 1。
+**实现量**：`internal/scanner/{payload,archetype}.go` + `skills_dir.go` 扩展（frontmatter / bundle 体积 / lockfile 关联）+ `internal/render/payload.go` + `cmd/askdao/bundle.go` + types 新字段 + 测试，约 ~900 行 Go。Phase 切分：归 Phase 1。已交付：PR #19。
+
+---
+
+### 9.11 Plugin 机制的影响（Claude Code Plugin / Codex Plugin）⏳ 待决策（v0.6 调研）
+
+**背景**：2025-2026 这一波，两个最主流的本地 AI Agent 运行环境几乎同时定义了同一种「打包格式」——一个目录 + 一个 manifest，里面装 `skills/` / `.mcp.json` / `agents/` / `hooks/`（Claude 还有 `bin/` / `.lsp.json` / `monitors/` / `settings.json`），通过 git-repo 形态的 marketplace 分发。
+
+| | Claude Code Plugin | OpenAI Codex Plugin |
+|---|---|---|
+| manifest | `.claude-plugin/plugin.json`（`name`/`description`/`version`/`author`/`homepage`/`repository`/`license` + 可声明依赖）| `.codex-plugin/plugin.json`（同上 + `keywords` + 组件指针 `skills`/`mcpServers`/`apps`/`hooks` + `interface{displayName,category,logo,screenshots,defaultPrompt,brandColor,...}`）|
+| 组件目录（plugin 根）| `skills/<name>/SKILL.md`、`commands/`(legacy)、`agents/`、`hooks/hooks.json`、`.mcp.json`、`.lsp.json`、`monitors/monitors.json`、`bin/`、`settings.json` | `skills/<name>/SKILL.md`、`.app.json`、`.mcp.json`、`hooks/hooks.json`、`assets/` |
+| marketplace 清单 | `.claude-plugin/marketplace.json`（`owner/repo` / git URL / 本地路径 / 远程 URL）| `.agents/plugins/marketplace.json`（`source`：`local`/`git-subdir`/`git`；带 `policy.installation`/`policy.authentication`）|
+| 安装 | `/plugin marketplace add owner/repo` → `/plugin install name@marketplace`，skill 命名空间化 `/plugin-name:skill` | Codex app 目录 / CLI `/plugins`；`@plugin-name` 调用；config 在 `~/.codex/config.toml` |
+| 版本 | `plugin.json.version` 显式，否则 git commit SHA | `plugin.json.version` |
+| 脚手架 | `plugin-dev` 插件 | 内置 `$plugin-creator` skill |
+
+**关键洞察**：askdao-cli 的本职——「扫 KOL 项目目录 → 推断出可部署的 agent → 打包」——和这套 plugin 格式在结构上高度重叠。`homework-spelling` 那种 `.agents/skills/` + `skills-lock.json` + `CLAUDE.md` 的目录，离一个 Claude Code plugin 只差一个 `.claude-plugin/plugin.json`。领域收敛出了事实标准，askdao-cli 在它正中央。
+
+**三个层面的影响**：
+
+1. **入口侧（检测）—— plugin manifest 是「权威来源」，胜过启发式。** 项目里有 `.claude-plugin/plugin.json` / `.codex-plugin/plugin.json` → 这个项目本身就是一个 plugin，manifest 直接给出 name/version/bundle 了哪些 skills·agents·hooks·MCP/声明了哪些依赖，不用猜；有 `.claude-plugin/marketplace.json` / `.agents/plugins/marketplace.json` → 这是一个 marketplace（plugin 仓库），N 个子目录各是一个 plugin；plugin manifest 声明的**依赖** = §9.10「在 lockfile 里 = 引用、不在 = 打包」规则的泛化。影响面：scanner 加 `LoadPluginManifest`（`skills_dir.go` 旁）、archetype 加 `plugin_package` / `plugin_marketplace`（置信度近 1.0）、`payload.go` 在 plugin archetype 下直接用 manifest 定义清单、`detection.go` 加 `DetectedPluginManifest` sub-type。**这一档是 §9.10 工作的自然延伸——纯增量、低风险、确定性、零 LLM。**
+
+2. **出口侧 —— askdao-cli 可以生成 plugin，而不只是 `askdao.ai/v1` AgentSpec。** 设想新命令 `askdao plugin export [--target claude-code|codex|both]`：把 detection / AgentSpec 转成标准 plugin 目录（`.claude-plugin/plugin.json` + `skills/<name>/SKILL.md` + `.mcp.json` + `agents/` + `hooks/hooks.json` + Claude 可加 `bin/`·`settings.json`）。AgentSpec → plugin 的字段映射几乎逐项对得上（`metadata`→manifest 头、`skills`→`skills/`、`mcp_servers`→`.mcp.json`、`persona.system_prompt`→ 一个根 skill 或 instruction、Codex `interface{...}`→ `metadata.labels`+`domain`+ 新展示块）。战略价值：让 KOL 的 agent 能装进任何人的 Claude Code/Codex，而不只是 AskDAO 云——和「askdao-cli = AskDAO 体系唯一对外开源子项目 = 信任锚点」的定位高度一致。分发模型也跟着多一条：除「部署到 AskDAO 云」外，还有「push 这个 plugin 到一个 git-repo marketplace，Claude Code/Codex 用户 `/plugin install` 就能装」；AskDAO 可以自己托管一个 marketplace。改动面中等：新命令 + 一个文件发射器（`internal/export` 或扩 `internal/render`）+ AgentSpec↔plugin 映射表（进 §5）。不碰 conductor。
+
+3. **架构层 —— `AgentSpec` 目标矩阵多两列；askdao-cloud 发行模型要重想。** §5.1 的映射现在该再加 `ClaudeCodePluginEmitter` / `CodexPluginEmitter` 两列（文件发射器，不是 API 调用器）。要点：**Plugin ≠ Managed Agent**——前者扩展本地 CLI，后者是云端自治 agent，是两种 runtime；但 plugin 可以 bundle `agents/`（subagent 定义），所以一个 KOL 的「agent」可呈现为 (a) 云端 Managed Agent（现在的目标）、(b) subscriber 本地装的 Claude Code plugin、(c) Codex plugin——`AgentSpec` 作为 harness-neutral 中间格式正好横跨这几种。`workspace.*` / `vault_hints` 在 plugin 目标下大多无处安放（plugin 不管 runtime、没有 per-user vault），用 v0.4 已有的 translation_report 机制报告「这些字段被忽略」即可。**不建议让 plugin 格式取代 `askdao.ai/v1`**——后者的价值恰恰在于 harness-neutral，能同时映射云端 agent 和本地 plugin 两类目标，plugin 只覆盖后者。askdao-cloud 侧的开放问题（需上层拍板）：① AskDAO 要不要自己托管 plugin marketplace？② conductor 要不要能反向 ingest 一个 plugin → 起一个 Managed Agent（plugin 作为 agent 的另一种输入源）？③ KOL onboarding 主路径是「装 askdao-cli → `agent init` → deploy 到云」还是「`plugin export` → push 到 marketplace」，还是并存？
+
+**推荐路线（分阶段）**：
+
+| 阶段 | 内容 | 风险 | 何时 |
+|---|---|---|---|
+| 0 | 本节（落档，待决策）| 无 | 已做 |
+| 1 | scanner 加 plugin-manifest 检测（影响①）：`LoadPluginManifest` / archetype `plugin_package`·`plugin_marketplace` / payload 用 manifest 直接定义 / `DetectedPluginManifest`。确定性、零 LLM，§9.10 的延伸。 | 低 | 确认方向后可作为下一个 PR |
+| 2 | `askdao plugin export`（影响②）：detection/AgentSpec → Claude Code plugin 目录（+ Codex）。先定 AgentSpec↔plugin 映射表（进 §5）。 | 中 | 阶段 1 之后；先在 askdao-cloud 起 design issue 讨论分发模型 |
+| 3 | 架构层（影响③）：AgentSpec 目标矩阵 +2 列、askdao-cloud 发行模型决策、conductor 要不要 PluginAdapter / plugin-ingest。跨 askdao-cli + askdao-cloud + conductor。 | 高（战略）| 阶段 2 落地、跑过几个真实 KOL plugin 之后 |
 
 ---
 
