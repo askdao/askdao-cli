@@ -1,8 +1,8 @@
 # askdao-cli
 
-> Local CLI for AskDAO — bootstrap AI agents from your project directory by auto-detecting tech stack and generating Anthropic Managed Agents config.
+> Local CLI for AskDAO — bootstrap AI agents from your project directory by auto-detecting tech stack and generating (then deploying) Anthropic Managed Agents config.
 
-**Status:** Pre-alpha. Design phase. APIs unstable.
+**Status:** Pre-alpha — Phase 1 implemented (detect / init / show / deploy); APIs may still change.
 
 ---
 
@@ -24,6 +24,36 @@ $ askdao agent init my-agent --auto
 ```
 
 Instead of staring at a blank template, you start by reviewing a draft.
+
+Once you're happy with `agent.yml` (and have written any `skills/<name>/SKILL.md`), deploy it:
+
+```bash
+$ export ASKDAO_CONDUCTOR_URL=https://api.askdao.ai
+$ export ASKDAO_CONDUCTOR_TOKEN=<your session token>
+$ askdao agent deploy --dir my-agent
+
+→ Reading my-agent/agent.yml
+→ Packaged 1 custom skill(s): my-skill
+→ Deploying to https://api.askdao.ai (harness=anthropic_managed_agents) ...
+
+⚠  The conductor needs your KOL profile filled in before deploying.
+   KOL bio (one line, optional — press Enter to skip): I build research agents
+→ Setting KOL profile: kol_join_mode=free, bio="I build research agents"
+✓ KOL profile saved.
+→ Retrying deploy ...
+
+✓ Deployed.
+
+  agent_id:    agt_…
+  anthropic:   agent=agent_…  environment=env_…
+  group_id:    grp_…
+  group link:  https://askdao.ai/k/<you>/g/grp_…
+
+  Skills:
+    • my-skill  →  managed skill_…@v0.1.0  (viking://resources/skills/private/<you>/skill_…/v0.1.0/)
+```
+
+(Pass `--bio "…"` to skip the prompt; `--force` to deploy despite HIGH-severity translation warnings.)
 
 ## Why
 
@@ -48,11 +78,14 @@ Pre-built binaries will be published once the API stabilizes.
 
 | Command | Status | Description |
 |---------|--------|-------------|
-| `askdao agent init <name> --auto` | planned | Scan current directory and generate `agent.yml` draft |
-| `askdao detect [path]` | planned | Print detection report without creating an agent |
+| `askdao detect [path]` | ready | Print the detection report without creating an agent |
+| `askdao agent init <name> [--auto]` | ready | Create an agent skeleton; `--auto` scans the project and pre-fills `agent.yml` |
+| `askdao agent show <name>` | ready | Render an agent's spec (mid-density card, or `--full` / focused views) |
+| `askdao agent deploy [--dir path] [--force] [--bio …]` | ready | Package custom skills + push the agent (and an environment) to Anthropic Managed Agents via Conductor |
 | `askdao agent validate` | planned | Validate `agent.yml` schema |
-| `askdao agent deploy` | planned | Push agent + environment to Anthropic Managed Agents |
 | `askdao agent regenerate` | planned | Re-scan and diff against existing yaml |
+
+`agent deploy` reads `ASKDAO_CONDUCTOR_URL` + `ASKDAO_CONDUCTOR_TOKEN` (both required); `agent init --auto` reads `ASKDAO_CONDUCTOR_URL` (optional — falls back to a local mock recommender).
 
 See [docs/design.md](docs/design.md) for the full design.
 
@@ -60,15 +93,16 @@ See [docs/design.md](docs/design.md) for the full design.
 
 ```
 askdao-cli/
-├── cmd/askdao/             # CLI entry point
-├── internal/               # Implementation (TBD)
+├── cmd/askdao/             # CLI entry point + commands (detect / agent init|show|deploy)
+├── internal/
 │   ├── scanner/            # syft / enry / dockerfile parser wrappers
 │   ├── providers/          # nixpacks-style framework providers
-│   ├── recommender/        # LLM-driven yaml generation
+│   ├── pipeline/           # L1-L4 orchestration (scan → providers → policy → LLM)
+│   ├── recommender/        # policy heuristics + conductor /cli/recommend client
+│   ├── render/             # KOL review UX (mid-density card, diffs, warnings)
+│   ├── deploy/             # conductor /cli/deploy client + skill-dir zip packaging
 │   └── types/              # detection.json + agent.yml schemas
-├── docs/                   # Design documents
-│   ├── design.md           # Main design draft
-│   └── investigations/     # Spike reports informing the design
+├── docs/                   # design.md (main draft) + HANDOFF.md + investigations/
 └── Makefile
 ```
 

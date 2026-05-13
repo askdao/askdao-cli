@@ -24,7 +24,7 @@ func runShow(_ context.Context, args []string) int {
 	fs := flag.NewFlagSet("show", flag.ContinueOnError)
 	full := fs.Bool("full", false, "Print the complete agent.yml")
 	reasoning := fs.Bool("reasoning", false, "Print provenance.reasoning_decisions only")
-	warnings := fs.Bool("warnings", false, "Print TranslationWarnings only (placeholder until conductor #11)")
+	warnings := fs.Bool("warnings", false, "Print TranslationWarnings only (none until the agent is deployed — they live in agent deploy's response, not agent.yml)")
 	persona := fs.Bool("persona", false, "Print persona.md + system_prompt only")
 	deps := fs.Bool("deps", false, "Print full pip / npm dep lists")
 	mcp := fs.Bool("mcp", false, "Print MCP servers (active + filtered)")

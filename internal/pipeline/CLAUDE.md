@@ -29,7 +29,7 @@
 
 ## 后续 issue 挂载点
 
-- conductor #11 endpoint 上线后，cmd 层把 `chooseLLMClient()` 切到真实 ConductorClient（已实现，看 `ASKDAO_CONDUCTOR_URL`）
+- conductor `POST /api/v1/cli/recommend` 已上线；cmd 层 `chooseLLMClient()` 通过 `ASKDAO_CONDUCTOR_URL` env 切真实 ConductorClient（否则离线 MockClient）
 - 长尾框架 / 外部服务规则增量加在 internal/providers，pipeline 不需改
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

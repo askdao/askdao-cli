@@ -2,48 +2,49 @@
 
 > 新会话上手 / 上下文切换的入口文档。读完这一页就能继续工作。
 >
-> Last updated: 2026-05-07
+> Last updated: 2026-05-13
 
 ---
 
 ## Current Status
 
-**Phase 1 立项完成 · 尚未开始编码**
+**Phase 1 已实装 · M4 Deploy CLI 补完中（Issue 4 = `agent deploy` 去 stub，已完成）**
 
 | 项 | 状态 |
 |---|------|
-| 设计文档 (design.md) | v0.5 定稿（1366 行）|
-| Review 文档 | 4 份（v0.2 / v0.3 / v0.4 / v0.5）|
-| Spike 报告 | 2 份（syft / nixpacks-pattern）|
-| GitHub Issues | 11 个 ready（askdao-cli #1-8 + conductor #15-17）|
-| GitHub Project | #3 已加全部 11 个 issue |
-| conductor feature 分支 | `feature/askdao-cli-integration` 已建 |
-| askdao-cli 代码 | 仅骨架（main.go hello world）|
+| 设计文档 (design.md) | v0.5 定稿（1366 行，§3 命令骨架 + §5 yaml schema + §9 决策记录是真相源）|
+| Phase 1 代码（askdao-cli #1-8） | 已交付 —— `internal/{types,scanner,providers,pipeline,recommender,render}` + `cmd/askdao`（`detect` / `agent init` / `agent show` / `agent deploy`）|
+| conductor 端（原 #15-17） | 已 merge —— `app/agents/{spec,adapters}` + `app/api/cli.py`（`POST /api/v1/cli/recommend` + `POST /api/v1/cli/deploy`）|
+| M4 Deploy CLI 补完 — conductor Issue 1-3 | 已 merge（alembic 024）—— `skill_registry` 三层 URI（`viking://resources/skills/{visibility}/{scope_id}/{skill_id}/{version}/`）+ OV→Managed 单向 sync（`app/skills/`）+ `/cli/deploy` 改 `multipart/form-data` + 事务建 Agent↔Group + owner GroupMembership + `409 kol_profile_required` + `groups.create_group_with_owner`（ADR-P15/P16/P18/P21）|
+| M4 Deploy CLI 补完 — askdao-cli Issue 4 | ✅ 本次 —— `agent deploy` 去 stub，接 conductor `/cli/deploy`（multipart + custom skill zip 上传 + KOL 资料隐式补全 + HIGH-warning gating），新 `internal/deploy/` 包；GitHub issue [#20](https://github.com/askdao/askdao-cli/issues/20)|
+| 待办 | M4 Issue 5（conductor `app/users/kol_subscription.py:subscribe()` 自动 join KOL 旗下所有 Agent Group）+ Issue 6（askdao-ai-web：「成为 KOL」表单 + `/k/{kolId}/g/{groupId}` Group 对话路由 + dashboard 去 mock）|
 
 ---
 
 ## Quick Start for New Session
 
-要继续 Phase 1 开发，按以下顺序：
-
 1. **读这份 HANDOFF.md** — 你现在在这
 2. **读 [`design.md`](./design.md)** — v0.5 设计真相源（重点看 §3 命令骨架 + §5 yaml schema + §9 决策记录）
-3. **看 GitHub Project #3** — `gh project view 3 --owner askdao` 看任务板状态
-4. **从 issue #1 / #15 开始**：
-   - askdao-cli #1（Foundation schemas）—— `gh issue view 1 --repo askdao/askdao-cli`
-   - conductor #15（alembic 017）—— `gh issue view 15 --repo askdao/askdao-cloud-conductor`
-   - 这两个无 dependency，可并行
-5. **conductor 端必读**：所有 conductor 相关工作必须 base on `feature/askdao-cli-integration` 分支（不直接到 main）
+3. **读 L2 CLAUDE.md** — `cmd/askdao/CLAUDE.md`（命令实装）+ `internal/deploy/CLAUDE.md`（deploy 客户端）+ `internal/{recommender,render,pipeline}/CLAUDE.md`
+4. **看 GitHub issues** — askdao-cli #1-8（Phase 1，已 closed）+ #20（M4 Issue 4）；M4 整体见 askdao-cloud-conductor 侧 + harness-design `primitives/04-agent-deployment-pipeline.md`（ADR-P15/P16/P18/P21）
+5. **下一步**：M4 Issue 5（conductor 侧 `subscribe()` 自动 join Group）/ Issue 6（askdao-ai-web）—— 各自独立分支 / PR（DEV-FLOW：一 issue 一分支）
 
-```bash
-# conductor 端开干前
-cd /Users/sunmu/WorkSpace/askdao-cloud/askdao-cloud-conductor
-git fetch origin
-git checkout feature/askdao-cli-integration
-git pull
-# 从这里再开 issue 自己的 feature 分支
-git checkout -b feature/issue-15-alembic-017
-```
+---
+
+## M4 — Deploy CLI 补完（`agent deploy` ↔ conductor `/cli/deploy`）
+
+`agent deploy` 把 KOL 编辑好的 `agent.yml`（+ 可选 `detection.json` + 每个 `custom_local` skill 的目录 zip）以 `multipart/form-data` POST 到 conductor `POST /api/v1/cli/deploy`：
+
+| 端 | 实装位置 |
+|---|---|
+| askdao-cli | `internal/deploy/`（`Client.Deploy` 构 multipart / `Client.SetupKol` PATCH kol-profile / `ZipDir` 打包 skill 目录 / `Err{KolProfileRequired,BlockingWarnings}`）+ `cmd/askdao/deploy.go`（编排：读 agent.yml 原始字节 → 可选 diff → 枚举 + 打包 `custom_local` skills → Deploy → `409 kol_profile_required` 交互/`--bio` 补全 + 重跑 → HIGH-warning gating（`--force`）→ 打印结果） |
+| conductor | `app/api/cli.py:deploy_agent_spec`（multipart）+ `app/skills/sync.py:sync_skill_zip`（OV 三层真源 → Managed Skills 副本 → `skill_registry`）+ `app/agents/adapters/anthropic_adapter.py:adapt(spec, detection, resolved_skills)` + `app/api/groups.py:create_group_with_owner`；alembic 023（`skill_registry`）+ 024（`agent_spec.group_id` unique index） |
+
+deploy 流程（ADR-P15/P16/P18/P21）：① conductor 检测 `user.kol_join_mode IS NULL` → `409 {"detail":{"reason":"kol_profile_required","fields":["kol_join_mode","kol_bio"],"hint":"..."}}` → CLI prompt bio（或 `--bio`）→ `PATCH /api/v1/users/me/kol-profile`（`kol_join_mode=free`）→ 重跑 deploy ② 每个 `custom_local` skill 经 `sync_skill_zip` 上传 ③ `AnthropicAdapter.adapt` 把 `resolved_skills` 回填到 `agent_params.skills`；`translation_report.has_blocking()` 且 `force≠true` → `409` 带 `translation_report` → CLI `--force` 才过 ④ Anthropic Beta `environments/agents.create` ⑤ PG 事务：写 `agent_spec`（带 `skills`）+ 自动建 `Group`（无 `group_id` 时，`grp_<sha1(agent_id)[:24]>`）+ owner `GroupMember` + 回填 `agent_spec.group_id` ⑥ 回传 `agent_id` / `anthropic_agent_id` / `anthropic_environment_id` / `group_id` / `group_link` / `skills` / `translation_report`。
+
+ADR 锚点：`harness-design/primitives/04-agent-deployment-pipeline.md`（ADR-P15 skill 三层 URI / P16 Shadowing / P18 OV 真源 + 单向 sync / P21 deploy 事务三件套 + KOL 资料隐式补全）+ `plan/06-deploy-cli.md` §4.4。env：`agent deploy` 需 `ASKDAO_CONDUCTOR_URL` + `ASKDAO_CONDUCTOR_TOKEN`（都必填）。
+
+未做（P2）：re-deploy 走 conductor `/diff`（ADR-P19）；远端 ID 写回 `agent.yml` `status:`；`askdao profile setup-kol/show-kol` 独立子命令；`askdao agent validate`；`askdao agent init` 生成 skill 骨架；`~/.askdao/config.yaml` 配置文件。
 
 ---
 
@@ -168,20 +169,18 @@ agent.yml (askdao.ai/v1)              ↓ Runner.run_streamed()
 复制这段开新会话即可：
 
 ```
-哥，我要继续 askdao-cli Phase 1 的工作。
+哥，我要继续 askdao-cli / M4 Deploy CLI 的工作。
 
-请先读 docs/HANDOFF.md，
-然后再读 docs/design.md 进入语境。
+请先读 docs/HANDOFF.md（重点 "Current Status" + "M4 — Deploy CLI 补完"），
+再读 cmd/askdao/CLAUDE.md + internal/deploy/CLAUDE.md。
 
-我准备从 issue #1 (Foundation: schemas) 开始。
+下一步是 M4 Issue 5（conductor subscribe() 自动 join Group）/ Issue 6（askdao-ai-web）。
 ```
-
-或者哥要从其他 issue 起步，把上面的 `#1` 换掉即可。
 
 ---
 
 ## What This Document is NOT
 
-- **不是** 决策真相源（那是 design.md + reviews）
-- **不是** 长期维护文档（每次 Phase 完成可以重写或归档）
-- **是** 上下文切换辅助 + Phase 1 启动状态快照
+- **不是** 决策真相源（那是 design.md + reviews + harness-design `primitives/04`）
+- **不是** 长期维护文档（每次 Phase / milestone 完成可以重写或归档）
+- **是** 上下文切换辅助 + 当前状态快照（Phase 1 已实装 + M4 Deploy CLI 进度）

@@ -15,7 +15,7 @@ L4 推荐器 —— askdao-cli 的"模糊推断"边界。L1-L3 全确定性，�
 - **fs.go** — 极薄包装 `os.Stat` / `os.ReadDir`，把 `os` import 局限在一处，让 policy.go 的依赖更干净。变量 `osStat` 留作测试可替换钩子。
 - **llm.go** — `LLMClient` 接口 + 两实现：
   - `ConductorClient`：HTTP POST `/api/v1/cli/recommend`，bearer 鉴权可选，默认 90s 超时（覆盖 LLM tail latency）。响应解析后会校验 `apiVersion == askdao.ai/v1`，避免 conductor 端意外升级 schema 静默通过。
-  - `MockClient`：`Override` 函数指针注入；nil 时走 `DefaultMockRecommend`，按请求材料拼一份"足够合法"的 AgentSpec —— 让开发期不依赖 conductor #11 endpoint 也能联调，并作为 conductor 端集成测试的参考实现。
+  - `MockClient`：`Override` 函数指针注入；nil 时走 `DefaultMockRecommend`，按请求材料拼一份"足够合法"的 AgentSpec —— 让开发期 / 单测在没有在线 conductor 时也能联调（`ASKDAO_CONDUCTOR_URL` 未设时 cmd 层 `chooseLLMClient` 默认走它），并作为 conductor `/cli/recommend` 集成测试的参考实现。
   
   `RecommendRequest` 携带 `Detection` + `ProviderSummary` slice + `Policy` + `AgentName` + `PreferredHarness`。`ProviderSummary` 是 internal/providers 的 `FrameworkPlan` 的 JSON-friendly 投影 —— 不直接 import providers 包是为了避免跟 conductor 端 mock server 引入跨包循环。
   
@@ -29,7 +29,7 @@ L4 推荐器 —— askdao-cli 的"模糊推断"边界。L1-L3 全确定性，�
 
 ## 设计约束
 
-- **决策 9.1**：LLM 走 conductor 中转。本目录绝不直接 import `anthropic-sdk-go` / OpenAI SDK。所有"模糊推断"都委托给 conductor 端的 `cli/recommend` endpoint（待 conductor #11）。
+- **决策 9.1**：LLM 走 conductor 中转。本目录绝不直接 import `anthropic-sdk-go` / OpenAI SDK。所有"模糊推断"都委托给 conductor `POST /api/v1/cli/recommend`（已上线）。
 - **不依赖 internal/providers**：用 `ProviderSummary` 中间结构传递必要字段，避免跨包循环（conductor 端 mock 不需要 providers 包参与）。
 - **mock-first 设计**：开发期 / 单测全用 `MockClient`，集成测试切 `ConductorClient`。这让本仓库的 CI 不依赖 conductor 在线。
 - **policy 层只标 override 不翻 default**：`RecommendedDefaultPolicy` 永远 `always_allow`，是为了把"是否要全局收紧权限"的决策权留给 LLM —— LLM 看到 evidence 列表会更有 nuance。policy 层只做"显然要 ask 的工具"硬约束。
@@ -50,10 +50,11 @@ L4 推荐器 —— askdao-cli 的"模糊推断"边界。L1-L3 全确定性，�
 | `AgentSpec` 全字段 | `LLMClient.Recommend` | conductor 端 LLM 推断；mock 走 DefaultMockRecommend |
 | `Provenance.ReasoningSummary` + `Provenance.ReasoningDecisions` | `LLMClient.Recommend` | KOL 中等详情卡片的 inline reasoning 来源 |
 
-## 后续 issue 挂载点
+## 相关 issue / 后续
 
-- issue #7 render 用 `RecommendResponse` 渲染中等详情卡片
-- issue #8 `cmd/askdao agent init --auto` 编排：scanner → providers → policy → llm → render
-- conductor #11 endpoint 上线后，把 ConductorClient 默认 BaseURL 配置进 askdao-cli 全局设置（cmd 层处理）
+- issue #7：render 用 `RecommendResponse` 渲染中等详情卡片（已交付）
+- issue #8：`cmd/askdao agent init --auto` 编排 scanner → providers → policy → llm → render（已交付）
+- ConductorClient 的 BaseURL/token 目前从 `ASKDAO_CONDUCTOR_URL` / `ASKDAO_CONDUCTOR_TOKEN` env 读（cmd 层 `chooseLLMClient` / `deploy.go`）；`~/.askdao/config.yaml` 配置文件留 P2
+- M4：`internal/deploy/` 复用同样的「HTTP 客户端到 conductor」模式接 `/cli/deploy`（见 `internal/deploy/CLAUDE.md`）
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

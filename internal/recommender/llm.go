@@ -150,9 +150,9 @@ func (m *MockClient) Recommend(_ context.Context, req RecommendRequest) (*Recomm
 }
 
 // DefaultMockRecommend builds a deterministic AgentSpec using whatever
-// information the request carries. Used by both MockClient and the
-// httptest-based ConductorClient unit test as the server-side stub so
-// development can proceed before conductor #11 ships.
+// information the request carries. Used by both MockClient (the offline
+// fallback when ASKDAO_CONDUCTOR_URL is unset) and the httptest-based
+// ConductorClient unit test as the server-side stub.
 func DefaultMockRecommend(req RecommendRequest) *RecommendResponse {
 	spec := types.AgentSpec{
 		APIVersion: types.AgentSpecAPIVersion,
@@ -185,7 +185,7 @@ func DefaultMockRecommend(req RecommendRequest) *RecommendResponse {
 
 	resp := &RecommendResponse{
 		Spec:             spec,
-		ReasoningSummary: "Mock recommendation: heuristics-only, no LLM call. Replace with conductor endpoint when ready.",
+		ReasoningSummary: "Mock recommendation: heuristics-only, no LLM call. Set ASKDAO_CONDUCTOR_URL for a real LLM-backed recommendation via conductor /cli/recommend.",
 	}
 	if len(req.ProviderSummary) > 0 {
 		resp.ReasoningDecisions = append(resp.ReasoningDecisions, types.ReasoningDecision{
