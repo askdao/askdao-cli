@@ -6,7 +6,7 @@
 ## 成员清单
 
 - **HANDOFF.md** — 新会话上手 / 上下文切换的入口文档（current status / quick start / document map / decisions / pitfalls）
-- **design.md** — askdao-cli `init --auto` 的完整设计（v0.5 卡片 UX + v0.6 §9.10 部署 payload / archetype）：四层流水线（syft → dev-filter → providers → LLM）、detection.json schema、harness-neutral 中间格式 yaml schema、Dockerfile 兼容 5 字段、KOL 中等详情卡片 UX、部署清单 lockfile-driven skill 分类、Phase 1-3 路线图
+- **design.md** — askdao-cli `init --auto` 的完整设计（v0.5 卡片 UX + v0.6 §9.10 部署 payload/archetype（PR #19 已交付）+ §9.11 Plugin 机制调研（Claude Code/Codex Plugin 对 askdao-cli 三个层面的影响，待决策））：四层流水线（syft → dev-filter → providers → LLM）、detection.json schema、harness-neutral 中间格式 yaml schema、Dockerfile 兼容 5 字段、KOL 中等详情卡片 UX、部署清单 lockfile-driven skill 分类、Phase 1-3 路线图
 - **review-2026-05-06.md** — v0.2 review（Anthropic 三资源模型重审）
 - **review-v0.3-2026-05-06.md** — v0.3 review（harness-neutral 中间格式）
 - **review-v0.4-2026-05-06.md** — v0.4 review（Dockerfile 兼容性补强）

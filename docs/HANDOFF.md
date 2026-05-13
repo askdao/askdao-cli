@@ -12,12 +12,14 @@
 
 | 项 | 状态 |
 |---|------|
-| 设计文档 (design.md) | v0.5 定稿（1366 行，§3 命令骨架 + §5 yaml schema + §9 决策记录是真相源）|
+| 设计文档 (design.md) | v0.5 定稿 + v0.6 决策记录（§9.10 部署 Payload + §9.11 Plugin 机制调研）；§3 命令骨架 + §5 yaml schema + §9 决策记录是真相源 |
 | Phase 1 代码（askdao-cli #1-8） | 已交付 —— `internal/{types,scanner,providers,pipeline,recommender,render}` + `cmd/askdao`（`detect` / `agent init` / `agent show` / `agent deploy`）|
 | conductor 端（原 #15-17） | 已 merge —— `app/agents/{spec,adapters}` + `app/api/cli.py`（`POST /api/v1/cli/recommend` + `POST /api/v1/cli/deploy`）|
 | M4 Deploy CLI 补完 — conductor Issue 1-3 | 已 merge（alembic 024）—— `skill_registry` 三层 URI（`viking://resources/skills/{visibility}/{scope_id}/{skill_id}/{version}/`）+ OV→Managed 单向 sync（`app/skills/`）+ `/cli/deploy` 改 `multipart/form-data` + 事务建 Agent↔Group + owner GroupMembership + `409 kol_profile_required` + `groups.create_group_with_owner`（ADR-P15/P16/P18/P21）|
 | M4 Deploy CLI 补完 — askdao-cli Issue 4 | ✅ 本次 —— `agent deploy` 去 stub，接 conductor `/cli/deploy`（multipart + custom skill zip 上传 + KOL 资料隐式补全 + HIGH-warning gating），新 `internal/deploy/` 包；GitHub issue [#20](https://github.com/askdao/askdao-cli/issues/20)|
-| 待办 | M4 Issue 5（conductor `app/users/kol_subscription.py:subscribe()` 自动 join KOL 旗下所有 Agent Group）+ Issue 6（askdao-ai-web：「成为 KOL」表单 + `/k/{kolId}/g/{groupId}` Group 对话路由 + dashboard 去 mock）|
+| 部署 Payload 清单 + 项目原型识别（v0.6）| ✅ 已交付 PR #19 —— `askdao bundle [path]`（上传清单：lockfile-driven skill 分类 + ignore 链 + 排除给理由）+ `Detection.archetype` / `deployment_payload` + `detect --summary` 加段。设计见 design.md §9.10 |
+| Plugin 机制调研（Claude Code Plugin / Codex Plugin）| ⏳ 待决策 —— design.md §9.11：三个层面影响（入口侧 plugin-manifest 检测 / 出口侧 `askdao plugin export` / 架构层 AgentSpec 目标矩阵 + askdao-cloud 发行模型）+ 分阶段推荐路线。本轮只落档不动代码，等上层确认方向 |
+| 待办 | M4 Issue 5（conductor `app/users/kol_subscription.py:subscribe()` 自动 join KOL 旗下所有 Agent Group）+ Issue 6（askdao-ai-web：「成为 KOL」表单 + `/k/{kolId}/g/{groupId}` Group 对话路由 + dashboard 去 mock）；plugin 机制阶段 1（scanner 加 plugin-manifest 检测，design.md §9.11）等定夺 |
 
 ---
 
@@ -54,7 +56,7 @@ ADR 锚点：`harness-design/primitives/04-agent-deployment-pipeline.md`（ADR-P
 askdao-cli/
 ├── docs/
 │   ├── HANDOFF.md ⭐ 你在这（一次性切换入口）
-│   ├── design.md   ⭐ 设计真相源 (v0.5 / 1366 行)
+│   ├── design.md   ⭐ 设计真相源 (v0.5 + v0.6 决策记录 §9.10/§9.11)
 │   ├── review-2026-05-06.md       # v0.2 review (Anthropic 三资源模型)
 │   ├── review-v0.3-2026-05-06.md  # v0.3 review (中间格式)
 │   ├── review-v0.4-2026-05-06.md  # v0.4 review (Dockerfile 兼容性)
