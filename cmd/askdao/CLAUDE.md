@@ -1,20 +1,21 @@
 # cmd/askdao/
 > L2 | 父级: ../../CLAUDE.md
 
-CLI 入口与四个用户可见命令的实装。这里只做参数解析 + IO + 调用 pipeline / render / deploy；业务逻辑都在 internal/。
+CLI 入口与五个用户可见命令（detect / bundle / agent init / agent show / agent deploy）的实装。这里只做参数解析 + IO + 调用 pipeline / render / deploy；业务逻辑都在 internal/。
 
 ## 成员清单
 
-- **main.go** — subcommand router。无第三方 CLI 框架；用 stdlib `flag` + 手写 dispatch。一级命令 `detect / agent / version / help`；`agent` 二级 dispatch 到 `init / show / deploy`。
+- **main.go** — subcommand router。无第三方 CLI 框架；用 stdlib `flag` + 手写 dispatch。一级命令 `detect / bundle / agent / version / help`；`agent` 二级 dispatch 到 `init / show / deploy`。
 - **argparse.go** — `splitNameAndFlags(args)` helper：把 agent `<name>` 位置参数从 flag 流里挑出来。stdlib `flag.Parse` 在第一个非 flag 参数后停止解析，所以 `init my-agent --auto` 会丢 `--auto` —— 这个 helper 通过 `flagsWithValue` 白名单（`--from / --harness / --dir`）正确跳过 value 形式 flag，让位置参数任意位置都能识别。
-- **detect.go** — `askdao detect [path] [--summary] [--pretty]`。默认 JSON 输出整个 Detection；`--summary` 走 design.md §3.2 短摘要（Languages / Frameworks / Production deps / System pkgs / Harness signals）。
+- **detect.go** — `askdao detect [path] [--summary] [--pretty]`。默认 JSON 输出整个 Detection（含 v0.6 的 `archetype` + `deployment_payload`）；`--summary` 走 design.md §3.2 短摘要（Languages / Frameworks / Production deps / System pkgs / Harness signals）+ 末尾追加 `render.RenderPayload(..., full=false)` 的精简部署清单三行（archetype + N files X KB / M refs / K excluded + "run `askdao bundle`"）。
+- **bundle.go** — `askdao bundle [path] [--json] [--warnings] [--no-evals] [--bundle-skill a,b]`。跑 `pipeline.Run`（LLM=nil）只看 `deployment_payload`：`render.RenderPayload(..., full=true)` 打 WILL UPLOAD（含每个目录的 immediate-children 摘要）/ SKILL REFERENCES / EXCLUDED 三段；`--json` 吐 `{archetype, deployment_payload}`；`--no-evals` → `Options.IncludeEvals=false`；`--bundle-skill` 逗号分隔 → `Options.ForceBundleSkills`（把 vendored skill 从引用改成随包上传）。**只预览不打包/不上传**（真上传等 conductor #11 deploy endpoint）。
 - **init_auto.go** — `askdao agent init <name> [--auto] [--from path] [--harness id]`。
   - 无 `--auto`：写 plan/06 §4.2 空骨架
   - 有 `--auto`：跑 pipeline → 渲染中等详情卡片 → `interactiveLoop` 展示 [A/E/R/S/D/F/M/W/P/Q] 菜单。`A` / `Q` 写文件，前者标 approved 后者标 draft；其余分支输出对应详情后回菜单。所有写入：`<name>/agent.yml`（KOL 编辑副本）+ `<name>/.askdao/recommendation.yml`（冻结快照，deploy 用作 diff baseline）+ `<name>/.askdao/detection.json` + `<name>/persona.md`（已存在则不覆盖）+ `<name>/skills/`
   - LLM 选择走 `chooseLLMClient`：`ASKDAO_CONDUCTOR_URL` 环境变量在则用 `ConductorClient`（POST conductor `/api/v1/cli/recommend`，已上线），否则 `MockClient`（离线确定性 mock）。KOL set 一下 env 就切真实推荐，无需改代码。
 - **show.go** — `askdao agent show <name> [--full|--reasoning|--warnings|--persona|--deps|--mcp]`。读 `<name>/agent.yml`，根据 flag 切五个聚焦视图或默认中等详情卡片。`--full` 直 pipe 原 yaml（cat-like 友好）。
 - **deploy.go** — `askdao agent deploy [--dir path] [--harness id] [--force] [--bio text]`。读 `<dir>/agent.yml` **原始字节**（不 re-marshal）+ 解析；`.askdao/recommendation.yml` 存在则先跑 `render.DiffAgentSpec` 显示 KOL 改动 vs 原推荐（不存在则跳过）；每个 `type==custom_local` skill 把 `<dir>/skills/<basename(path)>/` 经 `internal/deploy.ZipDir` 打成 zip；经 `internal/deploy.Client.Deploy` 以 `multipart/form-data` POST conductor `/api/v1/cli/deploy`（`ASKDAO_CONDUCTOR_TOKEN` Bearer）。`409 kol_profile_required`（ADR-P21）→ `setupKolProfile`：打印 hint + 取 bio（`--bio` 或交互 prompt）+ `Client.SetupKol(kol_join_mode=free)` + 重跑一次；`ErrBlockingWarnings`（`translation_report` 有 HIGH）→ `render.RenderTranslationWarnings(ViewAll)` + `--force` 提示 + exit 1（带 `--force` 跳过 gating）。成功打印 `agent_id` / anthropic agent+environment id / `group_id` / `group link` / `Skills:`（含 `→ managed skill_…@ver (viking://…)`）+ 折叠的 `translation_report`（`ViewSummary`）。`ASKDAO_CONDUCTOR_URL` / `ASKDAO_CONDUCTOR_TOKEN` 没设 → stdout 提示 + exit 3。helper：`setupKolProfile` / `printDeployResult` / `formatSkillRef` / `toRenderWarnings`（conductor 小写 enum → `render.SeverityHigh/Medium/Low`）。
-- **\*\_test.go** — `argparse_test.go` 6 case 覆盖 splitNameAndFlags 主路径；`cmd_test.go`：`detect --summary` / `show 默认` / `show --full` / `show 缺 dir` / `deploy 无 conductor URL 错出` / `deploy 含 diff 显示 before/after`；`deploy_test.go`（`httptest` 假 conductor）：`deploy 无 token` / e2e happy（验 multipart 字段 + skill file part 是合法 zip 含 `<name>/SKILL.md`）/ `409 kol_profile_required` → SetupKol → 重跑（断言 deploy 调 2 次、PATCH 1 次）/ HIGH-warning gating ±`--force` / 缺 skill 目录 exit 1。`captureStdout` / `captureStderr` 是临时 redirect 的 helper，goroutine drain 防止 buffer 阻塞。
+- **\*\_test.go** — `argparse_test.go` 6 case 覆盖 splitNameAndFlags 主路径；`cmd_test.go`：`detect --summary` / `bundle 默认 + --json`（含 skill-lock 的 mini repo，断言 WILL UPLOAD/SKILL REFERENCES/EXCLUDED 段 + node_modules/output 被排除）/ `show 默认` / `show --full` / `show 缺 dir` / `deploy 无 conductor URL 错出` / `deploy 含 diff 显示 before/after`；`deploy_test.go`（`httptest` 假 conductor）：`deploy 无 token` / e2e happy（验 multipart 字段 + skill file part 是合法 zip 含 `<name>/SKILL.md`）/ `409 kol_profile_required` → SetupKol → 重跑（断言 deploy 调 2 次、PATCH 1 次）/ HIGH-warning gating ±`--force` / 缺 skill 目录 exit 1。`captureStdout` / `captureStderr` 是临时 redirect 的 helper，goroutine drain 防止 buffer 阻塞。
 
 ## 设计约束
 

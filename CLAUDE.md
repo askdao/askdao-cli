@@ -8,8 +8,8 @@
 ---
 
 <directory>
-cmd/askdao/ - CLI 入口（main.go router + detect / agent init / agent show / agent deploy）
-internal/ - 业务实现（types/ 双 schema + scanner / providers / pipeline / recommender / render + deploy/ —— conductor /cli/deploy 客户端 + skill zip 打包）
+cmd/askdao/ - CLI 入口（main.go router）+ 五个用户命令（detect / bundle / agent init / agent show / agent deploy）
+internal/ - 业务实现（types/ 双 schema · scanner/ 确定性扫描 · providers/ 框架推断 · pipeline/ L1-L4 编排 · recommender/ L4 LLM + /cli/recommend 客户端 · render/ 审阅卡片 · deploy/ conductor /cli/deploy 客户端 + skill zip 打包）
 docs/ - 设计文档与调研报告（design.md 主稿 + HANDOFF.md + investigations/ 子目录两份 spike 报告）
 </directory>
 
@@ -34,12 +34,15 @@ LICENSE - MIT
 ## 命令骨架
 
 ```
-askdao detect [path]                       # 打印 detection report，不创建 agent
+askdao detect [path]                       # 打印 detection report（含 archetype + 部署清单），不创建 agent
+askdao bundle [path]                       # 预览部署清单：上云会打包哪些文件 / 哪些 skill 走引用重装 / 哪些被排除
 askdao agent init <name> [--auto]          # 创建 agent 目录骨架（--auto 跑 L1-L4 流水线 + 交互审阅）
 askdao agent show <name> [--full|...]      # 渲染 agent spec（中等详情卡片 / 聚焦视图）
 askdao agent deploy [--dir path] [--force] # 打包 custom skill + 经 Conductor /cli/deploy 推到 Anthropic Managed Agents
 askdao agent validate                      # 校验 agent.yml（计划，未实装）
 ```
+
+部署清单分类规则（确定性，零 LLM）：**在 `skills-lock.json` 里的 skill = 外部依赖 → 产引用，云端 `skill install` 重拉（npm ci 语义）；不在 lockfile 里的 = repo 原生 → 随包上传文件**。`node_modules` / `output*` / `input` / 编辑器&OS 垃圾 / `.env*` 等自动排除并给理由；`CLAUDE.md` / `skills-lock.json` / manifest 自动纳入。`.askdaoignore`（syntax 同 gitignore，`!` 反向纳入）做兜底覆盖。`askdao bundle --bundle-skill <name>` 把某外部 skill 强制改成随包上传。
 
 ---
 
@@ -53,6 +56,6 @@ askdao agent validate                      # 校验 agent.yml（计划，未实�
 
 ## 状态
 
-Phase 1（detect / agent init / show / deploy 骨架 + L1-L4 流水线 + render UX）已交付（issue #1-8）。M4 补完 `agent deploy` —— 接 conductor `POST /api/v1/cli/deploy`（`multipart/form-data` + custom skill zip 上传 + `409 kol_profile_required` 隐式补全 + HIGH-warning gating），见 [`docs/HANDOFF.md`](docs/HANDOFF.md)。设计真相源：[`docs/design.md`](docs/design.md)。
+Phase 1（detect / agent init / show / deploy 骨架 + L1-L4 流水线 + render UX）已交付（issue #1-8）；后续加了 `bundle` 命令 + detection 的 archetype / 部署清单（lockfile-pinned skill 走引用重装、其余随包上传，零 LLM；issue #19）。M4 补完 `agent deploy` —— 接 conductor `POST /api/v1/cli/deploy`（`multipart/form-data` + custom skill zip 上传 + `409 kol_profile_required` 隐式补全 + HIGH-warning gating），见 [`docs/HANDOFF.md`](docs/HANDOFF.md)。设计真相源：[`docs/design.md`](docs/design.md)。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

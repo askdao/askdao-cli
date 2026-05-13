@@ -5,10 +5,11 @@
 
 ## 成员清单
 
-- **pipeline.go** — `Run(ctx, Options) (*Result, error)` 是唯一入口。Options 字段：`Root` / `Excludes` / `AgentName` / `PreferredHarness` / `LLM`（nil 跳过推荐）/ `SyftRunner`（注入测试 fake）/ `HomeDir`（harness probe override）。Result：`Detection` / `ProviderPlans` / `Recommendation` / `Warnings`（软警告，比如 syft 不在 PATH）。流程：
+- **pipeline.go** — `Run(ctx, Options) (*Result, error)` 是唯一入口。Options 字段：`Root` / `Excludes` / `AgentName` / `PreferredHarness` / `LLM`（nil 跳过推荐）/ `SyftRunner`（注入测试 fake）/ `HomeDir`（harness probe override）/ `IncludeEvals`（部署清单是否含 skill `evals/`）/ `ForceBundleSkills`（vendored skill 强制随包）。Result：`Detection` / `ProviderPlans` / `Recommendation` / `Warnings`（软警告，比如 syft 不在 PATH、无 skills-lock.json）。流程：
   1. Scanner phase：DetectLanguages / DetectRuntimes / runSyft（缺 syft 时软降级）/ ParseDockerfile / DetectMCPConfigs / DetectSkills / DetectRequiredSecrets / DetectHarnessSignals
   2. ApplyDevFilter — manifest 重标 syft 输出的 IsProd
   3. Provider phase：每个 provider 跑 Detect → Plan，命中的合并到 Detection.DetectedFrameworks / DetectedExternalServices；apt 列表通过 mergeAptHints 合并 provider plans + Dockerfile 抽取去重
+  3b. Archetype + DeploymentPayload：`InferArchetype`（需 skills + languages + frameworks 都就绪）→ `DetectDeploymentPayload`（用 archetype 决定要不要剔 input/data 目录），payload warns 并入 Result.Warnings
   4. Policy phase：InferToolRiskHints 写到 Detection.DetectedToolRiskHints
   5. ScanInfo 装配（root / 时长 / 排除）
   6. Optional LLM phase：发 RecommendRequest（含 Detection + ProviderSummary + Policy），收 RecommendResponse

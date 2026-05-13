@@ -1291,6 +1291,30 @@ vs v0.2（~2950 行）：累计增量 ~1330 行。
 
 ---
 
+### 9.10 部署 Payload 清单 + 项目原型识别（确定性，零 LLM）✅ 已定（v0.6）
+
+**动机**：以 `homework-spelling`（一个 skill-centric 内容流水线：input PDF → output HTML）为标尺，发现 askdao-cli 答不出 KOL 上云时最实际的问题——「这个目录部署到云端，到底该打包上传哪些文件？」`.agents/skills/` 下有 14 个外部 skill + 1 个本地原创 skill，该剔除的（`node_modules`/`output`/`input`/`.DS_Store`）和该纳入的（本地 skill 子树 / `CLAUDE.md` / `skills-lock.json`）混在一起。
+
+**两层确定性能力**（都跑在 `askdao detect` / 新 `askdao bundle` 里，`LLM=nil`）：
+
+1. **`Detection.deployment_payload`** —— `internal/scanner/payload.go`：
+   - **lockfile-driven skill 分类（核心规则，类比 `npm ci`）**：在 `skills-lock.json` 里的 skill = 外部依赖 → 产 `SkillReferences`（透传 `source` + `computedHash`），云端 `skill install` 重拉，**不上传文件**；不在 lockfile 里的 = repo 原生 → 整个 `<skillDir>/<name>/` 子树进 `Includes`。无 lockfile 时退回「全打包」+ warning（保守，宁可多传）。
+   - **ignore 规则链**：`builtin`（编辑器/OS 垃圾、可重装依赖缓存、build 输出、**`.env*`/`*.pem`/`*.key` 永不上传**）→ `.gitignore` → `.dockerignore` → `.askdaoignore`（新约定，syntax 同 gitignore，`!pattern` 反向纳入；文件级负向用 `resolveNegation` 把被排除目录里的具体文件捞回）。复用 `glob.go` 的 `compileGlobs`/`matchAny`。
+   - **正向识别**：`CLAUDE.md`/`AGENTS.md`/`persona.md`/`README` → agent_doc；`package.json`/`go.mod`/`skills-lock.json`/`Dockerfile`/… → manifest。
+   - **明确剔除并给理由**（写进 `Excludes` 而非默默跳过，让 `askdao bundle` 能展示）：`output*`/`*-old`/`*-bak` → generated；`input`/`data`/`samples`/`tmp` → 仅 archetype==skill_pipeline 时剔（user_data）；`.github` → CI 配置。
+   - **escape hatch**：`askdao bundle --bundle-skill <name>` 把某外部 skill 强制改成随包上传（私有/不可达 skill 源的兜底）。
+   - **不做 drift 检测**：`computedHash` 是 lockfile 工具（marswaveai skill manager）的归一化 hash，不是裸文件 sha256，无法可靠复算——presence-in-lockfile 就是信号。`SkillRef.LocalHash` 仅作透明记录。
+
+2. **`Detection.archetype`** —— `internal/scanner/archetype.go`：纯函数，输入已装配的 Detection。本地原创 skill 数 = pipeline 信号；service framework / 后端语言占比 >50% = app 信号。两者都有 → `mixed`；只 pipeline → `skill_pipeline`；只 app → `code_app`；都无 → `unknown`。让 detect 知道「这目录的 agent 本体是那个本地 skill，不是一个服务」，并据此调整 payload 的剔除策略。
+
+**暴露**：`askdao bundle [path]`（独立命令，输出 `WILL UPLOAD` / `SKILL REFERENCES` / `EXCLUDED` 三段 + `--json`/`--warnings`/`--no-evals`/`--bundle-skill`）+ `askdao detect --summary` 末尾追加精简三行 + `askdao detect`（非 summary）的 JSON 多两个顶层字段。
+
+**不做（划界）**：不改 LLM recommender 的产物结构 / prompt（那是后续第③层：把 `CLAUDE.md` 摘要 + 每个 `SKILL.md` 的 `description` + 部署清单一起喂 LLM 判断主/支撑 skill、预填 `persona.system_prompt`——`DetectedSkill.Description` 等字段已先铺好）；`askdao bundle` 只预览不打包/不上传（真上传等 conductor #11 deploy endpoint）；不实现 `.gitignore` 全套语义（嵌套 ignore、`**` 中段匹配等边角），不够用 `.askdaoignore` 兜底。
+
+**实现量**：`internal/scanner/{payload,archetype}.go` + `skills_dir.go` 扩展（frontmatter / bundle 体积 / lockfile 关联）+ `internal/render/payload.go` + `cmd/askdao/bundle.go` + types 新字段 + 测试，约 ~900 行 Go。Phase 切分：归 Phase 1。
+
+---
+
 ## 10. 落地路径
 
 ### Phase 1（即将做）
