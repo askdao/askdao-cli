@@ -11,6 +11,7 @@
 - **review-v0.3-2026-05-06.md** — v0.3 review（harness-neutral 中间格式）
 - **review-v0.4-2026-05-06.md** — v0.4 review（Dockerfile 兼容性补强）
 - **review-v0.5-2026-05-06.md** — v0.5 review（中等详情卡片 UX）
+- **m4-deploy-walkthrough.md** — `askdao agent deploy` 端到端 runbook：cli build / token 取 + URL-decode / agent init 骨架 / SKILL.md 手写 / agent.yml 3 处编辑（system_prompt 不读 persona.md gotcha）/ deploy 命令 + conductor 后端 sync_skill_zip + adapter + 事务建 Agent↔Group 全链路；含 cli stdout / `/api/v1/agents` / PG 验证 checklist。2026-05-14 prod e2e 验证产物
 - **investigations/** - spike 报告与外部技术参考（详见子目录 CLAUDE.md）
 
 ## 文档来源
