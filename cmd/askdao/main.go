@@ -34,6 +34,8 @@ func main() {
 		os.Exit(runBundle(ctx, os.Args[2:]))
 	case "agent":
 		os.Exit(runAgent(ctx, os.Args[2:]))
+	case "auth":
+		os.Exit(runAuth(ctx, os.Args[2:]))
 	default:
 		fmt.Fprintf(os.Stderr, "askdao: unknown command %q\n\n", cmd)
 		printRootHelp(os.Stderr)
@@ -75,6 +77,9 @@ USAGE:
     askdao <command> [args]
 
 COMMANDS:
+    auth login                     Browser-bound login (OAuth 2.0 Device Code Flow)
+    auth status                    Show the currently-logged-in identity
+    auth logout                    Delete local credentials
     detect [path]                  Print detection report (L1-L3, no LLM)
     bundle [path]                  Preview the deployment payload (what gets uploaded)
     agent init <name> [--auto]     Generate agent.yml + persona.md

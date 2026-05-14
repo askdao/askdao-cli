@@ -8,9 +8,9 @@
 ---
 
 <directory>
-cmd/askdao/ - CLI 入口（main.go router）+ 五个用户命令（detect / bundle / agent init / agent show / agent deploy）
-internal/ - 业务实现（types/ 双 schema · scanner/ 确定性扫描 · providers/ 框架推断 · pipeline/ L1-L4 编排 · recommender/ L4 LLM + /cli/recommend 客户端 · render/ 审阅卡片 · deploy/ conductor /cli/deploy 客户端 + skill zip 打包）
-docs/ - 设计文档与调研报告（design.md 主稿 + HANDOFF.md + investigations/ 子目录两份 spike 报告）
+cmd/askdao/ - CLI 入口（main.go router）+ 用户命令（auth login/status/logout · detect · bundle · agent init/show/deploy）
+internal/ - 业务实现（auth/ 凭据 + Device Code Flow 客户端 · types/ 双 schema · scanner/ 确定性扫描 · providers/ 框架推断 · pipeline/ L1-L4 编排 · recommender/ L4 LLM + /cli/recommend 客户端 · render/ 审阅卡片 · deploy/ conductor /cli/deploy 客户端 + skill zip 打包）
+docs/ - 设计文档与调研报告（design.md 主稿 + cli-auth-device-flow.md（OAuth 2.0 Device Code Flow）+ HANDOFF.md + investigations/ 子目录两份 spike 报告）
 </directory>
 
 <config>
@@ -34,6 +34,9 @@ LICENSE - MIT
 ## 命令骨架
 
 ```
+askdao auth login [--server url] [--no-browser]  # OAuth 2.0 Device Code Flow（RFC 8628）+ 落 ~/.config/askdao/credentials.json (0600)
+askdao auth status                         # 显示当前登录身份；未登录 exit 1
+askdao auth logout                         # 删除本地 credentials（不撤销服务端 token，撤销走 web UI v2）
 askdao detect [path]                       # 打印 detection report（含 archetype + 部署清单），不创建 agent
 askdao bundle [path]                       # 预览部署清单：上云会打包哪些文件 / 哪些 skill 走引用重装 / 哪些被排除
 askdao agent init <name> [--auto]          # 创建 agent 目录骨架（--auto 跑 L1-L4 流水线 + 交互审阅）
@@ -41,6 +44,8 @@ askdao agent show <name> [--full|...]      # 渲染 agent spec（中等详情卡
 askdao agent deploy [--dir path] [--force] # 打包 custom skill + 经 Conductor /cli/deploy 推到 Anthropic Managed Agents
 askdao agent validate                      # 校验 agent.yml（计划，未实装）
 ```
+
+deploy 的 token 解析顺序：`ASKDAO_CONDUCTOR_TOKEN + ASKDAO_CONDUCTOR_URL` 同时设置 → 用 env（CI / 一次性覆盖）；否则读 `credentials.json`（`askdao auth login` 的产物）；都没有 → 报错并提示登录。两个 env 必须成对，单设一个明确报错（防止误配置静默降级）。设计稿 [`docs/cli-auth-device-flow.md`](docs/cli-auth-device-flow.md) §6.3。
 
 部署清单分类规则（确定性，零 LLM）：**在 `skills-lock.json` 里的 skill = 外部依赖 → 产引用，云端 `skill install` 重拉（npm ci 语义）；不在 lockfile 里的 = repo 原生 → 随包上传文件**。`node_modules` / `output*` / `input` / 编辑器&OS 垃圾 / `.env*` 等自动排除并给理由；`CLAUDE.md` / `skills-lock.json` / manifest 自动纳入。`.askdaoignore`（syntax 同 gitignore，`!` 反向纳入）做兜底覆盖。`askdao bundle --bundle-skill <name>` 把某外部 skill 强制改成随包上传。
 

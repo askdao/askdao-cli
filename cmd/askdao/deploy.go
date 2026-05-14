@@ -1,6 +1,6 @@
-// [INPUT]: 标准库 + internal/deploy（Client / DeployInput / ZipDir / Err* 类型）+ internal/render（Diff / TranslationWarnings）+ internal/types（AgentSpec）+ gopkg.in/yaml.v3
+// [INPUT]: 标准库 + internal/auth（Credentials / Load / ErrNoCredentials）+ internal/deploy（Client / DeployInput / ZipDir / Err* 类型）+ internal/render（Diff / TranslationWarnings）+ internal/types（AgentSpec）+ gopkg.in/yaml.v3
 // [OUTPUT]: runDeploy — `askdao agent deploy` 命令实装
-// [POS]: cmd/askdao 的 deploy 子命令；读 <dir>/agent.yml 原文 + 打包 custom_local skill 目录 → 经 internal/deploy.Client 上传 conductor /cli/deploy；处理 kol_profile_required 握手 + HIGH-warning gating + 结果打印
+// [POS]: cmd/askdao 的 deploy 子命令；读 <dir>/agent.yml 原文 + 打包 custom_local skill 目录 → 经 internal/deploy.Client 上传 conductor /cli/deploy；处理 kol_profile_required 握手 + HIGH-warning gating + 结果打印。Token / server URL 解析顺序见 resolveServerAndToken (env > credentials.json > error)，对齐 docs/cli-auth-device-flow.md §6.3.
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package main
 
@@ -17,6 +17,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/askdao/askdao-cli/internal/auth"
 	"github.com/askdao/askdao-cli/internal/deploy"
 	"github.com/askdao/askdao-cli/internal/render"
 	"github.com/askdao/askdao-cli/internal/types"
@@ -63,18 +64,11 @@ func runDeploy(ctx context.Context, args []string) int {
 		}
 	}
 
-	conductorURL := strings.TrimSpace(os.Getenv("ASKDAO_CONDUCTOR_URL"))
-	if conductorURL == "" {
+	conductorURL, token, authErr := resolveServerAndToken()
+	if authErr != nil {
 		fmt.Println()
-		fmt.Println("✗ deploy: ASKDAO_CONDUCTOR_URL is not set.")
-		fmt.Println("  Set ASKDAO_CONDUCTOR_URL=https://api.askdao.ai (and ASKDAO_CONDUCTOR_TOKEN) and re-run.")
-		return 3
-	}
-	token := strings.TrimSpace(os.Getenv("ASKDAO_CONDUCTOR_TOKEN"))
-	if token == "" {
-		fmt.Println()
-		fmt.Println("✗ deploy: ASKDAO_CONDUCTOR_TOKEN is not set.")
-		fmt.Println("  deploy needs authentication — set ASKDAO_CONDUCTOR_TOKEN to your session token and re-run.")
+		fmt.Println("✗ deploy:", authErr)
+		fmt.Println("  Either run `askdao auth login`, or set ASKDAO_CONDUCTOR_URL + ASKDAO_CONDUCTOR_TOKEN for CI / one-off use.")
 		return 3
 	}
 
@@ -311,6 +305,43 @@ func sortedKeys(m map[string][]byte) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// resolveServerAndToken picks the conductor URL + bearer token for deploy.
+//
+// Precedence (docs/cli-auth-device-flow.md §6.3 — env-first, matches
+// aws/gcloud/kubectl):
+//
+//  1. $ASKDAO_CONDUCTOR_TOKEN + $ASKDAO_CONDUCTOR_URL (both required if either
+//     is set) — CI / one-off override
+//  2. credentials.json from `askdao auth login` — interactive default
+//  3. error — caller prints the actionable hint
+//
+// The two env vars travel as a pair: explicitly setting only one is almost
+// certainly a misconfiguration and silently falling back to credentials.json
+// would be more confusing than the error.
+func resolveServerAndToken() (string, string, error) {
+	envToken := strings.TrimSpace(os.Getenv("ASKDAO_CONDUCTOR_TOKEN"))
+	envURL := strings.TrimSpace(os.Getenv("ASKDAO_CONDUCTOR_URL"))
+
+	if envToken != "" && envURL != "" {
+		return envURL, envToken, nil
+	}
+	if envToken != "" && envURL == "" {
+		return "", "", errors.New("ASKDAO_CONDUCTOR_TOKEN is set but ASKDAO_CONDUCTOR_URL is not")
+	}
+	if envURL != "" && envToken == "" {
+		return "", "", errors.New("ASKDAO_CONDUCTOR_URL is set but ASKDAO_CONDUCTOR_TOKEN is not")
+	}
+
+	creds, err := auth.Load()
+	if err != nil {
+		if errors.Is(err, auth.ErrNoCredentials) {
+			return "", "", errors.New("not logged in")
+		}
+		return "", "", err
+	}
+	return creds.Server, creds.AccessToken, nil
 }
 
 // readSpec parses an agent.yml-style file into an AgentSpec — used for the
