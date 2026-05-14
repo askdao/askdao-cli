@@ -22,6 +22,10 @@ func TestDeploy_RefusesWithoutToken(t *testing.T) {
 	writeMinimalAgent(t, root, "test-agent")
 	t.Setenv("ASKDAO_CONDUCTOR_URL", "http://localhost:1")
 	t.Setenv("ASKDAO_CONDUCTOR_TOKEN", "")
+	// Belt-and-suspenders: isolate credentials.json so the "URL-set / no-token"
+	// branch in resolveServerAndToken is what fires, not the credentials
+	// fallback path.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
 	out, restore := captureStdout(t)
 	defer restore()
