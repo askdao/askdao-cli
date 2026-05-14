@@ -82,9 +82,9 @@ COMMANDS:
     auth logout                    Delete local credentials
     detect [path]                  Print detection report (L1-L3, no LLM)
     bundle [path]                  Preview the deployment payload (what gets uploaded)
-    agent init <name> [--auto]     Generate agent.yml + persona.md
-    agent show <name> [flags]      Show the mid-density review card
-    agent deploy [--harness id]    Push agent to conductor (Phase 1: stub)
+    agent init [name] [--auto]     Generate askdao-agent.yml at project root
+    agent show [flags]             Show the mid-density review card
+    agent deploy [--harness id]    Push agent to conductor
     version                        Print version
     help                           Show this help
 
@@ -97,16 +97,18 @@ func printAgentHelp(w io.Writer) {
     askdao agent <subcommand> [args]
 
 SUBCOMMANDS:
-    init <name> [--auto] [--from path] [--harness id]
-        Create agent skeleton. With --auto, runs L1-L4 pipeline and
-        produces a populated agent.yml + .askdao/detection.json.
+    init [name] [--auto] [--from path] [--harness id]
+        Generate askdao-agent.yml at the project root and .askdao/ for tool
+        products (recommendation.yml + detection.json). With --auto, runs the
+        L1-L4 pipeline + interactive review. `+"`name`"+` is optional and
+        defaults to the project directory name.
 
-    show <name> [--full|--reasoning|--warnings|--persona|--deps|--mcp]
+    show [--full|--reasoning|--warnings|--persona|--deps|--mcp] [--dir path]
         Render the mid-density review card. Flags drill into one section.
 
-    deploy [--harness id]
-        Read <name>/agent.yml + recommendation snapshot, diff against the
-        original recommendation, and (when conductor wires up) push spec
+    deploy [--harness id] [--force] [--bio text] [--dir path]
+        Read <dir>/askdao-agent.yml + recommendation snapshot, diff against the
+        original recommendation, and push spec
         to the chosen harness.
 `)
 }

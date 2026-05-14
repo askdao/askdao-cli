@@ -5,14 +5,17 @@
 
 ## 成员清单
 
-- **pipeline.go** — `Run(ctx, Options) (*Result, error)` 是唯一入口。Options 字段：`Root` / `Excludes` / `AgentName` / `PreferredHarness` / `LLM`（nil 跳过推荐）/ `SyftRunner`（注入测试 fake）/ `HomeDir`（harness probe override）/ `IncludeEvals`（部署清单是否含 skill `evals/`）/ `ForceBundleSkills`（vendored skill 强制随包）。Result：`Detection` / `ProviderPlans` / `Recommendation` / `Warnings`（软警告，比如 syft 不在 PATH、无 skills-lock.json）。流程：
+- **pipeline.go** — `Run(ctx, Options) (*Result, error)` 是唯一入口。Options 字段：`Root` / `Excludes` / `AgentName` / `PreferredHarness` / `LLM`（nil 跳过推荐）/ `SyftRunner`（注入测试 fake）/ `HomeDir`（harness probe override）/ `IncludeEvals`（部署清单是否含 skill `evals/`）。Result：`Detection` / `ProviderPlans` / `Recommendation` / **`AgentSkills`（v0.7 起 deterministic 构造的 skills 段）** / `Warnings`。流程：
   1. Scanner phase：DetectLanguages / DetectRuntimes / runSyft（缺 syft 时软降级）/ ParseDockerfile / DetectMCPConfigs / DetectSkills / DetectRequiredSecrets / DetectHarnessSignals
   2. ApplyDevFilter — manifest 重标 syft 输出的 IsProd
   3. Provider phase：每个 provider 跑 Detect → Plan，命中的合并到 Detection.DetectedFrameworks / DetectedExternalServices；apt 列表通过 mergeAptHints 合并 provider plans + Dockerfile 抽取去重
   3b. Archetype + DeploymentPayload：`InferArchetype`（需 skills + languages + frameworks 都就绪）→ `DetectDeploymentPayload`（用 archetype 决定要不要剔 input/data 目录），payload warns 并入 Result.Warnings
   4. Policy phase：InferToolRiskHints 写到 Detection.DetectedToolRiskHints
   5. ScanInfo 装配（root / 时长 / 排除）
+  **5b. Deterministic skills builder（v0.7）**：`BuildAgentSpecSkills(det)` 填到 `Result.AgentSkills`，cmd-layer 后用它覆盖 LLM 输出的 spec.Skills
   6. Optional LLM phase：发 RecommendRequest（含 Detection + ProviderSummary + Policy），收 RecommendResponse
+- **skills_builder.go** — `BuildAgentSpecSkills(det) []types.Skill` deterministic 构造 agent.yml.skills 段：每个 DetectedSkill → `{type: custom_local, path: filepath.Dir(s.Source)}`（path 是相对项目根的 skill 目录路径）；每个 ImpliedAnthropicSkill 去重 → `{type: builtin, provider: anthropic, id: skillID}`。稳定排序。**信任边界原则**：LLM 适合软字段（model_class / system_prompt / persona / reasoning_*）；skill 引用是确定性事实字段，由 builder 取代 LLM 自由发挥（design.md §9.13，与 conductor 端 metadata.domain normalizer 同款哲学）。
+- **skills_builder_test.go** — 4 用例覆盖：1 原生 + 2 vendored 全产 custom_local（path 指目录非 SKILL.md）/ implied xlsx 产 builtin / duplicate SkillID 去重 / 空 DetectedSkills 安全返 nil。
 - **pipeline_test.go** — 三个核心测试：
   - `TestPipeline_DetectOnly_NoLLM` — fixture 项目（pyproject.toml + main.py + deploy.yml + .env.example + .mcp.json）跑全管线，断言：FastAPI 框架命中 / pytest 标 dev / deploy.yml 触发 bash 覆盖 / GITHUB_TOKEN 跨链到 github MCP
   - `TestPipeline_WithMockLLM_ProducesAgentSpec` — 同 fixture + MockClient，AgentSpec 出来后 shell.permission=ask_for_dangerous（policy + recommender 契约）

@@ -253,12 +253,13 @@ func TestDeploy_Force_OverridesBlockingWarnings(t *testing.T) {
 
 func TestDeploy_MissingSkillDir(t *testing.T) {
 	root := withWorkdir(t)
-	// agent.yml references a custom_local skill whose directory doesn't exist.
+	// askdao-agent.yml references a custom_local skill whose directory does
+	// not exist on disk.
 	dir := filepath.Join(root, "broken-agent")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "agent.yml"), []byte(minimalAgentYAML("broken-agent", "  - {type: custom_local, path: ghost}\n")), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "askdao-agent.yml"), []byte(minimalAgentYAML("broken-agent", "  - {type: custom_local, path: .agents/skills/ghost}\n")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("ASKDAO_CONDUCTOR_URL", "http://localhost:1")
@@ -306,18 +307,19 @@ func minimalAgentYAML(name, skillsBlock string) string {
 
 func writeAgentDirWithSkill(t *testing.T, root, name, skillName string) {
 	t.Helper()
+	// v0.7 layout: project root is <root>/<name>/; skill lives at
+	// .agents/skills/<skillName>/; askdao-agent.yml's `path` references it
+	// relative to the project root. No persona.md (system_prompt is in yaml).
 	dir := filepath.Join(root, name)
-	skillDir := filepath.Join(dir, "skills", skillName)
+	skillRel := ".agents/skills/" + skillName
+	skillDir := filepath.Join(dir, ".agents", "skills", skillName)
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "agent.yml"), []byte(minimalAgentYAML(name, "  - {type: custom_local, path: "+skillName+"}\n")), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "askdao-agent.yml"), []byte(minimalAgentYAML(name, "  - {type: custom_local, path: "+skillRel+"}\n")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: "+skillName+"\ndescription: a test skill\n---\nDo a thing.\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "persona.md"), []byte("# "+name+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

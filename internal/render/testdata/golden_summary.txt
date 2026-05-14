@@ -9,7 +9,6 @@
                    ↳ Why: FastAPI + Alembic migration logic complex
                           Confidence: 0.78
   Fallback       : gpt-5.4, claude-sonnet-4-6
-  Persona file   : persona.md  (empty — KOL to write)
   System prompt  : 380 chars  [P] view
 
 ═══════════════════════════════════════════════════════════════

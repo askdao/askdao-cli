@@ -46,6 +46,11 @@ type AgentSpec struct {
 }
 
 // Metadata is business identity, harness-agnostic.
+//
+// As of v0.7 there is no longer a `persona_file` field: the agent's persona
+// lives entirely inside `Persona.SystemPrompt` (yaml literal block), giving
+// the askdao-agent.yml a single source of truth for the agent's voice. See
+// docs/design.md §9.15.
 type Metadata struct {
 	Name           string            `json:"name"                      yaml:"name"`
 	Description    string            `json:"description,omitempty"     yaml:"description,omitempty"`
@@ -54,7 +59,6 @@ type Metadata struct {
 	ExpertiseLevel string            `json:"expertise_level,omitempty" yaml:"expertise_level,omitempty"`
 	Domain         []string          `json:"domain,omitempty"          yaml:"domain,omitempty"`
 	GroupName      string            `json:"group_name,omitempty"      yaml:"group_name,omitempty"`
-	PersonaFile    string            `json:"persona_file,omitempty"    yaml:"persona_file,omitempty"`
 	Labels         map[string]string `json:"labels,omitempty"          yaml:"labels,omitempty"`
 }
 
@@ -110,13 +114,31 @@ type CustomTool struct {
 
 // Skill comes from one of three sources: builtin (provider-hosted), local
 // custom directory, or git_repo reference.
+// Skill is one entry of AgentSpec.skills.
+//
+//   - Type=builtin: Anthropic-hosted skill (xlsx, pdf, etc). Provider=anthropic,
+//     ID=short name. No upload required.
+//   - Type=custom_local: a directory in the KOL project. Path is the skill
+//     directory's path **relative to the KOL project root** (e.g.
+//     ".agents/skills/tts"). At deploy time the entire directory is recursively
+//     zipped — SKILL.md plus scripts/, assets/, references/ subdirs and all
+//     binary files — and uploaded. The zip's top-level dir is filepath.Base(Path)
+//     so the upstream harness directory (.claude/skills/, .agents/skills/, ...)
+//     is *not* leaked into the archive (harness-neutral invariant, see
+//     docs/design.md §9.14).
+//   - Type=git_repo: harness-agnostic concept (a skill fetched from GitHub at
+//     runtime). NOT supported by Anthropic Managed Agents (no public skill
+//     registry; see harness-design/investigations/managed-agents-skill-installation.md).
+//     Kept in the schema for future runtimes (E2B sandbox + Claude Agent SDK
+//     etc.) that may consume this shape. The Anthropic adapter emits a HIGH
+//     translation warning and skips the entry.
 type Skill struct {
 	Type     string `json:"type"               yaml:"type"`     // builtin | custom_local | git_repo
 	Provider string `json:"provider,omitempty" yaml:"provider,omitempty"` // anthropic | ...
-	ID       string `json:"id,omitempty"       yaml:"id,omitempty"`
-	Path     string `json:"path,omitempty"     yaml:"path,omitempty"`
-	Repo     string `json:"repo,omitempty"     yaml:"repo,omitempty"`
-	Ref      string `json:"ref,omitempty"      yaml:"ref,omitempty"`
+	ID       string `json:"id,omitempty"       yaml:"id,omitempty"`   // builtin only
+	Path     string `json:"path,omitempty"     yaml:"path,omitempty"` // custom_local: skill dir, relative to project root
+	Repo     string `json:"repo,omitempty"     yaml:"repo,omitempty"` // git_repo only
+	Ref      string `json:"ref,omitempty"      yaml:"ref,omitempty"`  // git_repo only
 }
 
 // Workspace is the runtime environment configuration. The v0.4 fields

@@ -1,6 +1,11 @@
 // [INPUT]: 标准库 + internal/auth（Credentials / Load / ErrNoCredentials）+ internal/deploy（Client / DeployInput / ZipDir / Err* 类型）+ internal/render（Diff / TranslationWarnings）+ internal/types（AgentSpec）+ gopkg.in/yaml.v3
 // [OUTPUT]: runDeploy — `askdao agent deploy` 命令实装
-// [POS]: cmd/askdao 的 deploy 子命令；读 <dir>/agent.yml 原文 + 打包 custom_local skill 目录 → 经 internal/deploy.Client 上传 conductor /cli/deploy；处理 kol_profile_required 握手 + HIGH-warning gating + 结果打印。Token / server URL 解析顺序见 resolveServerAndToken (env > credentials.json > error)，对齐 docs/cli-auth-device-flow.md §6.3.
+// [POS]: cmd/askdao 的 deploy 子命令；读 <dir>/askdao-agent.yml 原文 + 按 skill.path（相对 KOL 项目根的目录路径，
+//
+//	harness 中性 invariant）递归打 zip → 经 internal/deploy.Client 上传 conductor /cli/deploy；处理
+//	kol_profile_required 握手 + HIGH-warning gating + 结果打印。Token / server URL 解析顺序见 resolveServerAndToken
+//	(env > credentials.json > error)，对齐 docs/cli-auth-device-flow.md §6.3.
+//
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package main
 
@@ -24,22 +29,24 @@ import (
 )
 
 // runDeploy implements `askdao agent deploy [--dir path] [--harness id] [--force] [--bio text]`:
-// reads <dir>/agent.yml (sent verbatim), packages each custom_local skill
-// directory into a zip, POSTs everything to the conductor /cli/deploy endpoint,
-// runs the kol_profile_required handshake when needed, gates on HIGH-severity
-// translation warnings (override with --force), and prints the resulting
-// agent / group / skill IDs.
+// reads <dir>/askdao-agent.yml (sent verbatim), packages each custom_local
+// skill directory (located at <dir>/<skill.path>) into a zip — recursively
+// including SKILL.md + scripts/ + assets/ + references/ etc., harness-neutral
+// by virtue of filepath.Base — POSTs everything to the conductor /cli/deploy
+// endpoint, runs the kol_profile_required handshake when needed, gates on
+// HIGH-severity translation warnings (override with --force), and prints the
+// resulting agent / group / skill IDs.
 func runDeploy(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("deploy", flag.ContinueOnError)
-	dir := fs.String("dir", ".", "Agent directory containing agent.yml")
-	harness := fs.String("harness", "", "Override preferred_harness from agent.yml")
+	dir := fs.String("dir", ".", "KOL project root containing askdao-agent.yml")
+	harness := fs.String("harness", "", "Override preferred_harness from askdao-agent.yml")
 	force := fs.Bool("force", false, "Deploy even if the translation report has HIGH-severity warnings")
 	bio := fs.String("bio", "", "KOL bio — used if the conductor asks you to set up your KOL profile (skips the interactive prompt)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 
-	agentYAMLPath := filepath.Join(*dir, "agent.yml")
+	agentYAMLPath := filepath.Join(*dir, askdaoAgentFileName)
 	agentYAML, err := os.ReadFile(agentYAMLPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "deploy: %v\n", err)
@@ -72,43 +79,48 @@ func runDeploy(ctx context.Context, args []string) int {
 		return 3
 	}
 
-	// Package each custom_local skill directory (<dir>/skills/<basename(path)>/).
+	// Package each custom_local skill's directory. s.Path is the skill dir
+	// path relative to the project root (e.g. ".agents/skills/tts"); the zip's
+	// top-level entry is always filepath.Base(s.Path) — the harness-neutral
+	// invariant from design.md §9.14 (the .claude/ or .agents/ prefix is
+	// stripped at packaging time so Anthropic only ever sees `tts/SKILL.md`
+	// regardless of which harness convention the KOL uses on disk).
 	skillZips := map[string][]byte{}
 	for _, s := range spec.Skills {
 		if s.Type != "custom_local" {
 			continue
 		}
-		key := s.Path
-		if key == "" {
-			key = s.ID
-		}
-		if key == "" {
-			fmt.Fprintln(os.Stderr, "deploy: a custom_local skill entry is missing 'path' (and 'id')")
+		if s.Path == "" {
+			fmt.Fprintln(os.Stderr, "deploy: a custom_local skill entry is missing 'path'")
 			return 1
 		}
-		name := filepath.Base(strings.TrimRight(filepath.ToSlash(key), "/"))
-		if name == "" || name == "." {
-			fmt.Fprintf(os.Stderr, "deploy: custom_local skill %q: invalid path\n", key)
+		skillName := filepath.Base(filepath.Clean(s.Path))
+		if skillName == "" || skillName == "." || skillName == "/" {
+			fmt.Fprintf(os.Stderr, "deploy: custom_local skill path %q: cannot resolve a skill name\n", s.Path)
 			return 1
 		}
-		skillDir := filepath.Join(*dir, "skills", name)
+		skillDir := filepath.Join(*dir, filepath.FromSlash(s.Path))
 		if fi, serr := os.Stat(skillDir); serr != nil || !fi.IsDir() {
 			fmt.Fprintf(os.Stderr,
 				"deploy: custom_local skill %q: directory not found at %s\n"+
-					"        create %s with a SKILL.md (+ any scripts), then re-run.\n",
-				key, skillDir, skillDir)
+					"        skills[].path should be the skill directory relative to project root (e.g. .agents/skills/tts).\n",
+				s.Path, skillDir)
 			return 1
 		}
 		if _, serr := os.Stat(filepath.Join(skillDir, "SKILL.md")); serr != nil {
-			fmt.Fprintf(os.Stderr, "deploy: custom_local skill %q: %s does not contain a SKILL.md\n", key, skillDir)
+			fmt.Fprintf(os.Stderr, "deploy: custom_local skill %q: %s does not contain a SKILL.md\n", s.Path, skillDir)
 			return 1
 		}
-		zb, zerr := deploy.ZipDir(skillDir, name)
+		zb, zerr := deploy.ZipDir(skillDir, skillName)
 		if zerr != nil {
-			fmt.Fprintf(os.Stderr, "deploy: packaging skill %q: %v\n", key, zerr)
+			fmt.Fprintf(os.Stderr, "deploy: packaging skill %q: %v\n", s.Path, zerr)
 			return 1
 		}
-		skillZips[name] = zb
+		if _, dup := skillZips[skillName]; dup {
+			fmt.Fprintf(os.Stderr, "deploy: skill name collision %q (two paths produce the same basename)\n", skillName)
+			return 1
+		}
+		skillZips[skillName] = zb
 	}
 
 	// Optional detection.json — sent if present.

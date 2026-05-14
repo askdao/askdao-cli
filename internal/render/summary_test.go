@@ -23,7 +23,6 @@ func fixtureSpec() SummaryInput {
 			Description: "Backend engineering assistant",
 			Version:     "0.1.0",
 			Visibility:  "private",
-			PersonaFile: "persona.md",
 		},
 		Persona: types.Persona{
 			ModelClass: "high_reasoning",
@@ -106,8 +105,7 @@ func fixtureSpec() SummaryInput {
 			{Field: "workspace.users", Action: "IGNORED",
 				Severity: SeverityMedium},
 		},
-		Harness:         "Anthropic Managed Agents",
-		PersonaFileNote: "empty — KOL to write",
+		Harness: "Anthropic Managed Agents",
 	}
 }
 

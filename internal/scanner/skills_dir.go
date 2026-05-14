@@ -103,6 +103,7 @@ func DetectSkills(root string, pkgs map[string][]types.Package) ([]types.Detecte
 			ds.BundleBytes, ds.BundleFiles = dirSize(filepath.Join(base, e.Name()))
 			if ref, ok := lock[e.Name()]; ok {
 				ds.LockedSource = ref.Source
+				ds.LockedHash = ref.LockedHash
 				ds.IsLocalOriginal = false
 			}
 			out = append(out, ds)
@@ -116,11 +117,22 @@ func DetectSkills(root string, pkgs map[string][]types.Package) ([]types.Detecte
 	return out, nil
 }
 
+// SkillsLockEntry is one record from skills-lock.json, used internally by the
+// scanner to enrich DetectedSkill with origin metadata (LockedSource +
+// LockedHash) and previously to populate the now-removed DeploymentPayload.
+// SkillReferences sidecar. Public so test fixtures can stage lockfile-shaped
+// data without going through file I/O.
+type SkillsLockEntry struct {
+	Name       string
+	Source     string // e.g. "marswaveai/skills"
+	LockedHash string // computedHash passthrough — used as origin tag short hash
+}
+
 // LoadSkillsLock finds a skills-lock.json (project root, plus each skill
-// directory candidate and its parent) and parses it into a name→SkillRef map.
+// directory candidate and its parent) and parses it into a name→entry map.
 // A missing or malformed lockfile yields a nil map and nil error — callers
-// degrade gracefully (bundle everything, no references).
-func LoadSkillsLock(root string) (map[string]types.SkillRef, error) {
+// degrade gracefully.
+func LoadSkillsLock(root string) (map[string]SkillsLockEntry, error) {
 	if root == "" {
 		return nil, errors.New("scanner: root must be non-empty")
 	}
@@ -144,8 +156,6 @@ func LoadSkillsLock(root string) (map[string]types.SkillRef, error) {
 		var doc struct {
 			Skills map[string]struct {
 				Source       string `json:"source"`
-				SourceType   string `json:"sourceType"`
-				SkillPath    string `json:"skillPath"`
 				ComputedHash string `json:"computedHash"`
 			} `json:"skills"`
 		}
@@ -155,13 +165,11 @@ func LoadSkillsLock(root string) (map[string]types.SkillRef, error) {
 		if len(doc.Skills) == 0 {
 			continue
 		}
-		out := make(map[string]types.SkillRef, len(doc.Skills))
+		out := make(map[string]SkillsLockEntry, len(doc.Skills))
 		for name, s := range doc.Skills {
-			out[name] = types.SkillRef{
+			out[name] = SkillsLockEntry{
 				Name:       name,
-				SourceType: s.SourceType,
 				Source:     s.Source,
-				SkillPath:  s.SkillPath,
 				LockedHash: s.ComputedHash,
 			}
 		}

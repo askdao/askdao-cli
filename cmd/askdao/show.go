@@ -13,26 +13,26 @@ import (
 	"github.com/askdao/askdao-cli/internal/types"
 )
 
-// runShow implements `askdao agent show <name> [flags]`. The default view is
-// the same mid-density card init produces; flags drill into one section.
+// runShow implements `askdao agent show [flags]`. Reads
+// <dir>/askdao-agent.yml (project root) and renders the mid-density review
+// card by default; flags drill into one section. v0.7 dropped the positional
+// `<name>` argument — one project = one agent — and the `--persona` flag
+// now echoes `spec.persona.system_prompt` directly (no external persona.md
+// file).
 func runShow(_ context.Context, args []string) int {
-	name, rest, ok := splitNameAndFlags(args)
-	if !ok {
-		fmt.Fprintln(os.Stderr, "askdao agent show: missing <name>")
-		return 2
-	}
 	fs := flag.NewFlagSet("show", flag.ContinueOnError)
-	full := fs.Bool("full", false, "Print the complete agent.yml")
+	dir := fs.String("dir", ".", "KOL project root containing askdao-agent.yml")
+	full := fs.Bool("full", false, "Print the complete askdao-agent.yml")
 	reasoning := fs.Bool("reasoning", false, "Print provenance.reasoning_decisions only")
-	warnings := fs.Bool("warnings", false, "Print TranslationWarnings only (none until the agent is deployed — they live in agent deploy's response, not agent.yml)")
-	persona := fs.Bool("persona", false, "Print persona.md + system_prompt only")
+	warnings := fs.Bool("warnings", false, "Print TranslationWarnings only (none until the agent is deployed — they live in agent deploy's response, not askdao-agent.yml)")
+	persona := fs.Bool("persona", false, "Print persona.system_prompt only")
 	deps := fs.Bool("deps", false, "Print full pip / npm dep lists")
 	mcp := fs.Bool("mcp", false, "Print MCP servers (active + filtered)")
-	if err := fs.Parse(rest); err != nil {
+	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 
-	specPath := filepath.Join(name, "agent.yml")
+	specPath := filepath.Join(*dir, askdaoAgentFileName)
 	data, err := os.ReadFile(specPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "show: read %s: %v\n", specPath, err)
@@ -40,7 +40,7 @@ func runShow(_ context.Context, args []string) int {
 	}
 	var spec types.AgentSpec
 	if err := yaml.Unmarshal(data, &spec); err != nil {
-		fmt.Fprintf(os.Stderr, "show: parse agent.yml: %v\n", err)
+		fmt.Fprintf(os.Stderr, "show: parse %s: %v\n", specPath, err)
 		return 1
 	}
 
@@ -65,12 +65,6 @@ func runShow(_ context.Context, args []string) int {
 
 	case *persona:
 		fmt.Println(spec.Persona.SystemPrompt)
-		fmt.Println()
-		personaPath := filepath.Join(name, "persona.md")
-		if pdata, err := os.ReadFile(personaPath); err == nil {
-			fmt.Println("─── persona.md ─────────────────────────────────────────")
-			fmt.Print(string(pdata))
-		}
 		return 0
 
 	case *deps:

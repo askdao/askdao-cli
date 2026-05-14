@@ -1,6 +1,10 @@
-// [INPUT]: 依赖 标准库 (fmt, os, path/filepath, sort), internal/types 的 DeploymentPayload / PayloadEntry / SkillRef / ProjectArchetype
-// [OUTPUT]: 对外提供 RenderPayload —— 把部署清单渲染成 KOL 友好的 WILL UPLOAD / SKILL REFERENCES / EXCLUDED 三段
-// [POS]: render 层的部署清单视图；被 cmd/askdao 的 bundle.go（full=true）与 detect.go（full=false 精简版）共用
+// [INPUT]: 依赖 标准库 (fmt, os, path/filepath, sort), internal/types 的 DeploymentPayload / PayloadEntry / ProjectArchetype
+// [OUTPUT]: 对外提供 RenderPayload —— 把部署清单渲染成 KOL 友好的 WILL UPLOAD / EXCLUDED 两段
+// [POS]: render 层的部署清单视图；被 cmd/askdao 的 bundle.go（full=true）与 detect.go（full=false 精简版）共用。
+//
+//	v0.7 起没有独立的 SKILL REFERENCES section —— 所有 custom skill 一律上传，
+//	vendored 与原生通过 inline origin tag 区分（详见 docs/design.md §9.10、§9.14）。
+//
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package render
 
@@ -17,16 +21,31 @@ import (
 // every include/exclude path with sizes (and a one-line child summary for
 // included directories); when false it prints the compact three-line digest
 // used inside `askdao detect --summary`.
+//
+// Skill rows in the WILL UPLOAD section carry an inline origin tag:
+//
+//	+ .agents/skills/spelling-homework-generator/  412 KB / 47 files   skill (repo-native)
+//	+ .agents/skills/asr/                            6 KB /  1 files   skill (vendored: marswaveai/skills @ 4f9d213)
+//
+// The tag is sourced from `PayloadEntry.Reason` for `Kind=="skill"` entries;
+// non-skill rows render the bare `Kind` only.
 func RenderPayload(r *Renderer, root string, p types.DeploymentPayload, a types.ProjectArchetype, full bool) {
 	arch := a.Kind
 	if arch == "" {
 		arch = "unknown"
 	}
 
+	nativeCount, vendoredCount := countSkillOrigins(p.Includes)
+
 	if !full {
 		r.printf("Archetype: %s (conf %.2f)\n", arch, a.Confidence)
-		r.printf("Deployment payload: %d files, %s will upload · %d skill ref(s) · %d path(s) excluded\n",
-			p.TotalFiles, humanSize(p.TotalBytes), len(p.SkillReferences), len(p.Excludes))
+		if nativeCount+vendoredCount > 0 {
+			r.printf("Deployment payload: %d files, %s will upload (%d skills: %d native + %d vendored) · %d path(s) excluded\n",
+				p.TotalFiles, humanSize(p.TotalBytes), nativeCount+vendoredCount, nativeCount, vendoredCount, len(p.Excludes))
+		} else {
+			r.printf("Deployment payload: %d files, %s will upload · %d path(s) excluded\n",
+				p.TotalFiles, humanSize(p.TotalBytes), len(p.Excludes))
+		}
 		r.println("  " + r.dim("run `askdao bundle` for the full list"))
 		return
 	}
@@ -46,27 +65,17 @@ func RenderPayload(r *Renderer, root string, p types.DeploymentPayload, a types.
 		r.println("  " + r.dim("(nothing — is this an empty directory?)"))
 	}
 	for _, e := range p.Includes {
-		r.printf("  %s %-48s %10s   %s\n", r.green("+"), e.Path, humanSize(e.Bytes), r.dim(e.Kind))
-		if isDirEntry(e.Path) {
+		r.printf("  %s %-48s %10s / %3d files   %s\n",
+			r.green("+"), e.Path, humanSize(e.Bytes), e.Files, formatKind(r, e))
+		if isDirEntry(e.Path) && e.Kind != "skill" {
+			// Children summary helps for top-level project dirs; for skills the
+			// origin tag already conveys the relevant context — keep it tight.
 			if cs := childSummary(filepath.Join(root, filepath.FromSlash(e.Path))); cs != "" {
 				r.println("      " + r.dim(cs))
 			}
 		}
 	}
 	r.println("")
-
-	// SKILL REFERENCES
-	if len(p.SkillReferences) > 0 {
-		r.printf("%s  (%d — re-installed from registry, not uploaded)\n", r.bold("SKILL REFERENCES"), len(p.SkillReferences))
-		for _, ref := range p.SkillReferences {
-			tag := r.dim(ref.Resolvable)
-			if ref.Resolvable == "unknown" {
-				tag = r.yellow("resolvable: unknown")
-			}
-			r.printf("  %s %-20s %s @ %s   %s\n", r.blue("→"), ref.Name, orDash(ref.Source), shortHash(ref.LockedHash), tag)
-		}
-		r.println("")
-	}
 
 	// EXCLUDED
 	if len(p.Excludes) > 0 {
@@ -78,6 +87,46 @@ func RenderPayload(r *Renderer, root string, p types.DeploymentPayload, a types.
 	}
 
 	r.println(r.dim(fmt.Sprintf("ignore sources: %v", p.IgnoreSources)))
+}
+
+// formatKind returns the right-column kind label for a payload entry.
+//
+//   - For Kind="skill": "skill (<origin tag>)" — the tag comes from Reason
+//     (e.g. "repo-native", "vendored: marswaveai/skills @ 4f9d213").
+//   - For everything else: just the dimmed Kind.
+func formatKind(r *Renderer, e types.PayloadEntry) string {
+	if e.Kind == "skill" {
+		tag := e.Reason
+		if tag == "" {
+			tag = "origin unknown"
+		}
+		return r.dim(fmt.Sprintf("skill (%s)", tag))
+	}
+	return r.dim(e.Kind)
+}
+
+// countSkillOrigins splits include entries with Kind="skill" by origin tag.
+// repo-native vs vendored is decided by Reason prefix (matches the inline tag
+// scanner.payload.go emits).
+func countSkillOrigins(includes []types.PayloadEntry) (native, vendored int) {
+	for _, e := range includes {
+		if e.Kind != "skill" {
+			continue
+		}
+		if e.Reason == "repo-native" {
+			native++
+			continue
+		}
+		if len(e.Reason) >= 8 && e.Reason[:8] == "vendored" {
+			vendored++
+			continue
+		}
+		// Forward-compat: future origins fall into "other" — count toward
+		// native so total still adds up to len(skill entries). The render
+		// surface will still display whatever tag is in Reason.
+		native++
+	}
+	return native, vendored
 }
 
 func isDirEntry(path string) bool {
@@ -148,20 +197,6 @@ func dirFileCount(dir string) (int64, int) {
 		}
 	}
 	return bytes, files
-}
-
-func orDash(s string) string {
-	if s == "" {
-		return "—"
-	}
-	return s
-}
-
-func shortHash(h string) string {
-	if len(h) <= 9 {
-		return h
-	}
-	return h[:9] + "…"
 }
 
 // humanSize renders a byte count compactly for the payload card.
