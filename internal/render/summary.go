@@ -31,9 +31,9 @@ type SummaryInput struct {
 	Warnings []TranslationWarning
 	Harness  string // label used in the warnings section title
 
-	// PersonaFileSize / SystemPromptLen drive the inline "[P] view" hints.
-	PersonaFileSize int64
-	PersonaFileNote string // e.g. "empty — KOL to write"
+	// SystemPromptLen drives the inline "[P] view" hint when system_prompt is
+	// long. (Persona is fully embedded in spec.Persona.SystemPrompt as of v0.7;
+	// no external persona.md file anymore.)
 }
 
 // RenderSummary prints the full 7-block mid-density review card from
@@ -86,12 +86,8 @@ func renderPersona(r *Renderer, in SummaryInput) {
 		RenderKVList(r, "  ", 14, [][2]string{{"Fallback", fb}})
 	}
 
-	personaFileVal := in.Spec.Metadata.PersonaFile
-	if in.PersonaFileNote != "" {
-		personaFileVal = fmt.Sprintf("%s  (%s)", personaFileVal, in.PersonaFileNote)
-	}
-	RenderKVList(r, "  ", 14, [][2]string{{"Persona file", personaFileVal}})
-
+	// v0.7: persona is embedded in spec.Persona.SystemPrompt as a YAML literal
+	// block; there is no external persona.md file anymore (see design.md §9.15).
 	if in.Spec.Persona.SystemPrompt != "" {
 		val := fmt.Sprintf("%d chars  %s", len(in.Spec.Persona.SystemPrompt), r.dim("[P] view"))
 		RenderKVList(r, "  ", 14, [][2]string{{"System prompt", val}})

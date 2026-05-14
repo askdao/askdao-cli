@@ -1,8 +1,12 @@
-// [INPUT]: 依赖 标准库 (fmt, os, path/filepath, sort, strings), internal/types 的 Detection / DeploymentPayload / PayloadEntry / SkillRef,
+// [INPUT]: 依赖 标准库 (fmt, os, path/filepath, sort, strings), internal/types 的 Detection / DeploymentPayload / PayloadEntry,
 //
-//	同包 glob.go 的 compileGlobs/matchAny、skills_dir.go 的 hashFile/SkillDirCandidates、archetype.go 的判定结果（det.Archetype）
+//	同包 glob.go 的 compileGlobs/matchAny、skills_dir.go 的 SkillDirCandidates、archetype.go 的判定结果（det.Archetype）
 //
-// [OUTPUT]: 对外提供 DetectDeploymentPayload —— 把项目目录分类成上传清单 / 排除清单 / 外部 skill 引用，返回 payload + 软警告
+// [OUTPUT]: 对外提供 DetectDeploymentPayload —— 把项目目录分类成上传清单 / 排除清单，返回 payload + 软警告。
+//
+//	v0.7 起所有 custom skill（含 vendored 的 lockfile-pinned）一律打包上传（Anthropic Managed Agents 无公共 registry，
+//	详见 harness-design/investigations/managed-agents-skill-installation.md）；vendored 仅作 metadata 标签由 bundle UI 渲染。
+//
 // [POS]: internal/scanner 的部署清单生成器；pipeline 在 skills + archetype 就绪后调；产物给 `askdao bundle` / `askdao detect` 渲染
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package scanner
@@ -22,10 +26,6 @@ type PayloadOptions struct {
 	// IncludeEvals keeps a skill's evals/ subdirectory in the upload payload.
 	// Default false omits it (test fixtures don't need to travel to the cloud).
 	IncludeEvals bool
-	// ForceBundleSkills names vendored skills that should be shipped inline
-	// (as files) instead of left as registry references — the `--bundle-skill`
-	// escape hatch for private/unreachable skill sources.
-	ForceBundleSkills []string
 }
 
 // largePayloadBytes is the soft ceiling above which we warn — Anthropic skill
@@ -109,12 +109,6 @@ var userDataDirNames = map[string]bool{
 	"tmp": true, "temp": true, "fixtures": true,
 }
 
-// publicSkillOrgs are GitHub orgs/sources we assume the cloud can reach. A
-// vendored skill from anywhere else is flagged Resolvable="unknown".
-var publicSkillOrgs = map[string]bool{
-	"anthropics": true, "marswaveai": true, "askdao": true,
-}
-
 // DetectDeploymentPayload classifies the project under root into the upload
 // manifest. det must already carry DetectedSkills, DetectedLanguages and
 // Archetype (the pipeline fills those first). Returns the payload plus any soft
@@ -163,62 +157,42 @@ func DetectDeploymentPayload(root string, det *types.Detection, opts PayloadOpti
 		return "", false
 	}
 
-	forceBundle := map[string]bool{}
-	for _, n := range opts.ForceBundleSkills {
-		forceBundle[n] = true
-	}
-
 	// --- 2. Skill units: each <skillDir>/<name>/ is one logical entry.
+	// v0.7: every detected skill (repo-native AND vendored) ships inline as
+	// files; Anthropic Managed Agents has no "reinstall from registry" path.
+	// Vendored vs native is a UI-only distinction carried on DetectedSkill
+	// metadata (LockedSource / LockedHash) and rendered as an origin tag in
+	// the bundle output.
 	skillUnitPaths := map[string]bool{}      // rel paths (slash) of skill dirs already classified
 	skillContainerRoots := map[string]bool{} // top-level component of every skill-dir candidate
 	for _, c := range SkillDirCandidates {
 		skillContainerRoots[firstSegment(c)] = true
 	}
-	skillUnitCount := 0
-	haveLockfile := false
-	if lock, _ := LoadSkillsLock(root); len(lock) > 0 {
-		haveLockfile = true
-	}
 	for _, s := range det.DetectedSkills {
 		if s.SkillName == "" || s.Source == "" {
 			continue // implied-builtin placeholder
 		}
-		skillUnitCount++
 		dirRel := filepath.ToSlash(filepath.Dir(s.Source)) // e.g. .agents/skills/foo
 		skillUnitPaths[dirRel] = true
 		dirAbs := filepath.Join(root, filepath.FromSlash(dirRel))
 
-		shipInline := s.IsLocalOriginal || forceBundle[s.SkillName]
-		if shipInline {
-			reason := "repo-native skill"
-			if !s.IsLocalOriginal {
-				reason = "force-bundled via --bundle-skill"
+		// Origin tag rendered inline by bundle UI as `skill (<tag>)`. Format
+		// stays compact so the row stays scannable.
+		var originTag string
+		if s.IsLocalOriginal {
+			originTag = "repo-native"
+		} else {
+			short := s.LockedHash
+			if len(short) > 7 {
+				short = short[:7]
 			}
-			addSkillDirEntry(&pl.Includes, dirRel, dirAbs, "skill", reason, opts.IncludeEvals)
-			continue
+			if short == "" {
+				originTag = fmt.Sprintf("vendored: %s", s.LockedSource)
+			} else {
+				originTag = fmt.Sprintf("vendored: %s @ %s", s.LockedSource, short)
+			}
 		}
-
-		// Vendored → reference, not files. We record the on-disk SKILL.md hash
-		// for transparency but never act on it: the lockfile tool's
-		// computedHash isn't a plain file hash, so we can't reliably detect
-		// drift — presence in the lockfile is the signal.
-		ref := lookupLockRef(root, s.SkillName)
-		resolvable := "yes"
-		if ref.Source == "" || !publicSkillOrgs[firstSegment(ref.Source)] || looksSSH(ref.Source) {
-			resolvable = "unknown"
-			warns = append(warns, fmt.Sprintf("skill %q references %q; the cloud may lack access — use `--bundle-skill %s` to ship it inline", s.SkillName, orUnknown(ref.Source), s.SkillName))
-		}
-		ref.LocalHash = hashFile(filepath.Join(root, filepath.FromSlash(s.Source)))
-		ref.Resolvable = resolvable
-		pl.SkillReferences = append(pl.SkillReferences, ref)
-		b, f := s.BundleBytes, s.BundleFiles
-		pl.Excludes = append(pl.Excludes, types.PayloadEntry{
-			Path: dirRel + "/", Bytes: b, Files: f, Kind: "vendored",
-			Reason: fmt.Sprintf("vendored skill — re-installed from %s via skills-lock.json", orUnknown(ref.Source)),
-		})
-	}
-	if !haveLockfile && skillUnitCount > 1 {
-		warns = append(warns, fmt.Sprintf("no skills-lock.json found; all %d skills under .agents/.claude will be bundled inline — add a lockfile or .askdaoignore to refine", skillUnitCount))
+		addSkillDirEntry(&pl.Includes, dirRel, dirAbs, "skill", originTag, opts.IncludeEvals)
 	}
 
 	// --- 3. Top-level entries.
@@ -301,7 +275,6 @@ func DetectDeploymentPayload(root string, det *types.Detection, opts PayloadOpti
 	dedupEntries(&pl.Excludes)
 	sort.Slice(pl.Includes, func(i, j int) bool { return pl.Includes[i].Path < pl.Includes[j].Path })
 	sort.Slice(pl.Excludes, func(i, j int) bool { return pl.Excludes[i].Path < pl.Excludes[j].Path })
-	sort.Slice(pl.SkillReferences, func(i, j int) bool { return pl.SkillReferences[i].Name < pl.SkillReferences[j].Name })
 	for _, e := range pl.Includes {
 		pl.TotalBytes += e.Bytes
 		pl.TotalFiles += e.Files
@@ -320,27 +293,6 @@ func firstSegment(p string) string {
 		return p[:i]
 	}
 	return p
-}
-
-func looksSSH(src string) bool {
-	return strings.HasPrefix(src, "git@") || strings.Contains(src, "://")
-}
-
-func orUnknown(s string) string {
-	if s == "" {
-		return "(unknown source)"
-	}
-	return s
-}
-
-// lookupLockRef re-reads the lockfile for one skill's entry. Cheap enough at
-// CLI scale; keeps the function signature simple.
-func lookupLockRef(root, name string) types.SkillRef {
-	lock, _ := LoadSkillsLock(root)
-	if r, ok := lock[name]; ok {
-		return r
-	}
-	return types.SkillRef{Name: name}
 }
 
 func dirOrFileEntry(name, abs string, isDir bool, kind, reason string) types.PayloadEntry {

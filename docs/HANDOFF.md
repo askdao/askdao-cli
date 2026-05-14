@@ -2,7 +2,23 @@
 
 > 新会话上手 / 上下文切换的入口文档。读完这一页就能继续工作。
 >
-> Last updated: 2026-05-13
+> Last updated: 2026-05-14
+
+---
+
+## v0.7 Corrections（2026-05-14，本次会话）
+
+冒烟测试中暴露并修正了四条根基级问题，详见 design.md 新增 §9.12-9.15：
+
+1. **§9.10 lockfile-driven skill 分类（v0.6）建立在错误假设上** —— 以为 Anthropic Managed Agents 有"从 lockfile 重装"的能力。调研 [`../../harness-design/investigations/managed-agents-skill-installation.md`](../../harness-design/investigations/managed-agents-skill-installation.md) §4.1 反映**不存在公共 skill registry**，所有 custom skill 必须 `POST /v1/skills` 上传。修法：**所有 custom skill 一律上传**，vendored vs 原生只是 bundle UI 的 inline origin tag。删除 `SkillReferences` 字段 + `SkillRef` struct + `--bundle-skill` flag + "SKILL REFERENCES" UI section。
+2. **§9.12 Agent 项目布局扁平化** —— v0.6 的 `<name>/` 子目录撞自指路径（`~/WorkSpace/homework-spelling/homework-spelling/`）。新布局：`<root>/askdao-agent.yml`（KOL 唯一编辑对象，项目宣言文件）+ `<root>/.askdao/{recommendation.yml,detection.json}`（工具空间）。一个项目 = 一个 agent。
+3. **§9.13 信任边界 in L1-L4** —— LLM 越界进入确定性字段是同款病：先撞 `metadata.domain` 标量（已修 normalizer），再撞 `skills` 段乱写（本次修 deterministic builder）。原则：**硬字段 = 模式约束 / ground truth / enum** 一律 deterministic 填充覆盖；**软字段 = 设计决策 / 解释 / persona** 才让 LLM 自由发挥。
+4. **§9.14 Skill 上传分层协议 + harness 中性 invariant** —— CLI ↔ Conductor zip per skill（简单内部协议），Conductor ↔ Anthropic multipart 多 part（按 §1.2.1 原生协议）。Conductor 作 anti-corruption layer。Harness 中性 invariant：`filepath.Base(s.Path)` 切掉 `.claude/skills/` / `.agents/skills/` 等上级，Anthropic 端只看到 `tts/SKILL.md` 形态。
+5. **§9.15 persona 单一真相源** —— 删 `Metadata.PersonaFile` 字段 + 不再生成 persona.md，所有 prompt 在 `Persona.SystemPrompt` literal block 内。schema 简化 + 故障域消失 + KOL 心智简化。
+
+**PR 拆分**：
+- askdao-cli PR _TBD_ —— §9.10 修正 + §9.12-15 全部代码改动（约 ~1200 行净改动）
+- askdao-cloud-conductor PR _TBD_ —— spec.py 删 `persona_file` + LLM prompt 改 OMIT skills + adapter `git_repo` wording 同步（约 ~70 行）
 
 ---
 

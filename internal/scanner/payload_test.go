@@ -54,28 +54,30 @@ func findEntry(es []types.PayloadEntry, path string) (types.PayloadEntry, bool) 
 	return types.PayloadEntry{}, false
 }
 
-func TestDetectDeploymentPayload_LockfileDrivenSkillClassification(t *testing.T) {
+func TestDetectDeploymentPayload_AllSkillsShipInline(t *testing.T) {
+	// v0.7: vendored and repo-native skills ALL ship inline (Anthropic Managed
+	// Agents has no "reinstall from registry" path). Origin metadata
+	// (LockedSource / LockedHash) is carried on DetectedSkill for the bundle
+	// UI to render an inline tag — no separate SkillReferences sidecar.
 	root := miniPipelineRepo(t)
 	det := assembleDetection(t, root)
 
 	pl, warns := DetectDeploymentPayload(root, det, PayloadOptions{IncludeEvals: true})
 
-	// Repo-native skill ships inline.
-	if _, ok := findEntry(pl.Includes, ".agents/skills/homework-gen/"); !ok {
+	// Both skills ship inline.
+	nativeEntry, hasNative := findEntry(pl.Includes, ".agents/skills/homework-gen/")
+	if !hasNative {
 		t.Errorf("repo-native skill missing from includes: %+v", pl.Includes)
 	}
-	// Vendored skill is a reference, not an upload.
-	if _, ok := findEntry(pl.Includes, ".agents/skills/tts/"); ok {
-		t.Errorf("vendored skill should NOT be in includes")
+	if nativeEntry.Reason != "repo-native" {
+		t.Errorf("repo-native skill reason wrong: %q", nativeEntry.Reason)
 	}
-	if len(pl.SkillReferences) != 1 || pl.SkillReferences[0].Name != "tts" {
-		t.Fatalf("expected one skill reference (tts), got %+v", pl.SkillReferences)
+	vendoredEntry, hasVendored := findEntry(pl.Includes, ".agents/skills/tts/")
+	if !hasVendored {
+		t.Errorf("vendored skill should also be in includes (v0.7)")
 	}
-	if pl.SkillReferences[0].Source != "marswaveai/skills" || pl.SkillReferences[0].Resolvable != "yes" {
-		t.Errorf("unexpected skill ref: %+v", pl.SkillReferences[0])
-	}
-	if _, ok := findEntry(pl.Excludes, ".agents/skills/tts/"); !ok {
-		t.Errorf("vendored skill should appear in excludes with a reason")
+	if !strings.HasPrefix(vendoredEntry.Reason, "vendored: marswaveai/skills") {
+		t.Errorf("vendored skill origin tag wrong: %q", vendoredEntry.Reason)
 	}
 
 	// Agent doc + manifests included.
@@ -119,28 +121,22 @@ func TestDetectDeploymentPayload_NoEvals(t *testing.T) {
 	}
 }
 
-func TestDetectDeploymentPayload_NoLockfileBundlesAll(t *testing.T) {
+func TestDetectDeploymentPayload_NoLockfileStillIncludesEverything(t *testing.T) {
+	// Without a lockfile, every skill is still in Includes (v0.7 contract:
+	// no skill is ever a "reference"). The only difference: no LockedSource
+	// metadata, so the Reason tag falls back to "repo-native".
 	root := miniPipelineRepo(t)
 	if err := os.Remove(filepath.Join(root, "skills-lock.json")); err != nil {
 		t.Fatal(err)
 	}
 	det := assembleDetection(t, root)
-	pl, warns := DetectDeploymentPayload(root, det, PayloadOptions{})
+	pl, _ := DetectDeploymentPayload(root, det, PayloadOptions{})
 
 	if _, ok := findEntry(pl.Includes, ".agents/skills/tts/"); !ok {
 		t.Errorf("without a lockfile every skill should be bundled inline")
 	}
-	if len(pl.SkillReferences) != 0 {
-		t.Errorf("no lockfile → no references, got %+v", pl.SkillReferences)
-	}
-	foundWarn := false
-	for _, w := range warns {
-		if strings.Contains(w, "no skills-lock.json") {
-			foundWarn = true
-		}
-	}
-	if !foundWarn {
-		t.Errorf("expected a 'no skills-lock.json' warning, got %v", warns)
+	if _, ok := findEntry(pl.Includes, ".agents/skills/homework-gen/"); !ok {
+		t.Errorf("repo-native skill must always be included")
 	}
 }
 
@@ -168,17 +164,3 @@ func TestDetectDeploymentPayload_AskdaoignoreNegation(t *testing.T) {
 	}
 }
 
-func TestDetectDeploymentPayload_ForceBundleSkill(t *testing.T) {
-	root := miniPipelineRepo(t)
-	det := assembleDetection(t, root)
-	pl, _ := DetectDeploymentPayload(root, det, PayloadOptions{ForceBundleSkills: []string{"tts"}})
-
-	if _, ok := findEntry(pl.Includes, ".agents/skills/tts/"); !ok {
-		t.Errorf("--bundle-skill tts should move tts into includes")
-	}
-	for _, ref := range pl.SkillReferences {
-		if ref.Name == "tts" {
-			t.Errorf("force-bundled skill should not also be a reference")
-		}
-	}
-}

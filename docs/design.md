@@ -1291,27 +1291,32 @@ vs v0.2（~2950 行）：累计增量 ~1330 行。
 
 ---
 
-### 9.10 部署 Payload 清单 + 项目原型识别（确定性，零 LLM）✅ 已定（v0.6）
+### 9.10 部署 Payload 清单 + 项目原型识别（确定性，零 LLM）✅ 已定（v0.7 修正）
 
-**动机**：以 `homework-spelling`（一个 skill-centric 内容流水线：input PDF → output HTML）为标尺，发现 askdao-cli 答不出 KOL 上云时最实际的问题——「这个目录部署到云端，到底该打包上传哪些文件？」`.agents/skills/` 下有 14 个外部 skill + 1 个本地原创 skill，该剔除的（`node_modules`/`output`/`input`/`.DS_Store`）和该纳入的（本地 skill 子树 / `CLAUDE.md` / `skills-lock.json`）混在一起。
+> **v0.7 修正**（2026-05-14）：v0.6 的 lockfile-driven 分类规则建立在错误假设之上——以为 Anthropic Managed Agents 有"从 lockfile 重装"的能力。调研 `../../harness-design/investigations/managed-agents-skill-installation.md` §4.1 反映**不存在公共 skill registry**，所有 custom skill 必须 `POST /v1/skills` 上传到调用方组织。本节相应改写。
 
-**两层确定性能力**（都跑在 `askdao detect` / 新 `askdao bundle` 里，`LLM=nil`）：
+**动机**：以 `homework-spelling`（一个 skill-centric 内容流水线：input PDF → output HTML）为标尺，发现 askdao-cli 答不出 KOL 上云时最实际的问题——「这个目录部署到云端，到底该打包上传哪些文件？」`.agents/skills/` 下有 14 个外部 skill + 1 个本地原创 skill，该剔除的（`node_modules`/`output`/`input`/`.DS_Store`）和该纳入的（每一个 skill 整目录 / `CLAUDE.md` / `skills-lock.json`）混在一起。
+
+**两层确定性能力**（都跑在 `askdao detect` / `askdao bundle` 里，`LLM=nil`）：
 
 1. **`Detection.deployment_payload`** —— `internal/scanner/payload.go`：
-   - **lockfile-driven skill 分类（核心规则，类比 `npm ci`）**：在 `skills-lock.json` 里的 skill = 外部依赖 → 产 `SkillReferences`（透传 `source` + `computedHash`），云端 `skill install` 重拉，**不上传文件**；不在 lockfile 里的 = repo 原生 → 整个 `<skillDir>/<name>/` 子树进 `Includes`。无 lockfile 时退回「全打包」+ warning（保守，宁可多传）。
-   - **ignore 规则链**：`builtin`（编辑器/OS 垃圾、可重装依赖缓存、build 输出、**`.env*`/`*.pem`/`*.key` 永不上传**）→ `.gitignore` → `.dockerignore` → `.askdaoignore`（新约定，syntax 同 gitignore，`!pattern` 反向纳入；文件级负向用 `resolveNegation` 把被排除目录里的具体文件捞回）。复用 `glob.go` 的 `compileGlobs`/`matchAny`。
-   - **正向识别**：`CLAUDE.md`/`AGENTS.md`/`persona.md`/`README` → agent_doc；`package.json`/`go.mod`/`skills-lock.json`/`Dockerfile`/… → manifest。
-   - **明确剔除并给理由**（写进 `Excludes` 而非默默跳过，让 `askdao bundle` 能展示）：`output*`/`*-old`/`*-bak` → generated；`input`/`data`/`samples`/`tmp` → 仅 archetype==skill_pipeline 时剔（user_data）；`.github` → CI 配置。
-   - **escape hatch**：`askdao bundle --bundle-skill <name>` 把某外部 skill 强制改成随包上传（私有/不可达 skill 源的兜底）。
-   - **不做 drift 检测**：`computedHash` 是 lockfile 工具（marswaveai skill manager）的归一化 hash，不是裸文件 sha256，无法可靠复算——presence-in-lockfile 就是信号。`SkillRef.LocalHash` 仅作透明记录。
+   - **所有 custom skill 一律上传**（v0.7 修正）：每个 `<skillDir>/<name>/` 整目录递归打包进 `Includes`（含 SKILL.md + scripts/ + assets/ + references/ 等所有子文件 + 二进制透传）。vendored（lockfile-pinned）与 repo-原生 **从上传角度无区别** —— Anthropic Managed Agents 无公共 registry，无法 "reinstall from reference"。
+   - **vendored 标签作 UI 元信息**：`DetectedSkill.LockedSource` + `LockedHash` 携带来源 + lockfile hash；`PayloadEntry.Reason` 携带 origin tag（`"repo-native"` 或 `"vendored: <source> @ <short-hash>"`），bundle UI inline 渲染。**不影响上传行为**。
+   - **harness 中性 invariant**：deploy 时 `ZipDir(skillAbsDir, filepath.Base(skill.path))` —— KOL 项目里 skill 实际存放的上级路径（`.claude/skills/` / `.agents/skills/` 等）由 `filepath.Rel(srcDir, path)` 切掉，Anthropic 端只看到 `<skillName>/SKILL.md` 形态。详见 §9.14。
+   - **ignore 规则链**：`builtin`（编辑器/OS 垃圾、可重装依赖缓存、build 输出、**`.env*`/`*.pem`/`*.key` 永不上传**）→ `.gitignore` → `.dockerignore` → `.askdaoignore`（新约定，syntax 同 gitignore，`!pattern` 反向纳入）。复用 `glob.go` 的 `compileGlobs`/`matchAny`。
+   - **正向识别**：`CLAUDE.md`/`AGENTS.md`/`README` → agent_doc；`package.json`/`go.mod`/`skills-lock.json`/`Dockerfile`/… → manifest。
+   - **明确剔除并给理由**（写进 `Excludes`）：`output*`/`*-old`/`*-bak` → generated；`input`/`data`/`samples`/`tmp` → 仅 archetype==skill_pipeline 时剔；`.github` → CI 配置。
+   - **不做 drift 检测**：`computedHash` 是 lockfile 工具的归一化 hash，不是裸文件 sha256，无法可靠复算 —— `LockedHash` 仅作 UI 显示。
 
-2. **`Detection.archetype`** —— `internal/scanner/archetype.go`：纯函数，输入已装配的 Detection。本地原创 skill 数 = pipeline 信号；service framework / 后端语言占比 >50% = app 信号。两者都有 → `mixed`；只 pipeline → `skill_pipeline`；只 app → `code_app`；都无 → `unknown`。让 detect 知道「这目录的 agent 本体是那个本地 skill，不是一个服务」，并据此调整 payload 的剔除策略。
+2. **`Detection.archetype`** —— `internal/scanner/archetype.go`：纯函数。本地原创 skill 数 = pipeline 信号；service framework / 后端语言占比 >50% = app 信号。两者都有 → `mixed`；只 pipeline → `skill_pipeline`；只 app → `code_app`；都无 → `unknown`。让 detect 知道「这目录的 agent 本体是那个本地 skill，不是一个服务」，并据此调整 payload 的剔除策略。
 
-**暴露**：`askdao bundle [path]`（独立命令，输出 `WILL UPLOAD` / `SKILL REFERENCES` / `EXCLUDED` 三段 + `--json`/`--warnings`/`--no-evals`/`--bundle-skill`）+ `askdao detect --summary` 末尾追加精简三行 + `askdao detect`（非 summary）的 JSON 多两个顶层字段。
+**暴露**：`askdao bundle [path]`（独立命令，输出 `WILL UPLOAD`（含每个 skill 的 origin tag）/ `EXCLUDED` 两段 + `--json`/`--warnings`/`--no-evals`）+ `askdao detect --summary` 末尾追加精简三行 + `askdao detect`（非 summary）的 JSON 多两个顶层字段。
 
-**不做（划界）**：不改 LLM recommender 的产物结构 / prompt（那是后续第③层：把 `CLAUDE.md` 摘要 + 每个 `SKILL.md` 的 `description` + 部署清单一起喂 LLM 判断主/支撑 skill、预填 `persona.system_prompt`——`DetectedSkill.Description` 等字段已先铺好）；`askdao bundle` 只预览不打包/不上传（真上传等 conductor #11 deploy endpoint）；不实现 `.gitignore` 全套语义（嵌套 ignore、`**` 中段匹配等边角），不够用 `.askdaoignore` 兜底。
+**v0.7 已删除**：`SkillReferences` 字段 + `SkillRef` struct（数据模型）；`--bundle-skill` flag（force-inline 概念消失）；"SKILL REFERENCES" section（bundle UI）。
 
-**实现量**：`internal/scanner/{payload,archetype}.go` + `skills_dir.go` 扩展（frontmatter / bundle 体积 / lockfile 关联）+ `internal/render/payload.go` + `cmd/askdao/bundle.go` + types 新字段 + 测试，约 ~900 行 Go。Phase 切分：归 Phase 1。已交付：PR #19。
+**不做（划界）**：`askdao bundle` 只预览不打包/不上传（真上传走 `agent deploy`）；不实现 `.gitignore` 全套语义。
+
+**实现量（含 v0.7 修正）**：`internal/scanner/{payload,archetype}.go` + `skills_dir.go` 扩展 + `internal/render/payload.go` + `cmd/askdao/bundle.go` + types 新字段 + 测试，约 ~1000 行 Go。Phase 切分：归 Phase 1。已交付：PR #19（v0.6 初版）+ PR _TBD_（v0.7 修正）。
 
 ---
 
@@ -1346,6 +1351,150 @@ vs v0.2（~2950 行）：累计增量 ~1330 行。
 | 1 | scanner 加 plugin-manifest 检测（影响①）：`LoadPluginManifest` / archetype `plugin_package`·`plugin_marketplace` / payload 用 manifest 直接定义 / `DetectedPluginManifest`。确定性、零 LLM，§9.10 的延伸。 | 低 | 确认方向后可作为下一个 PR |
 | 2 | `askdao plugin export`（影响②）：detection/AgentSpec → Claude Code plugin 目录（+ Codex）。先定 AgentSpec↔plugin 映射表（进 §5）。 | 中 | 阶段 1 之后；先在 askdao-cloud 起 design issue 讨论分发模型 |
 | 3 | 架构层（影响③）：AgentSpec 目标矩阵 +2 列、askdao-cloud 发行模型决策、conductor 要不要 PluginAdapter / plugin-ingest。跨 askdao-cli + askdao-cloud + conductor。 | 高（战略）| 阶段 2 落地、跑过几个真实 KOL plugin 之后 |
+
+---
+
+### 9.12 Agent 项目布局：单文件宣言 + `.askdao/` 工具空间 ✅ 已定（v0.7）
+
+**动机**：v0.6 设计中 `askdao agent init <name>` 在 KOL 项目内创建 `<name>/` 子目录，所有 CLI 产物（agent.yml / persona.md / .askdao/recommendation.yml / detection.json）都在那个子目录里。哥实测时撞到 `~/WorkSpace/homework-spelling/homework-spelling/` 自指路径迷惑，且 `agent.yml` 隐藏在子目录里，KOL 不易直观感知"这是我项目的 agent 声明"。
+
+**决策（v0.7）**：扁平化产物布局 + 命名区分"我的"vs"工具的"。
+
+```
+KOL 项目根/
+├── askdao-agent.yml            ← KOL 唯一编辑对象（项目宣言文件）
+│                                 类比 Cargo.toml / package.json / Dockerfile
+│                                 含 persona.system_prompt literal block 完整内容
+├── .askdao/                    ← 工具空间（隐藏）
+│   ├── recommendation.yml      ← diff baseline（deploy 用作 KOL 改动检测）
+│   └── detection.json          ← 确定性扫描结果（每次 init 重生成）
+├── .agents/skills/             ← KOL 已有
+├── skills-lock.json            ← KOL 已有
+├── package.json                ← KOL 项目原有文件
+└── ...
+```
+
+**心智模型**："**根的一个文件是 KOL 的（要 commit、要编辑），`.askdao/` 是工具的（可随时 rm 重生成）**。"
+
+**关键决策点**：
+1. `agent.yml` → `askdao-agent.yml`：带工具前缀防命名空间撞库（与 `pyproject.toml` / `tsconfig.json` 同款规约）。
+2. 不放进 `.askdao/`：核心声明文件按业界惯例应在项目根（IDE 默认可见 / commit 自然 / review-and-edit UX 主张兑现）。隐藏目录是给"工具产物"用的，类比 `.github/` / `.vscode/`。
+3. 一个项目 = 一个 agent：`agent init [name]` name 参数可选（默认项目目录名），仅写入 `metadata.name`，不影响磁盘布局。
+4. **不再生成 `persona.md`**（详见 §9.15）。
+
+**影响**：`cmd/askdao/{init_auto,deploy,show,bundle}.go` 全部改读写新路径；`internal/types/agent_spec.go` 加 `askdaoAgentFileName` / `askdaoDirName` 常量；测试 fixture 重写。哥实测扁平化后命令行体验直观了一档。
+
+---
+
+### 9.13 信任边界 in L1-L4（哪些字段 LLM 适合 vs 不适合）✅ 已定（v0.7）
+
+**动机**：冒烟测试中两次撞到"LLM 越界进入确定性字段"的同款问题：
+
+1. **`metadata.domain` 标量当 list** —— LLM 写 `domain: "education"`，pydantic 严格拒绝。修法：conductor 端引入 `normalize_llm_agent_spec` 在 `model_validate` 之前吸收常见 LLM 错位（标量↔list、enum 大小写等）。
+2. **`skills` 段乱写** —— LLM 看到 `detected_skills` 把 14 个 lockfile-pinned 都误抄成 `custom_local` 内联，且 `path` 指 SKILL.md 文件而非目录。修法：deterministic builder 取代 LLM 的 skills 段输出。
+
+**根因**：把**确定性事实**（"哪些 skill 在 lockfile 里"、"domain 字段必须是 list"）丢给**概率系统**（LLM）去决定，是架构错位。
+
+**信任边界原则**：
+
+| 字段类型 | 适合 LLM | 不适合 LLM |
+|---|---|---|
+| **软字段**（设计决策、风格、解释）| `persona.system_prompt` / `provenance.reasoning_*` / `metadata.description` / `model_class` / `expertise_level` | — |
+| **硬字段**（schema 强约束、ground truth、确定性事实）| — | `skills[]` / `metadata.domain` 类型 / `metadata.version` 格式 / `capabilities.*.permission` enum / `mcp_servers[].type` enum |
+
+**实现模式**：硬字段一律由 askdao-cli / conductor 后处理填充或规整：
+1. **LLM 端 prompt 加约束**（belt）：明确告诉模型"omit this field" / "must be JSON array" / "lowercase enum"
+2. **server 端 normalizer**（suspenders）：`normalize_llm_agent_spec` + `data.pop("skills", None)` 兜底剥
+3. **CLI 端 deterministic builder**（最终防线）：`BuildAgentSpecSkills(det)` 强覆盖 LLM 输出
+
+**Phase 1 实例**：
+- `app/agents/llm_normalizer.py`（conductor，PR #44）—— 处理 `metadata.domain` 等
+- `internal/pipeline/skills_builder.go`（askdao-cli，PR _TBD_）—— deterministic 构造 skills 段
+
+**未来扩展**：当 LLM 在 `version` / `permission` / `domain` 三个字段又自由发挥时（迟早），把它们纳入同款 normalizer 而不是改 prompt 求模型服从。
+
+---
+
+### 9.14 Skill 上传分层协议 + harness 中性 invariant ✅ 已定（v0.7）
+
+**动机**：`harness-design/investigations/managed-agents-skill-installation.md` §1.2.1/1.2.2 反映 Anthropic `/v1/skills` 接受 multipart 多文件原生上传（不接受 zip）。最初考虑把这条协议传染到全链路（CLI 直接 multipart 给 conductor），但这是反向复杂化 —— CLI 要写大量 walk + multipart 代码，conductor 要重写接收逻辑，OpenViking 备份要折腾。
+
+**决策**：**分层协议** —— Conductor 作 anti-corruption layer，把 Anthropic 协议怪癖封装在内部。
+
+```
+askdao-cli                    Conductor                    Anthropic
+─────────                     ─────────                    ─────────
+  打包 zip per skill           解 zip                       multipart 多 part
+  ───── multipart/form ────►    │                            ↑
+       (skill_files: zip)       │ ─── SDK files=[...] ────────┘
+                                 (anti-corruption layer)
+```
+
+- **CLI ↔ Conductor**: zip per skill（简单内部协议，PR #21 已实装跑通）
+- **Conductor ↔ Anthropic**: multipart 多 part（按 Anthropic §1.2.1 原生协议；conductor `sync_skill_zip` 已在解 zip + SDK `files=[...]` 调用）
+- **设计原则**：Anthropic 协议变化（未来支持 zip / 改 endpoint / 改 beta header）→ 只动 conductor，CLI 零改动
+
+**Harness 中性 invariant**（关键）：
+
+KOL 项目里 skill 实际存放的上级路径不进入 zip。CLI `ZipDir(srcDir, rootName)` 内部用 `filepath.Rel(srcDir, path)` 算相对路径，物理上不可能含上级目录：
+
+```go
+// cmd/askdao/deploy.go:
+skillAbsDir := filepath.Join(*dir, s.Path)             // e.g. <root>/.agents/skills/tts
+skillName := filepath.Base(filepath.Clean(s.Path))     // "tts" —— harness-specific 上级被切掉
+zb, _ := deploy.ZipDir(skillAbsDir, skillName)         // zip 内顶层 = "tts/"
+```
+
+| KOL 项目里 skill 的实际存放位置 | zip 顶层目录 |
+|---|---|
+| `.claude/skills/tts/` | `tts/` |
+| `.agents/skills/tts/` | `tts/` |
+| `skills/tts/`（KOL 自定义） | `tts/` |
+| `vendor/marswaveai/tts/`（更怪的） | `tts/` |
+
+无论 KOL 用哪个 harness 习惯，Anthropic 端始终只看到 `tts/SKILL.md` 形态。**这条 invariant 由 `ZipDir` 实现保证 —— 物理上不可能泄露上级目录**。
+
+**测试覆盖**：`internal/deploy/zip_test.go` + `cmd/askdao/deploy_test.go::TestDeploy_EndToEnd_HappyPath` 验证 zip 内 entry 形态。
+
+---
+
+### 9.15 persona 单一真相源（删 persona.md / persona_file）✅ 已定（v0.7）
+
+**动机**：v0.6 设计中 agent 的 persona 有两种表达路径：
+
+1. `AgentSpec.Persona.SystemPrompt`（yaml 字段直接写 prompt 内容）
+2. `AgentSpec.Metadata.PersonaFile`（指向外部 `.md` 文件）
+
+两条路径并存就一定有"应该用哪条"的歧义，且 init --auto 写 `<name>/persona.md` 文件、deploy 时可能要再读注入 yaml —— 故障域多一层（路径错配 / 文件丢失 / 内容不同步）。
+
+**决策（v0.7）**：**合并到单一字段** —— 删 `Metadata.PersonaFile` + 不再生成 persona.md，所有 prompt 内容在 `Persona.SystemPrompt` yaml literal block (`|`) 内。
+
+```yaml
+persona:
+  model_class: balanced
+  model_preferences:
+    - {provider: anthropic, id: claude-sonnet-4-6}
+  system_prompt: |
+    You are a spelling homework generator for a 5th grader.
+
+    ## Your responsibilities
+    1. Read the teacher's spelling list (PDF or photo in input/)
+    2. Generate one polished HTML study page in output/
+    ...
+```
+
+**关键观察**：
+- YAML literal block 内任意 markdown 字符无 escape 压力（包括 `:` / `"` / `---` 等）
+- 现代 IDE（VS Code / IntelliJ）对 yaml 多行字符串内的 markdown 多有 inject 高亮
+- 长 prompt（5000+ 字）虽然让 yaml 文件变胖，但 prompt 段放 yaml 末尾，前面的结构化字段仍清晰
+
+**收益**：
+- schema 简化：删 `PersonaFile` 字段（双侧 askdao-cli + conductor）
+- 故障域消失："yaml 引用 .md，.md 丢了怎么办"这条不存在了
+- 心智简化：KOL **只**面对 `askdao-agent.yml` 一个编辑对象（与 §9.12 项目布局哲学完全一致）
+- diff 干净：`askdao-agent.yml` 单文件 diff baseline，KOL 改 prompt 跟改 capabilities 一样的轨迹
+
+**未来 follow-up（不在 v0.7）**：加 `askdao agent edit` 命令打开 `$EDITOR` 跳到 system_prompt 字段（针对 IDE 不友好的终端 KOL）。当前靠 `vim askdao-agent.yml` 跳定位足够。
 
 ---
 

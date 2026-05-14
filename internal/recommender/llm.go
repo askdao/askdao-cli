@@ -158,10 +158,9 @@ func DefaultMockRecommend(req RecommendRequest) *RecommendResponse {
 		APIVersion: types.AgentSpecAPIVersion,
 		Kind:       types.AgentSpecKind,
 		Metadata: types.Metadata{
-			Name:        req.AgentName,
-			Version:     "0.1.0",
-			Visibility:  "private",
-			PersonaFile: "persona.md",
+			Name:       req.AgentName,
+			Version:    "0.1.0",
+			Visibility: "private",
 		},
 		Persona: types.Persona{
 			ModelClass: "balanced",

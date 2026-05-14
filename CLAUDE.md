@@ -38,16 +38,21 @@ askdao auth login [--server url] [--no-browser]  # OAuth 2.0 Device Code Flow（
 askdao auth status                         # 显示当前登录身份；未登录 exit 1
 askdao auth logout                         # 删除本地 credentials（不撤销服务端 token，撤销走 web UI v2）
 askdao detect [path]                       # 打印 detection report（含 archetype + 部署清单），不创建 agent
-askdao bundle [path]                       # 预览部署清单：上云会打包哪些文件 / 哪些 skill 走引用重装 / 哪些被排除
-askdao agent init <name> [--auto]          # 创建 agent 目录骨架（--auto 跑 L1-L4 流水线 + 交互审阅）
-askdao agent show <name> [--full|...]      # 渲染 agent spec（中等详情卡片 / 聚焦视图）
-askdao agent deploy [--dir path] [--force] # 打包 custom skill + 经 Conductor /cli/deploy 推到 Anthropic Managed Agents
-askdao agent validate                      # 校验 agent.yml（计划，未实装）
+askdao bundle [path]                       # 预览部署清单：会上传哪些文件（skill 整目录 + origin tag）/ 哪些被排除
+askdao agent init [name] [--auto]          # 在项目根创建 askdao-agent.yml + .askdao/（--auto 跑 L1-L4 流水线 + 交互审阅）
+askdao agent show [flags] [--dir path]     # 渲染 agent spec（中等详情卡片 / 聚焦视图）
+askdao agent deploy [--dir path] [--force] # 打包 custom skill 整目录 + 经 Conductor /cli/deploy 推到 Anthropic Managed Agents
+askdao agent validate                      # 校验 askdao-agent.yml（计划，未实装）
 ```
+
+**产物布局**（v0.7 起项目根扁平化 + `.askdao/` 工具空间）：
+- `<root>/askdao-agent.yml` — KOL 唯一编辑对象（项目宣言文件，含 `persona.system_prompt` literal block 完整内容）
+- `<root>/.askdao/recommendation.yml` — diff baseline（deploy 用作 KOL 改动检测）
+- `<root>/.askdao/detection.json` — 确定性扫描结果（每次 init 重生成）
 
 deploy 的 token 解析顺序：`ASKDAO_CONDUCTOR_TOKEN + ASKDAO_CONDUCTOR_URL` 同时设置 → 用 env（CI / 一次性覆盖）；否则读 `credentials.json`（`askdao auth login` 的产物）；都没有 → 报错并提示登录。两个 env 必须成对，单设一个明确报错（防止误配置静默降级）。设计稿 [`docs/cli-auth-device-flow.md`](docs/cli-auth-device-flow.md) §6.3。
 
-部署清单分类规则（确定性，零 LLM）：**在 `skills-lock.json` 里的 skill = 外部依赖 → 产引用，云端 `skill install` 重拉（npm ci 语义）；不在 lockfile 里的 = repo 原生 → 随包上传文件**。`node_modules` / `output*` / `input` / 编辑器&OS 垃圾 / `.env*` 等自动排除并给理由；`CLAUDE.md` / `skills-lock.json` / manifest 自动纳入。`.askdaoignore`（syntax 同 gitignore，`!` 反向纳入）做兜底覆盖。`askdao bundle --bundle-skill <name>` 把某外部 skill 强制改成随包上传。
+**Skill 上传分类规则**（v0.7 起所有 custom skill 一律上传，Anthropic Managed Agents 无公共 registry —— 详见 `../harness-design/investigations/managed-agents-skill-installation.md`）：所有 `<skillDir>/<name>/` 目录递归打包（含 SKILL.md + scripts/ + assets/ + references/ 等所有子文件 + 二进制透传）。`<root>/.agents/skills/` / `<root>/.claude/skills/` / 自定义 path 的上级在 ZipDir 时被 `filepath.Rel` 切掉 —— **harness 中性 invariant**：Anthropic 端只看到 `<skillName>/SKILL.md` 形态（design.md §9.14）。vendored 与原生只是 bundle UI 的 inline origin tag（`skill (repo-native)` / `skill (vendored: <source> @ <hash>)`），不改变上传行为。`node_modules` / `output*` / `input` / 编辑器&OS 垃圾 / `.env*` 等自动排除并给理由；`CLAUDE.md` / `skills-lock.json` / manifest 自动纳入。`.askdaoignore`（syntax 同 gitignore，`!` 反向纳入）做兜底覆盖。
 
 ---
 

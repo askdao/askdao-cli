@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/askdao/askdao-cli/internal/pipeline"
 	"github.com/askdao/askdao-cli/internal/render"
@@ -14,15 +13,17 @@ import (
 
 // runBundle implements `askdao bundle [path]`. It previews the deployment
 // payload — the explicit list of files that would be uploaded when the agent
-// is deployed, the vendored skills re-installed from their lockfile sources,
-// and everything deliberately left out with reasons. It does NOT package or
-// upload anything (that waits on conductor #11's deploy endpoint).
+// is deployed, with everything deliberately left out and reasons. It does NOT
+// package or upload anything (that's what `askdao agent deploy` does).
+//
+// v0.7: every custom skill (repo-native and vendored alike) appears in
+// WILL UPLOAD with an inline origin tag. The previous `--bundle-skill` flag
+// is gone — there is no "reference, don't upload" branch to opt out of.
 func runBundle(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("bundle", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "Print the deployment_payload as JSON")
 	showWarnings := fs.Bool("warnings", false, "Print all warnings in full")
 	noEvals := fs.Bool("no-evals", false, "Drop skill evals/ subdirectories from the payload")
-	bundleSkill := fs.String("bundle-skill", "", "Comma-separated vendored skills to ship inline instead of as references")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -31,19 +32,9 @@ func runBundle(ctx context.Context, args []string) int {
 		root = fs.Arg(0)
 	}
 
-	var force []string
-	if *bundleSkill != "" {
-		for _, s := range strings.Split(*bundleSkill, ",") {
-			if s = strings.TrimSpace(s); s != "" {
-				force = append(force, s)
-			}
-		}
-	}
-
 	res, err := pipeline.Run(ctx, pipeline.Options{
-		Root:              root,
-		IncludeEvals:      !*noEvals,
-		ForceBundleSkills: force,
+		Root:         root,
+		IncludeEvals: !*noEvals,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "bundle: %v\n", err)

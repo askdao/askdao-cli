@@ -47,9 +47,13 @@ type Detection struct {
 	// is a service or a skill bundle. Deterministic; no LLM.
 	Archetype ProjectArchetype `json:"archetype"`
 	// DeploymentPayload is the explicit answer to "what gets uploaded when this
-	// directory is deployed to the cloud" — an include list, an exclude list
-	// (with reasons), and the vendored skills that are re-installed from their
-	// lockfile sources rather than shipped inline.
+	// directory is deployed to the cloud" — an include list and an exclude list
+	// (with reasons). As of v0.7 every custom skill (both repo-native and
+	// vendored from skills-lock.json) ships inline; there is no "reinstall from
+	// registry" path, because Anthropic Managed Agents has no public skill
+	// registry (see harness-design/investigations/managed-agents-skill-installation.md).
+	// Vendored-vs-native distinction lives on DetectedSkill metadata for UI
+	// display only.
 	DeploymentPayload DeploymentPayload `json:"deployment_payload"`
 }
 
@@ -61,15 +65,16 @@ type ProjectArchetype struct {
 	Evidence   []string `json:"evidence"`
 }
 
-// DeploymentPayload is the upload manifest: what files travel with the agent,
-// what is deliberately left out (with reasons), and which vendored skills are
-// re-installed remotely from their lockfile sources instead of shipped inline.
+// DeploymentPayload is the upload manifest: what files travel with the agent
+// and what is deliberately left out (with reasons). As of v0.7 every custom
+// skill — repo-native or vendored — ships inline; "vendored" is metadata
+// (rendered in bundle UI as `skill (vendored: <source> @ <hash>)`) but does
+// NOT change upload behaviour. See docs/design.md §9.10 for the rationale.
 type DeploymentPayload struct {
-	Includes        []PayloadEntry `json:"includes"`
-	Excludes        []PayloadEntry `json:"excludes"`
-	SkillReferences []SkillRef     `json:"skill_references"`
-	TotalBytes      int64          `json:"total_bytes"`
-	TotalFiles      int            `json:"total_files"`
+	Includes   []PayloadEntry `json:"includes"`
+	Excludes   []PayloadEntry `json:"excludes"`
+	TotalBytes int64          `json:"total_bytes"`
+	TotalFiles int            `json:"total_files"`
 	// IgnoreSources lists which ignore mechanisms actually matched something:
 	// "builtin" | ".gitignore" | ".dockerignore" | ".askdaoignore".
 	IgnoreSources []string `json:"ignore_sources"`
@@ -85,24 +90,6 @@ type PayloadEntry struct {
 	// Kind buckets the entry: skill | agent_doc | manifest | source | junk |
 	// generated | user_data | vendored | other.
 	Kind string `json:"kind"`
-}
-
-// SkillRef is a vendored (lockfile-pinned) skill that the cloud re-installs
-// from its source rather than receiving as uploaded files — the skill analogue
-// of `npm ci` from a lockfile instead of shipping node_modules.
-type SkillRef struct {
-	Name       string `json:"name"`
-	SourceType string `json:"source_type"` // "github" | ... (passthrough from skills-lock.json)
-	Source     string `json:"source"`      // e.g. "marswaveai/skills"
-	SkillPath  string `json:"skill_path"`  // e.g. "tts/SKILL.md"
-	LockedHash string `json:"locked_hash"`
-	LocalHash  string `json:"local_hash,omitempty"`
-	// Drift is true when the on-disk copy no longer matches LockedHash — the
-	// skill has been forked locally and must be shipped inline.
-	Drift bool `json:"drift"`
-	// Resolvable is "yes" when the source looks publicly reachable, "unknown"
-	// when it may be private (cloud might lack access).
-	Resolvable string `json:"resolvable"`
 }
 
 // ScanInfo records what was scanned and how long it took.
@@ -281,6 +268,10 @@ type DetectedSkill struct {
 	// (a vendored external dependency); empty means it is repo-native (authored
 	// here, must travel with the agent).
 	LockedSource string `json:"locked_source,omitempty"`
+	// LockedHash is the `computedHash` field passed through from skills-lock.json
+	// for the vendored case. Used by bundle UI to render an origin tag like
+	// `skill (vendored: marswaveai/skills @ <short-hash>)`. Empty when not vendored.
+	LockedHash string `json:"locked_hash,omitempty"`
 	// IsLocalOriginal == (LockedSource == ""). Materialized for JSON consumers
 	// that would rather read a bool than test emptiness.
 	IsLocalOriginal bool `json:"is_local_original"`

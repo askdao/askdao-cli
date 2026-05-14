@@ -32,7 +32,7 @@
 |---|---|---|
 | `agent deploy` 主请求 | `Client.Deploy` | multipart：`agent_yaml`(text) + `detection`/`harness_id`/`force`(text, 可选) + 每个 custom_local skill 一个 file part |
 | `agent deploy` 触发的 KOL 资料补全 | `Client.SetupKol` | PATCH `/users/me/kol-profile`，CLI 固定发 `kol_join_mode="free"` + 可选 `kol_bio` |
-| `custom_local` skill 上传内容 | `ZipDir` | `<dir>/skills/<basename(path)>/` → zip（顶层目录 = `<basename(path)>/`） |
+| `custom_local` skill 上传内容 | `ZipDir` | `<dir>/<skill.path>/` → zip（顶层目录 = `filepath.Base(skill.path)`）。**harness 中性 invariant**：KOL 项目里 skill 实际存放的上级路径（`.claude/skills/` / `.agents/skills/` 等）被 ZipDir 内的 `filepath.Rel(srcDir, path)` 切掉，Anthropic 端只看到 `<skillName>/SKILL.md` 形态。design.md §9.14 |
 | 部署结果（`agent_id` / `group_link` / `skills` / `translation_report`） | `DeployResponse` | `cmd` 层渲染到终端；`translation_report` 转 `render.TranslationWarning` 走 `RenderTranslationWarnings` |
 
 ## 与 conductor 的对齐点

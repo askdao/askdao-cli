@@ -31,6 +31,8 @@ func withWorkdir(t *testing.T) string {
 
 func writeMinimalAgent(t *testing.T, root, name string) {
 	t.Helper()
+	// v0.7 layout: askdao-agent.yml at project root + .askdao/ for tool
+	// products; `name` here is the project subdir relative to root.
 	dir := filepath.Join(root, name)
 	askdao := filepath.Join(dir, ".askdao")
 	if err := os.MkdirAll(askdao, 0o755); err != nil {
@@ -40,10 +42,9 @@ func writeMinimalAgent(t *testing.T, root, name string) {
 		APIVersion: types.AgentSpecAPIVersion,
 		Kind:       types.AgentSpecKind,
 		Metadata: types.Metadata{
-			Name:        name,
-			Version:     "0.1.0",
-			Visibility:  "private",
-			PersonaFile: "persona.md",
+			Name:       name,
+			Version:    "0.1.0",
+			Visibility: "private",
 		},
 		Persona: types.Persona{
 			ModelClass: "balanced",
@@ -61,14 +62,11 @@ func writeMinimalAgent(t *testing.T, root, name string) {
 		PreferredHarness: "anthropic_managed_agents",
 	}
 	data, _ := yaml.Marshal(&spec)
-	if err := os.WriteFile(filepath.Join(dir, "agent.yml"), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "askdao-agent.yml"), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Recommendation snapshot identical to agent.yml — deploy diff is empty.
+	// Recommendation snapshot identical to askdao-agent.yml — deploy diff is empty.
 	if err := os.WriteFile(filepath.Join(askdao, "recommendation.yml"), data, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "persona.md"), []byte("# "+name+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -114,10 +112,15 @@ func TestBundle_PreviewsDeploymentPayload(t *testing.T) {
 		t.Fatalf("runBundle exit = %d", code)
 	}
 	got := out()
-	for _, want := range []string{"DEPLOYMENT PAYLOAD", "WILL UPLOAD", "homework-gen", "SKILL REFERENCES", "tts", "EXCLUDED", "node_modules", "output/"} {
+	// v0.7: SKILL REFERENCES section is gone; vendored skills appear in
+	// WILL UPLOAD with an inline `(vendored: ...)` origin tag.
+	for _, want := range []string{"DEPLOYMENT PAYLOAD", "WILL UPLOAD", "homework-gen", "tts", "EXCLUDED", "node_modules", "output/", "repo-native", "vendored: marswaveai/skills"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("bundle output missing %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "SKILL REFERENCES") {
+		t.Errorf("bundle output should no longer contain 'SKILL REFERENCES' section:\n%s", got)
 	}
 	// JSON mode should emit a parseable deployment_payload.
 	out2, restore2 := captureStdout(t)
@@ -126,8 +129,13 @@ func TestBundle_PreviewsDeploymentPayload(t *testing.T) {
 		t.Fatalf("runBundle --json exit = %d", code)
 	}
 	js := out2()
-	if !strings.Contains(js, `"deployment_payload"`) || !strings.Contains(js, `"skill_references"`) {
-		t.Errorf("--json output not as expected:\n%s", js)
+	// v0.7: deployment_payload still in JSON but no longer carries
+	// skill_references field (every skill ships inline).
+	if !strings.Contains(js, `"deployment_payload"`) {
+		t.Errorf("--json output missing deployment_payload field:\n%s", js)
+	}
+	if strings.Contains(js, `"skill_references"`) {
+		t.Errorf("--json output should no longer contain skill_references:\n%s", js)
 	}
 }
 
@@ -137,7 +145,7 @@ func TestShow_DefaultRendersMidDensityCard(t *testing.T) {
 
 	out, restore := captureStdout(t)
 	defer restore()
-	if code := runShow(context.Background(), []string{"test-agent"}); code != 0 {
+	if code := runShow(context.Background(), []string{"--dir", "test-agent"}); code != 0 {
 		t.Fatalf("runShow exit = %d", code)
 	}
 	got := out()
@@ -154,7 +162,7 @@ func TestShow_FullPipesEntireYaml(t *testing.T) {
 
 	out, restore := captureStdout(t)
 	defer restore()
-	if code := runShow(context.Background(), []string{"test-agent", "--full"}); code != 0 {
+	if code := runShow(context.Background(), []string{"--dir", "test-agent", "--full"}); code != 0 {
 		t.Fatalf("runShow --full exit = %d", code)
 	}
 	if !strings.Contains(out(), "apiVersion: askdao.ai/v1") {
@@ -164,7 +172,7 @@ func TestShow_FullPipesEntireYaml(t *testing.T) {
 
 func TestShow_MissingAgentDirReturnsError(t *testing.T) {
 	withWorkdir(t)
-	if code := runShow(context.Background(), []string{"does-not-exist"}); code == 0 {
+	if code := runShow(context.Background(), []string{"--dir", "does-not-exist"}); code == 0 {
 		t.Errorf("show should fail when agent dir is missing, got 0")
 	}
 }
@@ -200,9 +208,9 @@ func TestDeploy_WithEditedSpecShowsDiff(t *testing.T) {
 	// TestDeploy_RefusesWithoutConductorURL.
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
-	// Edit agent.yml — change the model id.
+	// Edit askdao-agent.yml — change the model id.
 	editedSpec := types.AgentSpec{}
-	original, err := os.ReadFile(filepath.Join(root, "test-agent", "agent.yml"))
+	original, err := os.ReadFile(filepath.Join(root, "test-agent", "askdao-agent.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +219,7 @@ func TestDeploy_WithEditedSpecShowsDiff(t *testing.T) {
 	}
 	editedSpec.Persona.ModelPreferences[0].ID = "claude-haiku-4-5"
 	editedYAML, _ := yaml.Marshal(&editedSpec)
-	if err := os.WriteFile(filepath.Join(root, "test-agent", "agent.yml"), editedYAML, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "test-agent", "askdao-agent.yml"), editedYAML, 0o644); err != nil {
 		t.Fatal(err)
 	}
 

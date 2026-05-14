@@ -52,9 +52,6 @@ type Options struct {
 	// IncludeEvals keeps skill evals/ subdirectories in the deployment payload
 	// (the `--no-evals` flag clears it; default keeps them out — false).
 	IncludeEvals bool
-	// ForceBundleSkills names vendored skills to ship inline instead of as
-	// registry references (the `--bundle-skill` escape hatch).
-	ForceBundleSkills []string
 }
 
 // Result is the full pipeline output. ProviderPlans is the per-provider
@@ -64,7 +61,12 @@ type Result struct {
 	Detection      *types.Detection
 	ProviderPlans  []ProviderEntry
 	Recommendation *recommender.RecommendResponse
-	Warnings       []string
+	// AgentSkills is the deterministic skills[] for AgentSpec, built from
+	// Detection.DetectedSkills + ImpliedAnthropicSkills. cmd-layer overwrites
+	// the LLM's spec.Skills with this value to keep the field outside LLM's
+	// freedom (see skills_builder.go).
+	AgentSkills []types.Skill
+	Warnings    []string
 }
 
 // ProviderEntry pairs a provider name with the plan it produced.
@@ -160,8 +162,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	// archetype to decide whether to drop input/data dirs.
 	det.Archetype = scanner.InferArchetype(det)
 	payload, payloadWarns := scanner.DetectDeploymentPayload(root, det, scanner.PayloadOptions{
-		IncludeEvals:      opts.IncludeEvals,
-		ForceBundleSkills: opts.ForceBundleSkills,
+		IncludeEvals: opts.IncludeEvals,
 	})
 	det.DeploymentPayload = payload
 	res.Warnings = append(res.Warnings, payloadWarns...)
@@ -181,6 +182,11 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	res.Detection = det
+
+	// 5b. Deterministic skills builder — runs unconditionally regardless of
+	// LLM availability. cmd-layer overwrites the LLM's spec.Skills with this
+	// value (see skills_builder.go for the rationale).
+	res.AgentSkills = BuildAgentSpecSkills(det)
 
 	// 6. Optional LLM phase.
 	if opts.LLM != nil {
