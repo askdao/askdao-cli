@@ -173,6 +173,11 @@ func TestDeploy_RefusesWithoutConductorURL(t *testing.T) {
 	root := withWorkdir(t)
 	writeMinimalAgent(t, root, "test-agent")
 	t.Setenv("ASKDAO_CONDUCTOR_URL", "")
+	// Isolate credentials.json — devs running this suite may have already
+	// run `askdao auth login`, which would otherwise satisfy
+	// resolveServerAndToken from the user's home dir and steer the test
+	// away from the "no conductor URL configured" branch we want to assert.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
 	out, restore := captureStdout(t)
 	defer restore()
@@ -191,6 +196,9 @@ func TestDeploy_WithEditedSpecShowsDiff(t *testing.T) {
 	// Stop at the diff preview: leave the conductor URL unset so the run can't
 	// reach a real endpoint even if the dev's shell has one configured.
 	t.Setenv("ASKDAO_CONDUCTOR_URL", "")
+	// Also isolate credentials.json — same reason as
+	// TestDeploy_RefusesWithoutConductorURL.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
 	// Edit agent.yml — change the model id.
 	editedSpec := types.AgentSpec{}

@@ -119,16 +119,30 @@ preferred_harness: anthropic_managed_agents
 	return 0
 }
 
-// chooseLLMClient picks the conductor client when ASKDAO_CONDUCTOR_URL is set,
-// otherwise falls back to the in-process MockClient — so `init` works offline
-// (deterministic mock recommendations) without a live conductor.
+// chooseLLMClient picks the conductor client when we have both a server URL
+// and a bearer token; otherwise falls back to the in-process MockClient so
+// `init` works offline (deterministic mock recommendations) without a live
+// conductor.
+//
+// Token / URL resolution mirrors `resolveServerAndToken` in deploy.go:
+//
+//  1. env ASKDAO_CONDUCTOR_URL + ASKDAO_CONDUCTOR_TOKEN (both required as a
+//     pair; matches aws/gcloud convention for CI / one-off override)
+//  2. credentials.json written by `askdao auth login`
+//  3. nothing → MockClient (offline mode)
+//
+// We deliberately do NOT fall back to MockClient on partial env (only URL
+// set, no token) — that almost certainly indicates misconfiguration the user
+// wants to know about, so we let `recommend` 401 and the caller surfaces the
+// error verbatim.
 func chooseLLMClient() recommender.LLMClient {
-	if base := os.Getenv("ASKDAO_CONDUCTOR_URL"); base != "" {
-		c := recommender.NewConductorClient(base)
-		c.AuthToken = os.Getenv("ASKDAO_CONDUCTOR_TOKEN")
-		return c
+	url, token, err := resolveServerAndToken()
+	if err != nil {
+		return &recommender.MockClient{}
 	}
-	return &recommender.MockClient{}
+	c := recommender.NewConductorClient(url)
+	c.AuthToken = token
+	return c
 }
 
 // buildSummaryInput collects the bits SummaryInput needs that aren't present
