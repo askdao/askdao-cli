@@ -150,7 +150,7 @@ func runDeploy(ctx context.Context, args []string) int {
 	if n := len(skillZips); n > 0 {
 		fmt.Printf("→ Packaged %d custom skill(s): %s\n", n, strings.Join(sortedKeys(skillZips), ", "))
 	}
-	fmt.Printf("→ Deploying to %s (harness=%s) ...\n", conductorURL, harnessID)
+	printDeployProgress(conductorURL, harnessID, len(skillZips))
 
 	resp, derr := cl.Deploy(ctx, in)
 	if derr != nil {
@@ -159,7 +159,7 @@ func runDeploy(ctx context.Context, args []string) int {
 			if !setupKolProfile(ctx, cl, kpr, *bio) {
 				return 1
 			}
-			fmt.Println("→ Retrying deploy ...")
+			printDeployRetryProgress(len(skillZips))
 			resp, derr = cl.Deploy(ctx, in)
 		}
 	}
@@ -232,7 +232,48 @@ func printDeployResult(resp *deploy.DeployResponse) {
 	}
 	if warnings := toRenderWarnings(resp.TranslationReport); len(warnings) > 0 {
 		fmt.Println()
-		render.RenderTranslationWarnings(render.New(), resp.TranslationReport.Harness, warnings, render.ViewSummary)
+		// Prelude so the ⚠️ section is not mistaken for a deploy failure.
+		// Anything HIGH would have already 409-blocked the deploy upstream;
+		// at this point the agent is live and these are advisory only.
+		fmt.Println("ℹ The following non-blocking warnings were flagged during translation.")
+		fmt.Println("  Your agent is live and ready to use — these are advisory notes.")
+		fmt.Println()
+		// Batch CLI: use ViewAll because the [W] interactive prompt in
+		// ViewSummary is dead — the process exits after this print.
+		render.RenderTranslationWarnings(render.New(), resp.TranslationReport.Harness, warnings, render.ViewAll)
+	}
+	// Trailing confirmation so the user has a clear "done" signal regardless
+	// of whether warnings are present.
+	fmt.Println()
+	if resp.GroupLink != "" {
+		fmt.Printf("✓ Deploy complete. Open %s to chat.\n", resp.GroupLink)
+	} else {
+		fmt.Println("✓ Deploy complete.")
+	}
+}
+
+// printDeployProgress prints expected scope + duration before the POST to
+// /cli/deploy. The actual HTTP call takes 10-25s while conductor uploads
+// each skill to Anthropic Managed Skills + creates an environment + agent.
+// Without this prelude the user sees "Deploying ..." then nothing for half
+// a minute.
+func printDeployProgress(conductorURL, harnessID string, skillCount int) {
+	if skillCount > 0 {
+		fmt.Printf("→ Deploying to %s (harness=%s) — uploading %d skill(s) + creating Anthropic agent/environment, typically 15-25s ...\n",
+			conductorURL, harnessID, skillCount)
+	} else {
+		fmt.Printf("→ Deploying to %s (harness=%s) — creating Anthropic agent/environment, typically 5-10s ...\n",
+			conductorURL, harnessID)
+	}
+}
+
+// printDeployRetryProgress is the same explanatory line for the second POST
+// triggered after kol_profile_required has been resolved.
+func printDeployRetryProgress(skillCount int) {
+	if skillCount > 0 {
+		fmt.Printf("→ Retrying deploy (uploading %d skill(s) + Anthropic provisioning, typically 15-25s) ...\n", skillCount)
+	} else {
+		fmt.Println("→ Retrying deploy (Anthropic provisioning, typically 5-10s) ...")
 	}
 }
 
