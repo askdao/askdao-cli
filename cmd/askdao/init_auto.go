@@ -61,6 +61,20 @@ func runInit(ctx context.Context, args []string) int {
 	}
 
 	llm := chooseLLMClient()
+	usingMock := isMockLLM(llm)
+
+	// Phase milestones — `pipeline.Run` is a 10-20s black box, mostly spent
+	// waiting on the LLM. The pipeline itself is not yet phase-observable
+	// (follow-up: Options.OnPhase callback); for now we at least make it
+	// clear what step is in progress so a stall is debuggable.
+	fmt.Fprintln(os.Stderr, "→ Scanning project (languages / deps / Dockerfile / MCP / skills) ...")
+	fmt.Fprintln(os.Stderr, "→ Inferring frameworks + building deployment payload ...")
+	if usingMock {
+		fmt.Fprintln(os.Stderr, "→ Using offline MockClient (no conductor URL or credentials) — recommendation will be deterministic stub.")
+	} else {
+		fmt.Fprintln(os.Stderr, "→ Calling LLM via conductor for recommendation (typically 10-20s) ...")
+	}
+
 	res, err := pipeline.Run(ctx, pipeline.Options{
 		Root:             *from,
 		AgentName:        name,
@@ -68,9 +82,11 @@ func runInit(ctx context.Context, args []string) int {
 		LLM:              llm,
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "askdao agent init: %v\n", err)
+		fmt.Fprintln(os.Stderr, "✗", err)
 		return 1
 	}
+	fmt.Fprintln(os.Stderr, "✓ Recommendation received.")
+	fmt.Fprintln(os.Stderr)
 	for _, w := range res.Warnings {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 	}
@@ -177,6 +193,15 @@ func chooseLLMClient() recommender.LLMClient {
 	c := recommender.NewConductorClient(url)
 	c.AuthToken = token
 	return c
+}
+
+// isMockLLM tells whether chooseLLMClient fell back to the offline mock —
+// used by the init milestone output to tell the user that the LLM step
+// will not actually hit a network (avoids a misleading "calling LLM…" line
+// when the run is going to be deterministic and fast).
+func isMockLLM(c recommender.LLMClient) bool {
+	_, ok := c.(*recommender.MockClient)
+	return ok
 }
 
 // buildSummaryInput collects the bits SummaryInput needs that aren't present

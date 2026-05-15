@@ -1413,6 +1413,33 @@ KOL 项目根/
 
 **未来扩展**：当 LLM 在 `version` / `permission` / `domain` 三个字段又自由发挥时（迟早），把它们纳入同款 normalizer 而不是改 prompt 求模型服从。
 
+#### Normalizer 规则集 audit checklist（v0.7.1 补，prod 撞到第三次后立的 process gate）
+
+normalizer 历史上演化是被动反应式的：每撞一次新错位就加一类规则。这意味着每次 AgentSpec 加新字段时，**必须**对照下面这张四类形态表过一遍，确认 normalizer 是否需要新规则——而不是等 prod 502 再补。
+
+| Schema 类型 | 已知 LLM 错位形态 | normalizer 规则 / tuple |
+|---|---|---|
+| `list[str]` | scalar string（"education" 而非 ["education"]）| `_SINGLETON_STRING_LISTS` → `_wrap_str_to_list` |
+| `list[<model>]` | single dict（{...} 而非 [{...}]） | `_SINGLETON_OBJECT_LISTS` → `_wrap_object_to_list` |
+| `dict[str, str]` | list of strings（["a","b"] 而非 {"a":"","b":""}）| `_LIST_TO_DICT_KEYS` → `_list_to_dict_with_empty_values`（v0.7.1） |
+| Enum string | 大小写错（"Private" / "ALWAYS_ALLOW"）| `_LOWERCASE_STRINGS` → `_lowercase_string` |
+| `bool` | "true"/"false" 字符串 | （pydantic 默认接受，暂不需 normalizer） |
+| 嵌套结构（`Optional[X]`、union） | （未撞过，留观察）| — |
+
+**新加字段时的 process gate**（写进 conductor `app/agents/spec.py` L3 头部的镜像约束）：
+1. 字段类型属于上表前 4 类之一？ → 加进对应 tuple，并补单元测试
+2. 字段是 dict[str, str]？ → **加进 `_LIST_TO_DICT_KEYS`**
+3. 字段是 enum string（注释里 ∈ {...}）？ → 加进 `_LOWERCASE_STRINGS` + prompt 加约束
+4. `tests/test_llm_normalizer.py::test_rule_paths_resolve_against_spec_or_known_extensions` 跑一遍守护漂移
+
+撞墙记录（每条都该是教训而不是事后补丁）：
+
+| 时间 | 字段 | 形态 | 修复 PR |
+|---|---|---|---|
+| 2026-05-13 | `metadata.domain` | scalar → list | conductor #44 |
+| 2026-05-14 | `skills[]` | LLM 自由发挥（dict, dict, dict...） | askdao-cli #25 deterministic builder + conductor #50 prompt OMIT |
+| 2026-05-14 | `metadata.labels` | list → dict | conductor #55（本节由此触发补的 checklist） |
+
 ---
 
 ### 9.14 Skill 上传分层协议 + harness 中性 invariant ✅ 已定（v0.7）
