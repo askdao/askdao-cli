@@ -49,6 +49,6 @@ Harness signals: claude-code ✓ · codex ✗ · cursor ✗ · gemini-cli ✗
 - `[S] full yaml in pager` 直接打印不分页（对 KOL 项目通常够；后续可加 less wrap）
 - syft 不在 PATH 时 packages 列表空（warnings 提示安装）
 - `agent show --warnings` 暂无数据可显示（translation_report 来自 `agent deploy` 的响应，未写回 agent.yml）
-- `agent deploy` 不做幂等 re-deploy（conductor `/cli/deploy` 每次新建 agent + group；re-deploy `/diff` 走 ADR-P19，P2）；远端 ID 不写回 `agent.yml` `status:`（P2）
+- ~~`agent deploy` 不做幂等 re-deploy~~ **v0.7.1 (2026-05-19) 起已实装 update-mode**：conductor 按 `(owner_id, yaml.metadata.name)` 去重（alembic 029），同 name 重 deploy 走 `environments.update` + `agents.update` in-place 而非堆同名 agent；`DeployResponse.Created` + `PreviousManagedVersion` 让 deploy.go `printDeployResult` 区分输出 `Created new agent.` vs `Updated existing agent (vN → vN+1).`。详 `docs/update-mode-handoff.md`。远端 ID 不写回 `agent.yml` `status:`（仍 P2）
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

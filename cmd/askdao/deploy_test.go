@@ -93,6 +93,7 @@ func TestDeploy_EndToEnd_HappyPath(t *testing.T) {
 				"anthropic_skill_id": "skill_xyz", "anthropic_skill_version": "1",
 			}},
 			TranslationReport: deploy.TranslationReport{Harness: "anthropic_managed_agents"},
+			Created:           true,
 		})
 	}))
 	defer srv.Close()
@@ -106,7 +107,45 @@ func TestDeploy_EndToEnd_HappyPath(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("deploy exit = %d\n--- output ---\n%s", code, got)
 	}
-	for _, want := range []string{"Deployed.", "agt_abc", "grp_def", "https://askdao.ai/k/usr_1/g/grp_def", "my-skill", "skill_xyz"} {
+	for _, want := range []string{"Created new agent.", "agt_abc", "grp_def", "https://askdao.ai/k/usr_1/g/grp_def", "my-skill", "skill_xyz"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output missing %q\n--- output ---\n%s", want, got)
+		}
+	}
+}
+
+func TestDeploy_EndToEnd_UpdateMode(t *testing.T) {
+	// Update-mode (ADR-P19): conductor signals an in-place agent update via
+	// `created: false` + previous_managed_version. The cli should print the
+	// "Updated existing agent (vN → vN+1)" banner instead of "Created".
+	root := withWorkdir(t)
+	writeAgentDirWithSkill(t, root, "kol-agent", "my-skill")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		prev := 1
+		writeJSON(w, http.StatusOK, deploy.DeployResponse{
+			AgentID:                "agt_abc",
+			AnthropicAgentID:       "agent_x",
+			AnthropicEnvironmentID: "env_x",
+			GroupID:                "grp_def",
+			GroupLink:              "https://askdao.ai/k/usr_1/g/grp_def",
+			TranslationReport:      deploy.TranslationReport{Harness: "anthropic_managed_agents"},
+			Created:                false,
+			PreviousManagedVersion: &prev,
+		})
+	}))
+	defer srv.Close()
+	t.Setenv("ASKDAO_CONDUCTOR_URL", srv.URL)
+	t.Setenv("ASKDAO_CONDUCTOR_TOKEN", "tok")
+
+	out, restore := captureStdout(t)
+	defer restore()
+	code := runDeploy(context.Background(), []string{"--dir", "kol-agent"})
+	got := out()
+	if code != 0 {
+		t.Fatalf("deploy exit = %d\n--- output ---\n%s", code, got)
+	}
+	for _, want := range []string{"Updated existing agent (v1 → v2).", "agt_abc", "grp_def"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output missing %q\n--- output ---\n%s", want, got)
 		}

@@ -1151,6 +1151,7 @@ vs v0.2（~2950 行）：累计增量 ~1330 行。
 - ✅ `preferred_harness` 仅 `anthropic_managed_agents`
 - ✅ **v0.5 中等详情卡片 UX**：7 块顶层（Persona / Skills / MCP / Capabilities / Runtime / Onboarding / Warnings）+ inline reasoning（`↳ Why:`）+ 入口扩展（[A/E/R/S/D/F/M/W/P/Q]）
 - ✅ **v0.5 deploy diff preview**：KOL 改 yaml 后显示与原推荐的差异 + 对 translation_report 的影响
+- ✅ **v0.7.1 deploy update-mode**（2026-05-19，ADR-P19 从 P2 升 P0 落地）：conductor `/cli/deploy` 加 lookup-then-create-or-update 分支。Dedup key = `(owner_id, yaml.metadata.name)`，KOL scope。命中既有 row → `environments.update` + `agents.update`（乐观锁 retry once）in-place，复用 agent_id/group_id/created_at；不命中走原 create。alembic 029 partial unique index 同时防并发 deploy race。cli `DeployResponse` 加 `created` / `previous_managed_version`，终端区分 `Created new agent.` vs `Updated existing agent (vN → vN+1).`。详 `docs/update-mode-handoff.md`
 
 **conductor 端**：
 - ✅ AgentSpec pydantic 模型（中间格式 + workspace 5 字段）
