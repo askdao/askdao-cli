@@ -262,7 +262,7 @@ aws ecs execute-command --cluster askdao --task "$TASK_ID" --container conductor
 ## 不在本 walkthrough 范围
 
 - `agent init --auto --from <dir>`（带 L1-L4 流水线 + 交互审阅菜单的完整 KOL 引导流）
-- `agent deploy` 幂等 re-deploy（ADR-P19 P2 未实装，每次都新建 agt_/grp_/skill version）
+- ~~`agent deploy` 幂等 re-deploy（ADR-P19 P2 未实装）~~ **已实装 2026-05-19**：conductor `/cli/deploy` 加 lookup-then-create-or-update（dedup key = `(owner_id, yaml.metadata.name)` KOL scope，alembic 029 partial unique 背书）。命中既有 row → in-place `environments.update` + `agents.update`（乐观锁 retry once），复用 agent_id/group_id；不命中走原 create。cli 终端区分 `Created new agent.` vs `Updated existing agent (vN → vN+1).`。详 `docs/update-mode-handoff.md`
 - Failure recovery（Anthropic API fail → `agent_spec.is_active=False` + 保留 Group，需手动 cleanup）
 - 订阅者侧（M4 Issue 5 `subscribe()/cancel()` 自动 join/leave KOL Agent Group）+ Web group chat 路由（M4 Issue 6）
 

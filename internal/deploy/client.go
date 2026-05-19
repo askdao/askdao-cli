@@ -46,6 +46,12 @@ type DeployInput struct {
 }
 
 // DeployResponse mirrors conductor's app.api.cli.DeployResponse.
+//
+// Update-mode (ADR-P19 / docs/update-mode-handoff.md):
+//   - Created=true  → first deploy under this (owner, yaml.metadata.name).
+//   - Created=false → in-place update of an existing AgentSpec; AgentID and
+//     GroupID are reused, PreviousManagedVersion records the pre-bump
+//     Anthropic agent version (e.g. 1 → 2).
 type DeployResponse struct {
 	AgentID                string                   `json:"agent_id"`
 	AnthropicAgentID       string                   `json:"anthropic_agent_id"`
@@ -54,6 +60,8 @@ type DeployResponse struct {
 	GroupLink              string                   `json:"group_link"`
 	Skills                 []map[string]interface{} `json:"skills"`
 	TranslationReport      TranslationReport        `json:"translation_report"`
+	Created                bool                     `json:"created"`
+	PreviousManagedVersion *int                     `json:"previous_managed_version,omitempty"`
 }
 
 // TranslationReport mirrors conductor's app.agents.adapters.TranslationReport

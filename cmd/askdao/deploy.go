@@ -213,7 +213,18 @@ func setupKolProfile(ctx context.Context, cl *deploy.Client, req *deploy.ErrKolP
 
 func printDeployResult(resp *deploy.DeployResponse) {
 	fmt.Println()
-	fmt.Println("✓ Deployed.")
+	// Update-mode (ADR-P19): conductor's response.created tells us whether this
+	// deploy created a fresh agent or updated the existing one in place. When
+	// updating we also print the version bump (e.g. "v1 → v2") so the KOL can
+	// confirm the change landed without diving into the Anthropic dashboard.
+	if resp.Created {
+		fmt.Println("✓ Created new agent.")
+	} else if resp.PreviousManagedVersion != nil {
+		fmt.Printf("✓ Updated existing agent (v%d → v%d).\n",
+			*resp.PreviousManagedVersion, *resp.PreviousManagedVersion+1)
+	} else {
+		fmt.Println("✓ Updated existing agent.")
+	}
 	fmt.Println()
 	fmt.Printf("  agent_id:    %s\n", resp.AgentID)
 	fmt.Printf("  anthropic:   agent=%s  environment=%s\n", resp.AnthropicAgentID, resp.AnthropicEnvironmentID)

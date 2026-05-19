@@ -41,7 +41,7 @@ askdao detect [path]                       # 打印 detection report（含 arche
 askdao bundle [path]                       # 预览部署清单：会上传哪些文件（skill 整目录 + origin tag）/ 哪些被排除
 askdao agent init [name] [--auto]          # 在项目根创建 askdao-agent.yml + .askdao/（--auto 跑 L1-L4 流水线 + 交互审阅）
 askdao agent show [flags] [--dir path]     # 渲染 agent spec（中等详情卡片 / 聚焦视图）
-askdao agent deploy [--dir path] [--force] # 打包 custom skill 整目录 + 经 Conductor /cli/deploy 推到 Anthropic Managed Agents
+askdao agent deploy [--dir path] [--force] # 打包 custom skill 整目录 + 经 Conductor /cli/deploy 推到 Anthropic Managed Agents（**v0.7.1 起 update-mode**：同 yaml.metadata.name 重 deploy → in-place update Anthropic agent + env，复用 agent_id/group_id；改 name → fork 新 agent）
 askdao agent validate                      # 校验 askdao-agent.yml（计划，未实装）
 ```
 
@@ -66,6 +66,6 @@ deploy 的 token 解析顺序：`ASKDAO_CONDUCTOR_TOKEN + ASKDAO_CONDUCTOR_URL` 
 
 ## 状态
 
-Phase 1（detect / agent init / show / deploy 骨架 + L1-L4 流水线 + render UX）已交付（issue #1-8）；后续加了 `bundle` 命令 + detection 的 archetype / 部署清单（lockfile-pinned skill 走引用重装、其余随包上传，零 LLM；issue #19）。M4 补完 `agent deploy` —— 接 conductor `POST /api/v1/cli/deploy`（`multipart/form-data` + custom skill zip 上传 + `409 kol_profile_required` 隐式补全 + HIGH-warning gating），见 [`docs/HANDOFF.md`](docs/HANDOFF.md)。设计真相源：[`docs/design.md`](docs/design.md)。
+Phase 1（detect / agent init / show / deploy 骨架 + L1-L4 流水线 + render UX）已交付（issue #1-8）；后续加了 `bundle` 命令 + detection 的 archetype / 部署清单（lockfile-pinned skill 走引用重装、其余随包上传，零 LLM；issue #19）。M4 补完 `agent deploy` —— 接 conductor `POST /api/v1/cli/deploy`（`multipart/form-data` + custom skill zip 上传 + `409 kol_profile_required` 隐式补全 + HIGH-warning gating）。**v0.7.1 (2026-05-19) deploy update-mode** —— ADR-P19 从 P2 升 P0 落地：conductor 端按 `(owner_id, yaml.metadata.name)` 去重（alembic 029 partial unique），同 name 重 deploy → `environments.update` + `agents.update`（乐观锁 retry once）in-place 而非堆同名 Anthropic agent；cli 端 `DeployResponse` 加 `Created` / `PreviousManagedVersion`，终端区分 `Created new agent.` vs `Updated existing agent (vN → vN+1).`。详 [`docs/update-mode-handoff.md`](docs/update-mode-handoff.md)。其他设计真相源：[`docs/design.md`](docs/design.md) + [`docs/HANDOFF.md`](docs/HANDOFF.md)。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
