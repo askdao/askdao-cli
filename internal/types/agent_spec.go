@@ -55,7 +55,13 @@ type Metadata struct {
 	Name           string            `json:"name"                      yaml:"name"`
 	Description    string            `json:"description,omitempty"     yaml:"description,omitempty"`
 	Version        string            `json:"version"                   yaml:"version"`
-	Visibility     string            `json:"visibility,omitempty"      yaml:"visibility,omitempty"` // private | public
+	// Visibility ∈ {private, shared, public} (askdao-cli#28 / spec/02 §1.2 line 48):
+	//   private — owner-only (default; subscribers can't list / chat)
+	//   shared  — KOL 旗下订阅者可见 + 可调（默认订阅范围）
+	//   public  — 开放发现（订阅者 + 未来广场可索引）
+	// Conductor 端 schema (RecommendRequest / AgentSpecIn / UpdateVisibilityRequest)
+	// 三档 pattern 校验；Web 工作台改值走 PATCH，CLI 改值走 deploy 重跑.
+	Visibility     string            `json:"visibility,omitempty"      yaml:"visibility,omitempty"`
 	ExpertiseLevel string            `json:"expertise_level,omitempty" yaml:"expertise_level,omitempty"`
 	Domain         []string          `json:"domain,omitempty"          yaml:"domain,omitempty"`
 	GroupName      string            `json:"group_name,omitempty"      yaml:"group_name,omitempty"`

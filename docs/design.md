@@ -728,7 +728,7 @@ metadata:
   name: my-agent
   description: "..."                 # KOL 给订阅者看的介绍
   version: 0.1.0
-  visibility: private
+  visibility: private                # private | shared | public（spec/02 §1.2 line 48；askdao-cli#28）
   expertise_level: pro
   domain:
     - backend-engineering            # LLM 从 frameworks 反推
