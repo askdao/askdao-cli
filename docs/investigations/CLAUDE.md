@@ -16,4 +16,8 @@
 - **Open Source and Native Instrumentation for Agent Session Observability.md** — 报告 B（开源生态 · EN）：8 个项目对比（AI Observer / llm-cli-telemetry / claude_telemetry / RyanTech00 / OTel Collector Contrib / SigNoz / Langfuse），核心区分"自身捕获 agent 语义" vs "仅作遥测目的地"。**推荐混合架构：native hooks/OTel（语义事件）+ 轻量 snapshot 层（包/env/git 状态）+ 严格环境补 eBPF/auditd（宿主真相）**。
 - **面向 Claude Code 与 Codex 的 Agent Session 审计与观测研究报告.md** — 报告 C（审计观测 · ZH）：三层可见性框架（上下文层 / 执行层 / 运行时内部层）论证为何纯扫描不够；Claude Code（29 hook events + HTTP hook + OTEL tool_details）官方能力远优于 Codex（6 events + OTEL 省命令）；纯本地扫描只适合作 SessionStart 基线，真实依赖与运行时来源须补进程级或语言级 runtime instrumentation。
 
+### Observe Spike（v0.8 `--observe` 预勾的核心未知验证）
+
+- **observe-hook-skill-activation-spike.md** — `agent edit --observe` 可行性 spike（2026-05-21）：验证 Claude Code hooks 能否捕获「skill 激活 / MCP tool 调用」。**结论：完全可行、直接捕获、无需间接推断**。官方 hooks reference + 本机真实 transcript 双证：`Skill` 是一等内置工具（`PreToolUse matcher:"Skill"`，skill 名落 `tool_input.skill`）、MCP tool 形态固定 `mcp__<server>__<tool>`（正则拆 server 预勾）、HTTP hook 直发 `127.0.0.1` 复用现有 webstudio server。唯一边界 `/skillname` 斜杠绕过 PreToolUse（场景影响极小）。含零残留方案（settings.local.json append+标记+整文件备份+启动自检）+ 风险表（子代理冒泡 R3 需开工前实测）+ Plan B transcript 离线解析兜底 + 开工清单。
+
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
