@@ -10,7 +10,7 @@
 <directory>
 cmd/askdao/ - CLI 入口（main.go router）+ 用户命令（auth login/status/logout · detect · bundle · agent init/show/deploy）
 internal/ - 业务实现（auth/ 凭据 + Device Code Flow 客户端 · types/ 双 schema · scanner/ 确定性扫描 · providers/ 框架推断 · pipeline/ L1-L4 编排 · recommender/ L4 LLM + /cli/recommend 客户端 · render/ 审阅卡片 · deploy/ conductor /cli/deploy 客户端 + skill zip 打包）
-docs/ - 设计文档与调研报告（design.md 主稿 + cli-auth-device-flow.md（OAuth 2.0 Device Code Flow）+ HANDOFF.md + investigations/ 子目录两份 spike 报告）
+docs/ - 设计文档与调研报告（design.md = Phase 1 静态流水线主稿 + design-new.md = v0.8+ Observe 层方向 + cli-auth-device-flow.md（OAuth 2.0 Device Code Flow）+ HANDOFF.md + investigations/ 子目录：2 份实现底座 spike + 3 份 Agent Session 观测报告）
 </directory>
 
 <config>
