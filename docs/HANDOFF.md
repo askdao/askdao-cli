@@ -2,7 +2,25 @@
 
 > 新会话上手 / 上下文切换的入口文档。读完这一页就能继续工作。
 >
-> Last updated: 2026-05-14
+> Last updated: 2026-05-21
+
+---
+
+## v0.8 — `agent edit` 本地 Web 工作台（2026-05-21，进行中）
+
+observe-layer-design.md 评审纠偏后启动。立足点 = **Skills Pipeline + Anthropic MVP**（详见 [`review-observe-pivot-2026-05-21.md`](./review-observe-pivot-2026-05-21.md)）。
+
+**已落地（第一步，全测试绿 + make build 通过）**：
+
+- **命令精简**：核心审阅入口从 init/show + `[A/E/R/S/D/F/M/W/P/Q]` 字符菜单收敛为 `askdao agent edit` 本地 Web 工作台；命令集 = `auth` + `agent edit/deploy`，删 init/show/detect/bundle/argparse。
+- **webstudio**（`internal/webstudio/`）：127.0.0.1 随机端口 HTTP server + go:embed 自包含 HTML，浏览器审阅/编辑 profile/persona/主题色 + 按 scope 分组勾选 skill/MCP，Save / 一站式 Deploy。回调解耦（OnSave/OnDeploy 由 cmd 注入）。
+- **skill 过度包含修复**：scanner harness 感知双 scope 扫描（`.claude/`→`~/.claude/skills`+`~/.claude.json`；`.agent/`→Codex，Phase 2 核对路径）；`DetectedSkill`/`DetectedMCPConfig` 加 `Scope`/`Harness`；工作台 project 默认全勾 / user(全局) opt-in；archetype 跳过 user scope，skills_builder 默认只产 project。
+- **Agent 视觉品牌**：`metadata.category` + `metadata.theme_color`（预设色板 token，`internal/webstudio/theme.go`）。
+- **deploy 复用**：`deployFromDir` + `packageSkills`（含 user-scope skill 的绝对/`~` 路径解析）供工作台一站式发布；kol_profile 引导去 askdao.ai。
+
+**待续（第二步）**：Codex/Cursor user 路径核对；`agent edit --observe` hook 预勾；主题色跨仓贯通（conductor + askdao-ai-web）；kol_profile 云端流程对接。
+
+分支 `feature/agent-edit-web-studio`；plan `~/.claude/plans/anthropic-managed-pure-pixel.md`。
 
 ---
 

@@ -20,7 +20,7 @@ func TestDetectMCPConfigs_MixedTransports(t *testing.T) {
       }
     }`)
 
-	got, err := DetectMCPConfigs(root)
+	got, err := DetectMCPConfigs(root, ScanScopeOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestDetectMCPConfigs_TypeInference(t *testing.T) {
         "no-type-stdio":   {"command": "foo"}
       }
     }`)
-	got, err := DetectMCPConfigs(root)
+	got, err := DetectMCPConfigs(root, ScanScopeOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestDetectMCPConfigs_TypeInference(t *testing.T) {
 }
 
 func TestDetectMCPConfigs_Missing(t *testing.T) {
-	got, err := DetectMCPConfigs(t.TempDir())
+	got, err := DetectMCPConfigs(t.TempDir(), ScanScopeOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,11 +88,38 @@ func TestDetectMCPConfigs_Missing(t *testing.T) {
 func TestDetectMCPConfigs_Malformed(t *testing.T) {
 	root := t.TempDir()
 	mustWrite(t, filepath.Join(root, ".mcp.json"), "not-json")
-	got, err := DetectMCPConfigs(root)
+	got, err := DetectMCPConfigs(root, ScanScopeOpts{})
 	if err != nil {
 		t.Fatalf("malformed JSON should not error: %v", err)
 	}
 	if len(got) != 0 {
 		t.Errorf("malformed JSON should yield no entries, got %+v", got)
+	}
+}
+
+func TestDetectMCPConfigs_UserScope(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	// Project .claude/ marker activates claude user-scope discovery.
+	mustWrite(t, filepath.Join(root, ".claude", "settings.json"), "{}")
+	mustWrite(t, filepath.Join(home, ".claude.json"),
+		`{"mcpServers":{"global-mcp":{"type":"url","url":"https://x"}}}`)
+
+	got, err := DetectMCPConfigs(root, ScanScopeOpts{HomeDir: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, cfg := range got {
+		if cfg.Scope == "user" && cfg.Harness == "claude" {
+			for _, s := range cfg.Servers {
+				if s.Name == "global-mcp" {
+					found = true
+				}
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected user-scope claude MCP 'global-mcp', got %+v", got)
 	}
 }

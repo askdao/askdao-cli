@@ -1,8 +1,12 @@
 // [INPUT]: 依赖 标准库 time
 // [OUTPUT]: 对外提供 AgentSpec（apiVersion: askdao.ai/v1）及其 sub-types；
-//          AgentSpecAPIVersion / AgentSpecKind 常量
+//
+//	AgentSpecAPIVersion / AgentSpecKind 常量
+//
 // [POS]: internal/types 的 L4 输出 schema 真相源；中间格式（harness-neutral）
-//        被 recommender 写入、render 渲染、conductor adapter 消费翻译
+//
+//	被 recommender 写入、render 渲染、conductor adapter 消费翻译
+//
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package types
 
@@ -52,20 +56,29 @@ type AgentSpec struct {
 // the askdao-agent.yml a single source of truth for the agent's voice. See
 // docs/design.md §9.15.
 type Metadata struct {
-	Name           string            `json:"name"                      yaml:"name"`
-	Description    string            `json:"description,omitempty"     yaml:"description,omitempty"`
-	Version        string            `json:"version"                   yaml:"version"`
+	Name        string `json:"name"                      yaml:"name"`
+	Description string `json:"description,omitempty"     yaml:"description,omitempty"`
+	Version     string `json:"version"                   yaml:"version"`
 	// Visibility ∈ {private, shared, public} (askdao-cli#28 / spec/02 §1.2 line 48):
 	//   private — owner-only (default; subscribers can't list / chat)
 	//   shared  — KOL 旗下订阅者可见 + 可调（默认订阅范围）
 	//   public  — 开放发现（订阅者 + 未来广场可索引）
 	// Conductor 端 schema (RecommendRequest / AgentSpecIn / UpdateVisibilityRequest)
 	// 三档 pattern 校验；Web 工作台改值走 PATCH，CLI 改值走 deploy 重跑.
-	Visibility     string            `json:"visibility,omitempty"      yaml:"visibility,omitempty"`
-	ExpertiseLevel string            `json:"expertise_level,omitempty" yaml:"expertise_level,omitempty"`
-	Domain         []string          `json:"domain,omitempty"          yaml:"domain,omitempty"`
-	GroupName      string            `json:"group_name,omitempty"      yaml:"group_name,omitempty"`
-	Labels         map[string]string `json:"labels,omitempty"          yaml:"labels,omitempty"`
+	Visibility     string   `json:"visibility,omitempty"      yaml:"visibility,omitempty"`
+	ExpertiseLevel string   `json:"expertise_level,omitempty" yaml:"expertise_level,omitempty"`
+	Domain         []string `json:"domain,omitempty"          yaml:"domain,omitempty"`
+	// Category is the agent's product category (education / finance / health …).
+	// It drives the default theme palette in the web studio and the
+	// subscriber-facing Group page. Free-form, but the studio offers a preset list.
+	Category string `json:"category,omitempty" yaml:"category,omitempty"`
+	// ThemeColor is a preset palette TOKEN (e.g. "sunset"), NOT a raw hex value.
+	// CLI / conductor / askdao-ai-web share one token→color table so the
+	// subscriber Group page (/k/{kol}/g/{group}) renders the brand color. The KOL
+	// picks it in the web studio; it defaults from Category.
+	ThemeColor string            `json:"theme_color,omitempty" yaml:"theme_color,omitempty"`
+	GroupName  string            `json:"group_name,omitempty"  yaml:"group_name,omitempty"`
+	Labels     map[string]string `json:"labels,omitempty"      yaml:"labels,omitempty"`
 }
 
 // Persona is the model + role semantic layer. ModelPreferences are tried in
@@ -139,12 +152,16 @@ type CustomTool struct {
 //     etc.) that may consume this shape. The Anthropic adapter emits a HIGH
 //     translation warning and skips the entry.
 type Skill struct {
-	Type     string `json:"type"               yaml:"type"`     // builtin | custom_local | git_repo
+	Type     string `json:"type"               yaml:"type"`               // builtin | custom_local | git_repo
 	Provider string `json:"provider,omitempty" yaml:"provider,omitempty"` // anthropic | ...
-	ID       string `json:"id,omitempty"       yaml:"id,omitempty"`   // builtin only
-	Path     string `json:"path,omitempty"     yaml:"path,omitempty"` // custom_local: skill dir, relative to project root
-	Repo     string `json:"repo,omitempty"     yaml:"repo,omitempty"` // git_repo only
-	Ref      string `json:"ref,omitempty"      yaml:"ref,omitempty"`  // git_repo only
+	ID       string `json:"id,omitempty"       yaml:"id,omitempty"`       // builtin only
+	Path     string `json:"path,omitempty"     yaml:"path,omitempty"`     // custom_local: skill dir path
+	// Scope is "project" (default; Path is relative to the project root) or
+	// "user" (a global skill under the home dir, e.g. ~/.claude/skills/<name>;
+	// Path is absolute or ~-prefixed). deploy resolves Path accordingly before ZipDir.
+	Scope string `json:"scope,omitempty"    yaml:"scope,omitempty"` // project | user
+	Repo  string `json:"repo,omitempty"     yaml:"repo,omitempty"`  // git_repo only
+	Ref   string `json:"ref,omitempty"      yaml:"ref,omitempty"`   // git_repo only
 }
 
 // Workspace is the runtime environment configuration. The v0.4 fields

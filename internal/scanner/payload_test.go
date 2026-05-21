@@ -36,7 +36,7 @@ func assembleDetection(t *testing.T, root string) *types.Detection {
 	t.Helper()
 	det := &types.Detection{}
 	var err error
-	det.DetectedSkills, err = DetectSkills(root, nil)
+	det.DetectedSkills, err = DetectSkills(root, nil, ScanScopeOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,4 +163,3 @@ func TestDetectDeploymentPayload_AskdaoignoreNegation(t *testing.T) {
 		t.Errorf(".askdaoignore should be listed as an ignore source: %v", pl.IgnoreSources)
 	}
 }
-

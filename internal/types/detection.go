@@ -232,7 +232,13 @@ type RepositoryLayout struct {
 // DetectedMCPConfig is one MCP configuration source (.mcp.json,
 // claude_desktop_config.json, ...) with Anthropic-compat tagging on each server.
 type DetectedMCPConfig struct {
-	Source  string            `json:"source"`
+	Source string `json:"source"`
+	// Scope is "project" (config under the project root) or "user" (global config
+	// under the home dir, e.g. ~/.claude.json). Harness is the agent convention
+	// this config belongs to ("claude" | "codex"). Both feed the web studio's
+	// scope-grouped, harness-tagged MCP picker.
+	Scope   string            `json:"scope,omitempty"`
+	Harness string            `json:"harness,omitempty"`
 	Servers []MCPServerConfig `json:"servers"`
 }
 
@@ -275,6 +281,13 @@ type DetectedSkill struct {
 	// IsLocalOriginal == (LockedSource == ""). Materialized for JSON consumers
 	// that would rather read a bool than test emptiness.
 	IsLocalOriginal bool `json:"is_local_original"`
+
+	// Scope is "project" (skill dir under the project root) or "user" (a global
+	// skill under the home dir, e.g. ~/.claude/skills/). Harness is the agent
+	// convention this skill belongs to ("claude" | "codex"). Both feed the web
+	// studio's scope-grouped, harness-tagged skill picker.
+	Scope   string `json:"scope,omitempty"`
+	Harness string `json:"harness,omitempty"`
 }
 
 // ImpliedAnthropicSkill is a builtin skill recommendation derived from project

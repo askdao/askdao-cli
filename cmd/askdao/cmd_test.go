@@ -13,8 +13,7 @@ import (
 )
 
 // withWorkdir cd's into a temp dir for the duration of a test, then restores
-// the previous working directory. Commands like `agent show` and
-// `agent deploy` resolve files relative to cwd, so they need a controlled root.
+// the previous working directory. Commands resolve files relative to cwd.
 func withWorkdir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -31,8 +30,6 @@ func withWorkdir(t *testing.T) string {
 
 func writeMinimalAgent(t *testing.T, root, name string) {
 	t.Helper()
-	// v0.7 layout: askdao-agent.yml at project root + .askdao/ for tool
-	// products; `name` here is the project subdir relative to root.
 	dir := filepath.Join(root, name)
 	askdao := filepath.Join(dir, ".askdao")
 	if err := os.MkdirAll(askdao, 0o755); err != nil {
@@ -71,109 +68,24 @@ func writeMinimalAgent(t *testing.T, root, name string) {
 	}
 }
 
-func TestDetect_SmokeOnTempProject(t *testing.T) {
+func TestEdit_NoUIWritesDraft(t *testing.T) {
 	root := withWorkdir(t)
 	if err := os.WriteFile(filepath.Join(root, "main.py"), []byte("print('hi')\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// Offline → chooseLLMClient falls back to MockClient; no .claude/ marker in
+	// root so user-scope scanning is skipped (hermetic).
+	t.Setenv("ASKDAO_CONDUCTOR_URL", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
-	out, restore := captureStdout(t)
-	defer restore()
-	if code := runDetect(context.Background(), []string{"--summary"}); code != 0 {
-		t.Fatalf("runDetect exit = %d", code)
+	if code := runEdit(context.Background(), []string{"--dir", root, "--no-ui"}); code != 0 {
+		t.Fatalf("edit --no-ui exit = %d", code)
 	}
-	got := out()
-	if !strings.Contains(got, "Languages:") || !strings.Contains(got, "Python") {
-		t.Errorf("detect summary missing expected fields:\n%s", got)
+	if _, err := os.Stat(filepath.Join(root, "askdao-agent.yml")); err != nil {
+		t.Errorf("edit --no-ui should write askdao-agent.yml: %v", err)
 	}
-}
-
-func TestBundle_PreviewsDeploymentPayload(t *testing.T) {
-	root := withWorkdir(t)
-	mustW := func(rel, content string) {
-		p := filepath.Join(root, rel)
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	mustW("CLAUDE.md", "# manual\n")
-	mustW("skills-lock.json", `{"version":1,"skills":{"tts":{"source":"marswaveai/skills","sourceType":"github","skillPath":"tts/SKILL.md","computedHash":"x"}}}`)
-	mustW(".agents/skills/homework-gen/SKILL.md", "---\nname: homework-gen\n---\n# body\n")
-	mustW(".agents/skills/tts/SKILL.md", "---\nname: tts\n---\n# tts\n")
-	mustW("output/page.html", "<html></html>")
-	mustW("node_modules/x/index.js", "x")
-
-	out, restore := captureStdout(t)
-	defer restore()
-	if code := runBundle(context.Background(), nil); code != 0 {
-		t.Fatalf("runBundle exit = %d", code)
-	}
-	got := out()
-	// v0.7: SKILL REFERENCES section is gone; vendored skills appear in
-	// WILL UPLOAD with an inline `(vendored: ...)` origin tag.
-	for _, want := range []string{"DEPLOYMENT PAYLOAD", "WILL UPLOAD", "homework-gen", "tts", "EXCLUDED", "node_modules", "output/", "repo-native", "vendored: marswaveai/skills"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("bundle output missing %q:\n%s", want, got)
-		}
-	}
-	if strings.Contains(got, "SKILL REFERENCES") {
-		t.Errorf("bundle output should no longer contain 'SKILL REFERENCES' section:\n%s", got)
-	}
-	// JSON mode should emit a parseable deployment_payload.
-	out2, restore2 := captureStdout(t)
-	defer restore2()
-	if code := runBundle(context.Background(), []string{"--json"}); code != 0 {
-		t.Fatalf("runBundle --json exit = %d", code)
-	}
-	js := out2()
-	// v0.7: deployment_payload still in JSON but no longer carries
-	// skill_references field (every skill ships inline).
-	if !strings.Contains(js, `"deployment_payload"`) {
-		t.Errorf("--json output missing deployment_payload field:\n%s", js)
-	}
-	if strings.Contains(js, `"skill_references"`) {
-		t.Errorf("--json output should no longer contain skill_references:\n%s", js)
-	}
-}
-
-func TestShow_DefaultRendersMidDensityCard(t *testing.T) {
-	root := withWorkdir(t)
-	writeMinimalAgent(t, root, "test-agent")
-
-	out, restore := captureStdout(t)
-	defer restore()
-	if code := runShow(context.Background(), []string{"--dir", "test-agent"}); code != 0 {
-		t.Fatalf("runShow exit = %d", code)
-	}
-	got := out()
-	for _, want := range []string{"PERSONA", "test-agent", "CAPABILITIES", "RUNTIME", "SUBSCRIBER ONBOARDING"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("show output missing %q\n--- output ---\n%s", want, got)
-		}
-	}
-}
-
-func TestShow_FullPipesEntireYaml(t *testing.T) {
-	root := withWorkdir(t)
-	writeMinimalAgent(t, root, "test-agent")
-
-	out, restore := captureStdout(t)
-	defer restore()
-	if code := runShow(context.Background(), []string{"--dir", "test-agent", "--full"}); code != 0 {
-		t.Fatalf("runShow --full exit = %d", code)
-	}
-	if !strings.Contains(out(), "apiVersion: askdao.ai/v1") {
-		t.Errorf("--full should pipe the raw yaml, got: %s", out())
-	}
-}
-
-func TestShow_MissingAgentDirReturnsError(t *testing.T) {
-	withWorkdir(t)
-	if code := runShow(context.Background(), []string{"--dir", "does-not-exist"}); code == 0 {
-		t.Errorf("show should fail when agent dir is missing, got 0")
+	if _, err := os.Stat(filepath.Join(root, ".askdao", "detection.json")); err != nil {
+		t.Errorf("edit --no-ui should write .askdao/detection.json: %v", err)
 	}
 }
 
@@ -181,10 +93,8 @@ func TestDeploy_RefusesWithoutConductorURL(t *testing.T) {
 	root := withWorkdir(t)
 	writeMinimalAgent(t, root, "test-agent")
 	t.Setenv("ASKDAO_CONDUCTOR_URL", "")
-	// Isolate credentials.json — devs running this suite may have already
-	// run `askdao auth login`, which would otherwise satisfy
-	// resolveServerAndToken from the user's home dir and steer the test
-	// away from the "no conductor URL configured" branch we want to assert.
+	// Isolate credentials.json — a dev who ran `askdao auth login` would
+	// otherwise satisfy resolveServerAndToken from their home dir.
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
 	out, restore := captureStdout(t)
@@ -201,14 +111,10 @@ func TestDeploy_RefusesWithoutConductorURL(t *testing.T) {
 func TestDeploy_WithEditedSpecShowsDiff(t *testing.T) {
 	root := withWorkdir(t)
 	writeMinimalAgent(t, root, "test-agent")
-	// Stop at the diff preview: leave the conductor URL unset so the run can't
-	// reach a real endpoint even if the dev's shell has one configured.
+	// Stop at the diff preview: leave the conductor URL unset.
 	t.Setenv("ASKDAO_CONDUCTOR_URL", "")
-	// Also isolate credentials.json — same reason as
-	// TestDeploy_RefusesWithoutConductorURL.
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
-	// Edit askdao-agent.yml — change the model id.
 	editedSpec := types.AgentSpec{}
 	original, err := os.ReadFile(filepath.Join(root, "test-agent", "askdao-agent.yml"))
 	if err != nil {
@@ -232,8 +138,8 @@ func TestDeploy_WithEditedSpecShowsDiff(t *testing.T) {
 	}
 }
 
-// captureStdout temporarily redirects os.Stdout to a pipe and returns a
-// reader function that drains everything written so far.
+// captureStdout temporarily redirects os.Stdout to a pipe and returns a reader
+// that drains everything written so far, plus a restore func.
 func captureStdout(t *testing.T) (func() string, func()) {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -262,10 +168,8 @@ func captureStdout(t *testing.T) (func() string, func()) {
 	get := func() string {
 		_ = w.Close()
 		s := <-done
-		// Reopen for any subsequent writes within the same test.
 		r2, w2, _ := os.Pipe()
 		os.Stdout = w2
-		// Drain the new pipe in a goroutine so it doesn't block the program.
 		go func() { _, _ = os.ReadFile(r2.Name()) }()
 		_ = w2.Close()
 		return s

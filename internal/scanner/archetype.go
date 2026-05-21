@@ -37,6 +37,9 @@ func InferArchetype(det *types.Detection) types.ProjectArchetype {
 		if s.SkillName == "" {
 			continue // implied-builtin placeholder, no directory
 		}
+		if s.Scope == "user" {
+			continue // global skills don't signal THIS project's archetype
+		}
 		if s.IsLocalOriginal {
 			localSkills++
 		}
