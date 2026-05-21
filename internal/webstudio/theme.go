@@ -2,7 +2,7 @@
 // [OUTPUT]: 对外提供 ThemeToken / Palette / DefaultThemeForCategory / Categories
 // [POS]: webstudio 的视觉品牌色板真相源 —— theme_color 存 token 名，CLI 默认 + 前端渲染共用此表；
 //
-//	未来 conductor / askdao-ai-web 镜像同一张表，订阅者 Group 页据 token 渲染品牌色
+//	conductor 纯透传 token（不碰 hex）、askdao-ai-web 镜像此表（src/config/style/theme-tokens.ts + theme.css）渲染订阅者 Group 页品牌色；改 token/hex 三端同步
 //
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package webstudio
@@ -19,6 +19,9 @@ type ThemeToken struct {
 
 // Palette is the ordered preset color palette. metadata.theme_color stores the
 // Token (NOT the hex) so CLI / conductor / askdao-ai-web stay aligned on render.
+// SOURCE OF TRUTH for the token→hex table: any change to a token name or hex
+// here must be mirrored in askdao-ai-web src/config/style/{theme-tokens.ts,
+// theme.css}; conductor only passes the token string through (never hex).
 var Palette = []ThemeToken{
 	{"sunset", "#FF6B35", "Sunset"},
 	{"ocean", "#2E86DE", "Ocean"},

@@ -3,14 +3,13 @@
 // [POS]: cmd/askdao 的 deploy 子命令；读 <dir>/askdao-agent.yml 原文 + 按 skill.path（相对 KOL 项目根的目录路径，
 //
 //	harness 中性 invariant）递归打 zip → 经 internal/deploy.Client 上传 conductor /cli/deploy；处理
-//	kol_profile_required 握手 + HIGH-warning gating + 结果打印。Token / server URL 解析顺序见 resolveServerAndToken
+//	kol_profile_required 时引导去 askdao.ai/workspace（KOL profile 归云端）+ HIGH-warning gating + 结果打印。Token / server URL 解析顺序见 resolveServerAndToken
 //	(env > credentials.json > error)，对齐 docs/cli-auth-device-flow.md §6.3.
 //
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -28,7 +27,7 @@ import (
 	"github.com/askdao/askdao-cli/internal/types"
 )
 
-// runDeploy implements `askdao agent deploy [--dir path] [--harness id] [--force] [--bio text]`:
+// runDeploy implements `askdao agent deploy [--dir path] [--harness id] [--force]`:
 // reads <dir>/askdao-agent.yml (sent verbatim), packages each custom_local
 // skill directory (located at <dir>/<skill.path>) into a zip — recursively
 // including SKILL.md + scripts/ + assets/ + references/ etc., harness-neutral
@@ -41,7 +40,6 @@ func runDeploy(ctx context.Context, args []string) int {
 	dir := fs.String("dir", ".", "KOL project root containing askdao-agent.yml")
 	harness := fs.String("harness", "", "Override preferred_harness from askdao-agent.yml")
 	force := fs.Bool("force", false, "Deploy even if the translation report has HIGH-severity warnings")
-	bio := fs.String("bio", "", "KOL bio — used if the conductor asks you to set up your KOL profile (skips the interactive prompt)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -156,11 +154,13 @@ func runDeploy(ctx context.Context, args []string) int {
 	if derr != nil {
 		var kpr *deploy.ErrKolProfileRequired
 		if errors.As(derr, &kpr) {
-			if !setupKolProfile(ctx, cl, kpr, *bio) {
-				return 1
-			}
-			printDeployRetryProgress(len(skillZips))
-			resp, derr = cl.Deploy(ctx, in)
+			// KOL profile lives in the askdao.ai cloud (not the local CLI). Guide
+			// the KOL there to fill it in, then re-run deploy — mirrors edit.go's
+			// studioDeployError so both entry points say the same thing.
+			fmt.Println()
+			fmt.Println("⚠  Your KOL profile isn't set up yet.")
+			fmt.Println("   Complete it at https://askdao.ai/workspace, then deploy again.")
+			return 1
 		}
 	}
 	if derr != nil {
@@ -180,35 +180,6 @@ func runDeploy(ctx context.Context, args []string) int {
 
 	printDeployResult(resp)
 	return 0
-}
-
-// setupKolProfile runs the kol_profile_required handshake: print the conductor's
-// hint, resolve a bio (--bio flag, else an interactive one-line prompt — empty
-// is fine since kol_bio is optional), then PATCH the KOL profile with
-// kol_join_mode=free. Returns false (and prints to stderr) on failure.
-func setupKolProfile(ctx context.Context, cl *deploy.Client, req *deploy.ErrKolProfileRequired, bioFlag string) bool {
-	fmt.Println()
-	fmt.Println("⚠  The conductor needs your KOL profile filled in before deploying.")
-	if req.Detail.Hint != "" {
-		fmt.Println("  ", req.Detail.Hint)
-	}
-	bio := strings.TrimSpace(bioFlag)
-	if bio == "" {
-		fmt.Print("   KOL bio (one line, optional — press Enter to skip): ")
-		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-		bio = strings.TrimSpace(line)
-	}
-	if bio != "" {
-		fmt.Printf("→ Setting KOL profile: kol_join_mode=free, bio=%q\n", bio)
-	} else {
-		fmt.Println("→ Setting KOL profile: kol_join_mode=free")
-	}
-	if err := cl.SetupKol(ctx, deploy.KolProfilePatch{KolJoinMode: "free", KolBio: bio}); err != nil {
-		fmt.Fprintf(os.Stderr, "deploy: failed to set KOL profile: %v\n", err)
-		return false
-	}
-	fmt.Println("✓ KOL profile saved.")
-	return true
 }
 
 func printDeployResult(resp *deploy.DeployResponse) {
@@ -275,16 +246,6 @@ func printDeployProgress(conductorURL, harnessID string, skillCount int) {
 	} else {
 		fmt.Printf("→ Deploying to %s (harness=%s) — creating Anthropic agent/environment, typically 5-10s ...\n",
 			conductorURL, harnessID)
-	}
-}
-
-// printDeployRetryProgress is the same explanatory line for the second POST
-// triggered after kol_profile_required has been resolved.
-func printDeployRetryProgress(skillCount int) {
-	if skillCount > 0 {
-		fmt.Printf("→ Retrying deploy (uploading %d skill(s) + Anthropic provisioning, typically 15-25s) ...\n", skillCount)
-	} else {
-		fmt.Println("→ Retrying deploy (Anthropic provisioning, typically 5-10s) ...")
 	}
 }
 
