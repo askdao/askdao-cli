@@ -1,10 +1,10 @@
 # askdao-cli
 
-> Local CLI for AskDAO — bootstrap AI agents from your project directory by auto-detecting tech stack, then deploy to Anthropic Managed Agents through Conductor.
+> Local CLI for AskDAO — turn a project directory into a deployable AI agent: scan the tech stack, skills, and MCP servers, then review, edit, and deploy the agent in a **local web studio**, all the way to Anthropic Managed Agents through Conductor.
 
-**Status:** v0.7 — `auth login`, `detect`, `bundle`, `agent init/show/deploy` all shipping; APIs may still change before 1.0.
+**Status:** v0.8 — `auth login` + `agent edit` (local web studio) + `agent deploy` shipping; APIs may still change before 1.0.
 
-> 🛡 **Trust anchor.** `askdao-cli` is the **only open-source piece** of the AskDAO platform. All project scanning runs locally — file contents never leave your machine; only the resulting `detection.json` summary (no source code, no env values) is sent to Conductor when you run `agent init --auto`. Auth uses OAuth 2.0 Device Code Flow (RFC 8628); CLI tokens are SHA-256 hashed server-side.
+> 🛡 **Trust anchor.** `askdao-cli` is the **only open-source piece** of the AskDAO platform. All project scanning runs locally — file contents never leave your machine; only the resulting `detection.json` summary (no source code, no env values) is sent to Conductor when you run `agent edit`. Auth uses OAuth 2.0 Device Code Flow (RFC 8628); CLI tokens are SHA-256 hashed server-side.
 
 ---
 
@@ -24,45 +24,34 @@ askdao auth login
 # 3. cd into the project you want to turn into an agent
 cd ~/WorkSpace/my-spelling-pipeline
 
-# 4. Scan and generate a draft (interactive review at the end)
-askdao agent init --auto
-
-# 5. Preview exactly what would be uploaded (skills + agent docs + manifests)
-askdao bundle
-
-# 6. Deploy to Anthropic Managed Agents
-askdao agent deploy
+# 4. Scan + open the local web studio to review, edit, and deploy
+askdao agent edit
 ```
 
-That's the full happy path. Everything between steps 4 and 6 is local edits to `askdao-agent.yml` at your project root.
+That's the full happy path — the studio walks you through a 4-step wizard and deploys at the end. Prefer the terminal/CI? `askdao agent edit --no-ui` writes a draft `askdao-agent.yml` you can hand-edit, then `askdao agent deploy`.
 
 ---
 
 ## What it does
 
-Run one command in your project root and get a ready-to-review agent specification:
+Run one command in your project root:
 
 ```bash
-$ askdao agent init --auto
-→ Scanning project (languages / deps / Dockerfile / MCP / skills) ...
-→ Inferring frameworks + building deployment payload ...
-→ Calling LLM via conductor for recommendation (typically 10-20s) ...
-✓ Recommendation received.
+$ askdao agent edit
 
-  [mid-density review card with persona, skills, capabilities, runtime, vault hints]
-
-─── ACTIONS ─────────────────────────────────────────────────
-  [A] Approve and write files     [P] View persona / system prompt
-  [E] Edit yaml in $EDITOR        [D] View all pip deps
-  [R] View full reasoning trace   [F] View filtered (dev) deps
-  [S] Show full yaml in pager     [W] View all warnings
-                                  [M] View filtered MCP
-  [Q] Quit (saved as draft)
-> A
-
-✓ Approved and wrote ./askdao-agent.yml
-  Next: review persona.system_prompt, then `askdao agent deploy`
+→ Scanning ./ (tech stack · skills · MCP servers · required secrets) ...
+→ Generating a draft agent spec ...
+→ Agent studio at http://127.0.0.1:53017/   (opening your browser)
 ```
+
+Your browser opens a local **agent studio** — a 4-step wizard that walks you through everything, instead of leaving you to fill in a blank YAML template:
+
+1. **Identity** — name, description, category, visibility, and a theme color (the brand color subscribers see on the agent's group page)
+2. **Persona** — model class + system prompt
+3. **Skills & Tools** — tick the skills / MCP servers / secrets to include, across two scopes: project-local (`<root>/.claude/skills`) and your global `~/.claude` ones, each tagged by scope + harness. Only what you tick travels with the agent
+4. **Review** — confirm the exact selected items by name, then **Deploy** (or Save as a draft)
+
+Each AI-recommended field carries an inline confidence badge — hover it for the reasoning behind the default, so you decide what to accept while you edit.
 
 Files written, all at your project root:
 
@@ -72,12 +61,11 @@ your-project/
 ├── .askdao/
 │   ├── recommendation.yml    ← diff baseline (commit for review history)
 │   └── detection.json        ← deterministic scan output (gitignore optional)
-├── .agents/skills/           ← your existing skill tree (untouched)
-├── package.json              ← your project files (untouched)
+├── .claude/skills/           ← your existing skill tree (untouched)
 └── ...
 ```
 
-Instead of staring at a blank template, you start by reviewing a draft. Edit `askdao-agent.yml.persona.system_prompt`, fine-tune capabilities and vault hints, then deploy:
+Everything runs locally (`127.0.0.1`); your files are scanned on your machine and never uploaded. The terminal path (`--no-ui` + `agent deploy`) prints a diff against the recommendation baseline and the full deploy result:
 
 ```bash
 $ askdao agent deploy
@@ -91,7 +79,7 @@ $ askdao agent deploy
 → Deploying to https://api.askdao.ai (harness=anthropic_managed_agents) —
   uploading 4 skill(s) + creating Anthropic agent/environment, typically 15-25s ...
 
-✓ Deployed.
+✓ Created new agent.
 
   agent_id:    agt_aa4c3329...
   anthropic:   agent=agent_01G8...  environment=env_014X...
@@ -99,35 +87,25 @@ $ askdao agent deploy
   group link:  https://askdao.ai/k/<you>/g/grp_c1aeb63d...
 
   Skills:
-    • .agents/skills/listenhub   →  managed skill_014rn2…@1778…  (viking://resources/skills/private/…)
-    • .agents/skills/listenhub-cli  →  managed skill_015Pu…@1778…
-    • .agents/skills/spelling-homework-generator  →  managed skill_01J26…@1778…
-    • .agents/skills/tts  →  managed skill_0142c2…@1778…
-
-ℹ The following non-blocking warnings were flagged during translation.
-  Your agent is live and ready to use — these are advisory notes.
-
-  MEDIUM (3):
-    • workspace.base_image = IGNORED  → Anthropic uses fixed cloud image
-    • ...
-  LOW (1):
-    • ...
+    • .claude/skills/listenhub   →  managed skill_014rn2…@1778…  (viking://resources/skills/private/…)
+    • .claude/skills/tts          →  managed skill_0142c2…@1778…
 
 ✓ Deploy complete. Open https://askdao.ai/k/<you>/g/grp_c1aeb63d... to chat.
 ```
 
-First-time KOLs hit a `409 kol_profile_required` handshake — the CLI prompts for an optional bio and retries automatically. Pass `--bio "…"` to skip the prompt; `--force` to deploy despite HIGH-severity translation warnings.
+Re-deploying the same `metadata.name` **updates the agent in place** (`Updated existing agent (v1 → v2)`) instead of stacking duplicates. Pass `--force` to deploy despite HIGH-severity translation warnings. KOL profile setup is handled on the askdao.ai web — the studio links you there if it's not done yet.
 
 ---
 
 ## Why
 
-Configuring a Managed Agent runtime — picking the right model, listing OS packages, writing system prompts, declaring skills — is high-friction. `askdao-cli` reduces that to a **review-and-edit** step (not from-scratch) by leveraging:
+Configuring a Managed Agent runtime — picking the model, listing OS packages, choosing which skills travel with the agent, writing the system prompt — is high-friction. `askdao-cli` reduces that to a **review-and-edit** step (not from-scratch) by leveraging:
 
 - [`anchore/syft`](https://github.com/anchore/syft) for deterministic dependency scanning (30+ package managers)
 - [`go-enry/enry`](https://github.com/go-enry/enry) for byte-level language detection (~500 languages)
 - Provider patterns ported from [`railwayapp/nixpacks`](https://github.com/railwayapp/nixpacks) for framework inference and reverse mapping (e.g. `psycopg → libpq-dev`)
-- LLM only for the final fuzzy step (recommendation + reasoning); **never** for scanning or for fields with schema constraints (see [design.md §9.13](docs/design.md))
+- **harness-aware, dual-scope skill/MCP discovery** — a `.claude/` project pulls in both project-local and your global `~/.claude` skills, each tagged by scope + harness, so you choose exactly what ships instead of bundling everything
+- the LLM only for the final fuzzy step (recommendation + reasoning); **never** for scanning or for fields with schema constraints (see [design.md §9.13](docs/design.md))
 
 Hard fields like `skills[]` and `metadata.labels` are filled deterministically from the local scan; the LLM does not get to vote on them. This is the trust-boundary principle — LLM = probabilistic; AgentSpec = strict contract; one designated normalizer absorbs the gap.
 
@@ -152,21 +130,19 @@ Pre-built binaries will be published once the API stabilizes (v1.0 target).
 | `askdao auth login [--server url] [--no-browser]` | ready | Browser-bound OAuth 2.0 Device Code Flow; saves a long-lived token at `~/.config/askdao/credentials.json` (0600) |
 | `askdao auth status` | ready | Show currently-logged-in identity; exit 1 if not logged in |
 | `askdao auth logout` | ready | Delete local credentials (server-side revoke is via the web UI; coming v2) |
-| `askdao detect [path]` | ready | Print the deterministic detection report without creating an agent (offline, no LLM) |
-| `askdao bundle [path]` | ready | Preview the deployment payload — which files would be uploaded, with sizes + skill origin tags |
-| `askdao agent init [name] [--auto]` | ready | Generate `askdao-agent.yml` at the project root; `--auto` scans the project and runs the L1-L4 LLM pipeline |
-| `askdao agent show [flags]` | ready | Render the agent spec (mid-density card, `--full` for raw yaml, focused views via `--persona` / `--deps` / `--mcp` / `--warnings` / `--reasoning`) |
-| `askdao agent deploy [--dir path] [--force] [--bio …]` | ready | Package custom skills + push to Anthropic Managed Agents via Conductor |
+| `askdao agent edit [--dir path] [--no-ui] [--force]` | ready | Scan the project (or load an existing `askdao-agent.yml`) and open the local web studio to review / edit / deploy. `--no-ui` writes a draft and exits (CI / headless) |
+| `askdao agent deploy [--dir path] [--harness id] [--force]` | ready | Package custom skills + push `askdao-agent.yml` to Anthropic Managed Agents via Conductor |
 | `askdao agent validate` | planned | Validate `askdao-agent.yml` schema |
-| `askdao agent regenerate` | planned | Re-scan and diff against existing yaml |
+
+> v0.8 simplified the command surface: the old `detect` / `bundle` / `agent init` / `agent show` (CLI character-menu review) collapsed into the single `agent edit` web studio — their views (scan report, upload manifest, spec card) now live as panels in the studio.
 
 ### Token resolution
 
-`agent deploy` and `agent init --auto` resolve the conductor URL + bearer token in this order:
+`agent edit` and `agent deploy` resolve the conductor URL + bearer token in this order:
 
 1. `ASKDAO_CONDUCTOR_URL` + `ASKDAO_CONDUCTOR_TOKEN` env vars (must be set as a pair) — for CI / one-off overrides
 2. `~/.config/askdao/credentials.json` — from `askdao auth login` (the default path)
-3. Error with a setup hint
+3. Error with a setup hint (`agent edit` falls back to an offline mock recommender when neither is set)
 
 This mirrors `aws` / `gcloud` / `kubectl` conventions (explicit env always wins). For local-dev pointing at a custom conductor, use `askdao auth login --server http://localhost:8000`.
 
@@ -176,24 +152,27 @@ This mirrors `aws` / `gcloud` / `kubectl` conventions (explicit env always wins)
 
 ```
 askdao-cli/
-├── cmd/askdao/             # CLI entry + commands (auth / detect / bundle / agent init|show|deploy)
+├── cmd/askdao/             # CLI entry + commands (auth · agent edit/deploy · common helpers)
 ├── internal/
 │   ├── auth/               # OAuth 2.0 Device Code Flow + credentials.json (0600, XDG-aware)
-│   ├── scanner/            # syft / enry / dockerfile parser + payload classifier
+│   ├── scanner/            # syft / enry / dockerfile parser + harness-aware dual-scope skill/MCP scan + payload classifier
 │   ├── providers/          # nixpacks-style framework providers (Python / Node / Go / Rust)
 │   ├── pipeline/           # L1-L4 orchestration + deterministic skills builder
 │   ├── recommender/        # policy heuristics + conductor /cli/recommend client
-│   ├── render/             # KOL review UX (mid-density card, payload, diff, warnings)
+│   ├── render/             # CLI render helpers (deploy diff, translation warnings)
+│   ├── webstudio/          # local web studio — 127.0.0.1 server + go:embed single-page 4-step wizard
 │   ├── deploy/             # conductor /cli/deploy client + skill-dir zip packaging
 │   └── types/              # detection.json + askdao-agent.yml schemas
 ├── docs/
-│   ├── design.md           # complete design + decision log (§9)
-│   ├── cli-auth-device-flow.md   # OAuth 2.0 Device Code Flow design
-│   └── HANDOFF.md          # context-switch entry point + v0.7 corrections log
+│   ├── design.md           # original L1-L4 design + decision log (§9)
+│   ├── observe-layer-design.md     # v0.8 direction (corrected — see review below)
+│   ├── review-observe-pivot-2026-05-21.md  # v0.8 scope-correction + implementation review
+│   ├── cli-auth-device-flow.md     # OAuth 2.0 Device Code Flow design
+│   └── HANDOFF.md          # context-switch entry point + status log
 └── Makefile
 ```
 
-See [`docs/design.md`](docs/design.md) for the full architecture (10 sections + 15+ design decisions). [`docs/HANDOFF.md`](docs/HANDOFF.md) is the entry point for fresh agent sessions / new contributors.
+See [`docs/HANDOFF.md`](docs/HANDOFF.md) for the current status and entry point for fresh sessions, and [`docs/design.md`](docs/design.md) for the full architecture + decision log.
 
 ---
 
@@ -201,11 +180,13 @@ See [`docs/design.md`](docs/design.md) for the full architecture (10 sections + 
 
 | Concern | Behavior |
 |---|---|
-| Source code upload | Local scan only emits package names + dep counts + language byte percentages — **no file contents leave your machine** until you explicitly `agent deploy` |
+| Source code upload | Local scan only emits package names + dep counts + language byte percentages — **no file contents leave your machine** until you explicitly deploy |
 | `.env` files | Never read for values. Only `.env.example` / `.env.sample` are inspected, and only keys are extracted (never RHS values) |
 | `.env*` / `*.pem` / `*.key` | Hard-coded `builtinIgnore`; never enter the upload payload regardless of `.gitignore` state |
-| CLI auth tokens | OAuth 2.0 Device Code Flow (RFC 8628); plaintext token returned exactly once on `auth login`, stored at `~/.config/askdao/credentials.json` (0600); server side stores only SHA-256(token) |
-| Phishing resistance | `user_code` shown in both terminal AND web page; alphabet `BCDFGHJKLMNPQRSTVWXZ23456789` (no 0/O/1/I/l, no vowels) — KOL compares before clicking Authorize |
+| Vault credentials | The studio only declares credential **hints** (name / purpose / required) — actual secret values are never entered or stored here; subscribers provide them during onboarding |
+| Web studio | Bound to `127.0.0.1` on a random port; serves a self-contained `go:embed` page; data stays on your machine |
+| CLI auth tokens | OAuth 2.0 Device Code Flow (RFC 8628); plaintext token returned once on `auth login`, stored at `~/.config/askdao/credentials.json` (0600); server stores only SHA-256(token) |
+| Phishing resistance | `user_code` shown in both terminal AND web page; alphabet `BCDFGHJKLMNPQRSTVWXZ23456789` (no 0/O/1/I/l, no vowels) — compare before clicking Authorize |
 | Skill upload origin | The on-disk path of your skill (`.claude/skills/` vs `.agents/skills/`) is **stripped at zip time** — Anthropic only ever sees `<skillName>/SKILL.md` (harness-neutral invariant, design.md §9.14) |
 
 ---
@@ -214,19 +195,19 @@ See [`docs/design.md`](docs/design.md) for the full architecture (10 sections + 
 
 This is part of the [AskDAO](https://askdao.ai) ecosystem — a platform that helps subject-matter experts (KOLs) deliver AI-assisted services to their audience across IM channels (Telegram, WhatsApp, iMessage, web).
 
-`askdao-cli` is the local tool KOLs run on their own machine to define and deploy their agents.
+`askdao-cli` is the local, open-source tool KOLs run on their own machine to define and deploy their agents.
 
 **Roadmap**:
 
-- ✅ v0.6 — `detect`, `bundle`, `agent init/show/deploy` shipping; deterministic L1-L3 scanner; lockfile-aware deployment payload classification.
-- ✅ v0.7 — OAuth Device Code Flow `auth login`; flat project layout (`askdao-agent.yml` at root + `.askdao/` for tool products); Skill upload model corrected (no public registry on Anthropic Managed Agents; all custom skills upload via `POST /v1/skills`); persona consolidated into yaml literal block; trust-boundary normalizer + audit checklist.
-- 🚧 v0.8 (planned) — `agent validate` + `agent regenerate`; web UI for listing / revoking CLI tokens; spinner progress during long deploy POSTs.
+- ✅ v0.7 — OAuth Device Code Flow `auth login`; flat project layout (`askdao-agent.yml` at root + `.askdao/` for tool products); Skill upload model corrected (all custom skills upload via `POST /v1/skills`, no public registry); persona consolidated into a yaml literal block; trust-boundary normalizer.
+- ✅ v0.8 — `agent edit` **local web studio** (4-step wizard, Kami design system); command surface simplified to `auth` + `agent edit/deploy`; harness-aware **dual-scope** skill/MCP discovery (project + global `~/.claude`) fixing skill over-inclusion; agent theme color; vault_hints editing; inline AI-confidence badges; in-place re-deploy (update mode).
+- 🚧 next — Codex/Cursor global-scope paths; `agent edit --observe` (hook-driven auto-tick of skills actually used in a session); theme color rendered subscriber-side (conductor + askdao-ai-web); `agent validate`.
 
 ---
 
 ## Contributing
 
-This repo is in pre-1.0; the surface is still evolving with KOL feedback (currently dogfooding with [`homework-spelling`](https://github.com/sunmu01/homework-spelling) and similar real projects). Issues + PRs welcome — please read [`docs/design.md`](docs/design.md) §9 (decision log) first to understand the trust-boundary philosophy before proposing changes to the L1-L4 pipeline.
+This repo is pre-1.0; the surface is still evolving with KOL feedback (currently dogfooding with [`homework-spelling`](https://github.com/sunmu01/homework-spelling) and similar real projects). Issues + PRs welcome — please read [`docs/design.md`](docs/design.md) §9 (decision log) and [`docs/review-observe-pivot-2026-05-21.md`](docs/review-observe-pivot-2026-05-21.md) first to understand the trust-boundary philosophy and the v0.8 direction.
 
 ---
 
