@@ -1,5 +1,5 @@
 // [INPUT]: 依赖 path/filepath；internal/types 的 AgentSpec / Detection / DetectedSkill / ReasoningDecision
-// [OUTPUT]: 对外提供 StudioData / SkillCandidate / MCPCandidate / BuildStudioData
+// [OUTPUT]: 对外提供 StudioData / SkillCandidate / MCPCandidate / ObservedData / BuildStudioData
 // [POS]: webstudio 的数据契约层 —— 把 pipeline 产物（spec 草稿 + detection 候选）摊平成前端 JSON；
 //
 //	默认勾选策略（project 全勾 / user opt-in / 仅兼容 MCP 默认勾）在此实现
@@ -25,6 +25,15 @@ type StudioData struct {
 	Categories      []string                  `json:"categories"`
 	ProjectName     string                    `json:"project_name"`
 	Harness         string                    `json:"harness"`
+	Observe         bool                      `json:"observe"` // --observe session: frontend shows the observe panel + polls /api/observe
+}
+
+// ObservedData is the GET /api/observe payload: the skills and MCP servers seen
+// activated during an --observe session. The frontend polls this and overlays
+// "actually used" evidence onto the candidate lists — additive, never auto-unticks.
+type ObservedData struct {
+	Skills     []string `json:"skills"`
+	MCPServers []string `json:"mcp_servers"`
 }
 
 // SkillCandidate is one selectable skill — a concrete custom_local skill (with a
