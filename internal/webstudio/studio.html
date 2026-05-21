@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AskDAO Agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --parchment:#f5f4ed; --ivory:#faf9f5; --warm-sand:#e8e6dc;
+    --near-black:#141413; --charcoal:#4d4c48; --olive:#5e5d59; --stone:#87867f; --silver:#b0aea5;
+    --border-cream:#e8e5da; --border-warm:#e0ddd2; --ring-warm:#d1cfc5; --ring-deep:#c2c0b6;
+    --brand-ink:#1b365d; --brand-ink-deep:#132a49; --brand-ivory:#fffcf4;
+    --ok:#15803d; --ok-bg:#ecfdf3; --ok-border:#b7e4c7;
+    --warn:#b54708; --warn-bg:#fffaeb; --warn-border:#fedf89;
+    --err:#b42318; --err-bg:#fef3f2; --err-border:#fda29b;
+    --serif:"Newsreader",Georgia,"Times New Roman",serif;
+    --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+    --mono:"JetBrains Mono","SF Mono",Menlo,monospace;
+    --shadow-sm:0 0 0 1px var(--ring-warm), 0 4px 24px rgba(0,0,0,.05);
+    --wrap:920px; --accent:#1b365d; --accent-soft:#e8eff8;
+  }
+  * { box-sizing:border-box; }
+  html,body { height:100%; }
+  body { margin:0; background:var(--parchment); color:var(--near-black);
+         font-family:var(--serif); font-size:14px; line-height:1.55;
+         -webkit-font-smoothing:antialiased; display:flex; flex-direction:column; }
+
+  header { background:var(--ivory); border-bottom:1px solid var(--border-cream); flex-shrink:0; }
+  .bar { height:60px; padding:0 28px; display:flex; align-items:center; gap:12px; }
+  .brand { display:inline-flex; align-items:center; gap:11px; text-decoration:none; }
+  .brand img { width:30px; height:30px; border-radius:8px; object-fit:contain; }
+  .wordmark { font-family:var(--sans); font-size:17px; font-weight:600; letter-spacing:.01em; color:var(--near-black); }
+  .proj { margin-left:auto; display:inline-flex; align-items:center; gap:7px; font-family:var(--sans);
+          font-size:12px; color:var(--charcoal); background:var(--parchment);
+          border:1px solid var(--border-cream); padding:5px 13px; border-radius:20px; }
+  .proj b { color:var(--near-black); font-weight:600; }
+
+  .wrap { flex:1; overflow-y:auto; }
+  .shell { max-width:var(--wrap); margin:0 auto; display:grid; grid-template-columns:196px 1fr; align-items:start; }
+  aside { position:sticky; top:0; padding:34px 26px 34px 28px; }
+  main { padding:34px 28px 44px 34px; border-left:1px solid var(--border-cream); min-width:0; }
+
+  .step-nav { list-style:none; margin:0; padding:0; }
+  .step-nav li { position:relative; padding:0 0 26px 38px; cursor:pointer; }
+  .step-nav li:last-child { padding-bottom:0; }
+  .step-nav li::before { content:""; position:absolute; left:12px; top:26px; bottom:0; width:2px; background:var(--border-warm); }
+  .step-nav li:last-child::before { display:none; }
+  .step-nav li.done::before { background:var(--ok); }
+  .dot { position:absolute; left:0; top:-2px; width:26px; height:26px; border-radius:50%;
+         display:flex; align-items:center; justify-content:center; font-family:var(--sans);
+         font-size:12px; font-weight:600; background:var(--warm-sand); color:var(--stone);
+         border:1.5px solid var(--border-warm); transition:all .22s ease; }
+  .step-nav li.active .dot { background:var(--accent); border-color:var(--accent); color:#fff; box-shadow:0 0 0 4px var(--accent-soft); }
+  .step-nav li.done .dot { background:var(--ok); border-color:var(--ok); color:#fff; }
+  .step-nav .st { font-family:var(--sans); font-size:10px; font-weight:600; letter-spacing:.6px; text-transform:uppercase; color:var(--silver); display:block; }
+  .step-nav .lb { font-size:15px; color:var(--olive); }
+  .step-nav li.active .lb { color:var(--near-black); font-weight:500; }
+  .step-nav li.done .lb { color:var(--charcoal); }
+
+  .panel { display:none; }
+  /* opacity-only entrance — no transform, so cards don't create stacking
+     contexts that would trap the confidence tooltip's z-index inside one card. */
+  .panel.show { display:block; animation:fade .3s ease both; }
+  @keyframes fade { from { opacity:0; } to { opacity:1; } }
+  .panel > * { animation:fade .4s ease both; }
+  .panel > *:nth-child(2){animation-delay:.04s} .panel > *:nth-child(3){animation-delay:.08s}
+  .panel > *:nth-child(4){animation-delay:.12s} .panel > *:nth-child(5){animation-delay:.16s}
+  .eyebrow { font-family:var(--sans); font-size:11px; font-weight:600; letter-spacing:.6px; text-transform:uppercase; color:var(--accent); margin:0 0 6px; transition:color .25s; }
+  .panel h2 { font-family:var(--serif); font-weight:500; font-size:25px; line-height:1.2; margin:0 0 6px; }
+  .panel .sub { color:var(--olive); margin:0 0 24px; font-size:14.5px; }
+
+  .card { background:var(--ivory); border:1px solid var(--border-cream); border-radius:10px; padding:20px; box-shadow:var(--shadow-sm); margin-bottom:14px; }
+  .card-head { font-family:var(--sans); font-size:11px; font-weight:600; letter-spacing:.5px; text-transform:uppercase; color:var(--olive); margin:0 0 4px; }
+  .card-note { color:var(--stone); font-size:12.5px; margin:0 0 14px; }
+  label.f { display:block; margin-bottom:18px; }
+  label.f:last-child { margin-bottom:0; }
+  label.f > span { display:block; font-family:var(--sans); font-size:11px; font-weight:600; letter-spacing:.4px; text-transform:uppercase; color:var(--olive); margin-bottom:7px; }
+  input[type=text], textarea, select {
+    width:100%; background:var(--parchment); color:var(--near-black);
+    border:1px solid var(--border-cream); border-radius:8px; padding:10px 12px;
+    font-family:var(--serif); font-size:14px; transition:border-color .18s, box-shadow .18s; }
+  textarea.desc { min-height:90px; resize:vertical; line-height:1.55; }
+  textarea.prompt { min-height:200px; resize:vertical; font-family:var(--mono); font-size:13px; line-height:1.6; }
+  input:focus, textarea:focus, select:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+  input::placeholder, textarea::placeholder { color:var(--silver); }
+
+  .seg { display:flex; gap:8px; flex-wrap:wrap; }
+  .seg label { flex:1; min-width:90px; text-align:center; font-family:var(--sans); font-size:13px; color:var(--olive);
+               border:1px solid var(--border-cream); border-radius:8px; padding:9px 8px; cursor:pointer; background:var(--parchment); transition:all .16s; }
+  .seg input { display:none; }
+  .seg label:has(input:checked) { border-color:var(--accent); color:var(--accent); background:var(--ivory); box-shadow:0 0 0 1px var(--accent); font-weight:600; }
+
+  .swatches { display:flex; gap:12px; flex-wrap:wrap; }
+  .sw { width:38px; height:38px; border-radius:10px; cursor:pointer; border:2px solid transparent; position:relative; transition:transform .14s; }
+  .sw:hover { transform:translateY(-2px); }
+  .sw.sel::after { content:"✓"; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; font-size:15px; font-weight:700; text-shadow:0 1px 2px rgba(0,0,0,.35); }
+  .sw.sel { box-shadow:0 0 0 2px var(--ivory), 0 0 0 4px currentColor; }
+
+  /* confidence badge (inline AI recommendation score) */
+  .conf { position:relative; display:inline-block; font-family:var(--sans); font-size:10px; font-weight:600; padding:1px 8px;
+          border-radius:20px; margin-left:8px; cursor:help; vertical-align:middle; letter-spacing:.02em; text-transform:none; }
+  .conf.hi { color:var(--ok); background:var(--ok-bg); border:1px solid var(--ok-border); }
+  .conf.mid{ color:var(--warn); background:var(--warn-bg); border:1px solid var(--warn-border); }
+  .conf.lo { color:var(--err); background:var(--err-bg); border:1px solid var(--err-border); }
+  /* tooltip is ONE fixed-position node near <body> (#tip), positioned by JS, so
+     no card stacking-context or the .wrap scroll-overflow can ever clip it. */
+  .tip { position:fixed; max-width:320px; background:var(--near-black); color:var(--brand-ivory);
+         font-family:var(--sans); font-size:13px; font-weight:400; line-height:1.55; letter-spacing:0;
+         padding:11px 13px; border-radius:9px; box-shadow:0 10px 30px rgba(0,0,0,.22);
+         z-index:9999; pointer-events:none; opacity:0; visibility:hidden; transition:opacity .12s ease; }
+  .tip.show { opacity:1; visibility:visible; }
+
+  .tabs { display:inline-flex; gap:4px; background:var(--warm-sand); border-radius:9px; padding:4px; margin-bottom:16px; }
+  .tab { font-family:var(--sans); font-size:13px; font-weight:500; color:var(--olive); background:transparent; border:none; border-radius:6px; padding:7px 18px; cursor:pointer; transition:all .16s; }
+  .tab.active { background:var(--ivory); color:var(--near-black); box-shadow:0 0 0 1px var(--ring-warm), 0 1px 3px rgba(0,0,0,.05); }
+  .tab .cnt { color:var(--stone); font-weight:400; }
+
+  .grp { margin-bottom:18px; }
+  .grp:last-child { margin-bottom:0; }
+  .grp h3 { font-family:var(--sans); font-size:11px; font-weight:600; letter-spacing:.5px; text-transform:uppercase; color:var(--stone); margin:0 0 9px; }
+  .item { display:flex; gap:11px; align-items:flex-start; padding:11px 13px; border-radius:9px; border:1px solid var(--border-cream); background:var(--parchment); margin-bottom:8px; cursor:pointer; transition:border-color .16s, background .16s; }
+  .item:hover { border-color:var(--ring-warm); background:var(--ivory); }
+  .item input { margin-top:3px; width:16px; height:16px; accent-color:var(--accent); flex-shrink:0; }
+  .item .nm { font-weight:500; }
+  .item .ds { color:var(--olive); font-size:12.5px; margin-top:2px; }
+  .tag { display:inline-block; font-family:var(--sans); font-size:10px; font-weight:500; padding:1px 7px; border-radius:20px; margin-left:6px; vertical-align:middle; border:1px solid var(--border-warm); color:var(--stone); }
+  .tag.proj { color:var(--ok); border-color:var(--ok-border); background:var(--ok-bg); }
+  .tag.user { color:var(--warn); border-color:var(--warn-border); background:var(--warn-bg); }
+  .tag.ink  { color:var(--accent); border-color:var(--accent); }
+  .tag.bad  { color:var(--err); border-color:var(--err-border); background:var(--err-bg); }
+  .empty { color:var(--stone); font-style:italic; font-size:13px; }
+
+  /* vault rows */
+  .vrow { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+  .vrow .vn { flex:0 0 200px; font-family:var(--mono); font-size:13px; }
+  .vrow .vp { flex:1; }
+  .vreq { font-family:var(--sans); font-size:12px; color:var(--olive); white-space:nowrap; display:inline-flex; gap:5px; align-items:center; cursor:pointer; }
+  .vreq input { width:15px; height:15px; accent-color:var(--accent); }
+  .vdel { background:none; border:none; color:var(--stone); font-size:18px; line-height:1; cursor:pointer; padding:0 4px; }
+  .vdel:hover { color:var(--err); }
+  .addv { font-family:var(--sans); font-size:13px; font-weight:500; color:var(--accent); background:none; border:1px dashed var(--border-warm); border-radius:8px; padding:9px 14px; cursor:pointer; margin-top:6px; }
+  .addv:hover { border-color:var(--accent); background:var(--accent-soft); }
+
+  .sum { display:grid; grid-template-columns:130px 1fr; gap:10px 16px; font-size:14px; align-items:start; }
+  .sum dt { font-family:var(--sans); font-size:12px; color:var(--olive); padding-top:2px; }
+  .sum dd { margin:0; color:var(--near-black); }
+  .sum dd.chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .rtag { display:inline-block; font-family:var(--sans); font-size:12px; padding:2px 9px; border-radius:6px; background:var(--accent-soft); color:var(--accent); }
+  .rtag.mono { font-family:var(--mono); font-size:11.5px; }
+
+  footer { background:var(--ivory); border-top:1px solid var(--border-cream); flex-shrink:0; }
+  .fbar { max-width:var(--wrap); margin:0 auto; padding:14px 28px; display:flex; align-items:center; gap:12px; }
+  .status { font-family:var(--sans); font-size:13px; color:var(--olive); margin-right:auto; }
+  button.act { font-family:var(--sans); font-size:13.5px; font-weight:500; border-radius:8px; padding:10px 20px; cursor:pointer; transition:all .16s; }
+  .btn { background:transparent; color:var(--near-black); border:1px solid var(--border-warm); }
+  .btn:hover { border-color:var(--ring-warm); background:var(--parchment); }
+  .btn.primary { background:var(--accent); border:1px solid var(--accent); color:#fff; }
+  .btn.primary:hover { filter:brightness(.92); }
+  .btn.ghost { border-color:transparent; color:var(--charcoal); }
+  .btn.ghost:hover { background:var(--parchment); }
+  button:disabled { opacity:.45; cursor:default; filter:none; }
+  [hidden] { display:none !important; }
+
+  @media (max-width:720px){
+    .shell { grid-template-columns:1fr; }
+    aside { position:static; border-bottom:1px solid var(--border-cream); padding:16px 22px; }
+    main { border-left:none; padding:24px 22px; }
+    .step-nav { display:flex; gap:6px; overflow-x:auto; }
+    .step-nav li { padding:0 0 0 30px; white-space:nowrap; }
+    .step-nav li::before { display:none; }
+    .step-nav .st { display:none; }
+    .vrow { flex-wrap:wrap; } .vrow .vn { flex:1 0 100%; }
+  }
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <a class="brand" href="#" onclick="return false"><img src="/logo.png" alt="AskDAO"><span class="wordmark">AskDAO Agent</span></a>
+  <span class="proj">project · <b id="projName">…</b></span>
+</div></header>
+
+<div class="wrap"><div class="shell">
+  <aside><ol class="step-nav" id="stepNav"></ol></aside>
+  <main id="panels"><p class="empty">Loading…</p></main>
+</div></div>
+
+<footer><div class="fbar">
+  <span class="status" id="status"></span>
+  <button class="act btn ghost" id="btnSaveDraft" onclick="submit('/api/save')">Save draft</button>
+  <button class="act btn" id="btnBack" onclick="go(step-1)">Back</button>
+  <button class="act btn primary" id="btnNext" onclick="go(step+1)">Next</button>
+  <button class="act btn primary" id="btnDeploy" hidden onclick="submit('/api/deploy')">Deploy agent</button>
+  <button class="act btn" id="btnDone" hidden onclick="submit('/api/done')">Save &amp; finish</button>
+</div></footer>
+<div id="tip" class="tip"></div>
+
+<script>
+const STEPS = [{label:"Identity"},{label:"Persona"},{label:"Skills & Tools"},{label:"Review & Deploy"}];
+const HARNESS_NAME = {claude:"Claude Code", codex:"OpenAI Codex", cursor:"Cursor", cowork:"Claude Cowork"};
+let data, spec, palette = {}, step = 0, vault = [];
+const $ = (id) => document.getElementById(id);
+const esc = (s) => (s==null?"":String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])));
+const hLabel = (h) => HARNESS_NAME[h] || h;
+
+// confidence badge — finds the reasoning whose decision matches a keyword and
+// renders an inline AI-score chip (green/amber/red) with the reason on hover.
+function confBadge(...keys){
+  const r=(data.reasoning||[]).find(x=>keys.some(k=>(x.decision||'').toLowerCase().includes(k)));
+  if(!r || r.confidence==null) return '';
+  const c=r.confidence, cls=c>=0.8?'hi':c>=0.5?'mid':'lo', pct=Math.round(c*100);
+  return `<span class="conf ${cls}" data-tip="${esc(r.reason)}">AI ${pct}%</span>`;
+}
+
+async function load(){
+  data = await (await fetch('/api/spec')).json();
+  spec = data.spec || {}; spec.metadata = spec.metadata||{}; spec.persona = spec.persona||{};
+  (data.palette||[]).forEach(p => palette[p.token]=p.hex);
+  initVault();
+  $('projName').textContent = data.project_name || 'agent';
+  applyAccent(spec.metadata.theme_color);
+  renderNav(); renderPanels(); go(0);
+}
+function initVault(){
+  const v = spec.vault_hints||{};
+  vault = [
+    ...(v.required_credentials||[]).map(c=>({name:c.name||'',purpose:c.purpose||'',required:true})),
+    ...(v.optional_credentials||[]).map(c=>({name:c.name||'',purpose:c.purpose||'',required:false})),
+  ];
+}
+function renderNav(){
+  $('stepNav').innerHTML = STEPS.map((s,i)=>
+    `<li data-i="${i}" onclick="go(${i})"><span class="dot">${i+1}</span><span class="st">Step ${i+1}</span><span class="lb">${s.label}</span></li>`).join('');
+}
+function renderPanels(){ $('panels').innerHTML = panelIdentity()+panelPersona()+panelSkills()+panelReview(); }
+
+/* Step 1 · Identity */
+function panelIdentity(){
+  const m = spec.metadata;
+  const cats = (data.categories||[]).map(c=>`<option ${c===m.category?'selected':''}>${esc(c)}</option>`).join('');
+  const vis = [['private','only you'],['shared','your subscribers'],['public','anyone']].map(([v,h])=>
+    `<label><input type="radio" name="vis" value="${v}" ${v===(m.visibility||'private')?'checked':''} onchange="spec.metadata.visibility=this.value"><span>${v}<small style="display:block;font-size:11px;color:var(--stone);font-weight:400;margin-top:2px">${h}</small></span></label>`).join('');
+  const sw = (data.palette||[]).map(t=>
+    `<div class="sw ${t.token===m.theme_color?'sel':''}" style="background:${t.hex};color:${t.hex}" title="${t.label}" onclick="pickTheme('${t.token}')"></div>`).join('');
+  return `<section class="panel" data-step="0">
+    <p class="eyebrow">Step 1 of 4 · Identity</p>
+    <h2>Give your agent an identity</h2>
+    <p class="sub">Name it, describe what it's for, and give it a face.</p>
+    <div class="card">
+      <label class="f"><span>Agent name</span><input type="text" id="f_name" value="${esc(m.name)}"></label>
+      <label class="f"><span>Description · what it does, who it's for</span>
+        <textarea id="f_desc" class="desc" placeholder="e.g. A spelling tutor for grade-school homework — it spots errors, explains the rules, and gives practice exercises.">${esc(m.description)}</textarea></label>
+      <label class="f"><span>Category</span><select id="f_cat">${cats}</select></label>
+    </div>
+    <div class="card">
+      <p class="card-head">Visibility ${confBadge('visibility','visible','access')}</p>
+      <p class="card-note">Who can find and use this agent once it's deployed.</p>
+      <div class="seg">${vis}</div>
+    </div>
+    <div class="card">
+      <p class="card-head">Theme color</p>
+      <p class="card-note">The brand color subscribers see on this agent's chat &amp; group page.</p>
+      <div class="swatches">${sw}</div>
+    </div>
+  </section>`;
+}
+
+/* Step 2 · Persona */
+function panelPersona(){
+  const p = spec.persona;
+  const classes = [['high_reasoning','Deep reasoning'],['balanced','Balanced'],['fast','Fast'],['multimodal','Multimodal'],['coding','Coding']]
+    .map(([v,l])=>`<label><input type="radio" name="mc" value="${v}" ${v===p.model_class?'checked':''} onchange="spec.persona.model_class=this.value"><span>${l}</span></label>`).join('');
+  return `<section class="panel" data-step="1">
+    <p class="eyebrow">Step 2 of 4 · Persona</p>
+    <h2>Shape its voice</h2>
+    <p class="sub">Pick the model class and write the system prompt that defines its behaviour.</p>
+    <div class="card"><label class="f"><span>Model class ${confBadge('model')}</span><div class="seg">${classes}</div></label></div>
+    <div class="card"><label class="f"><span>System prompt ${confBadge('persona','system','prompt')}</span>
+      <textarea id="f_prompt" class="prompt" placeholder="You are a …">${esc(p.system_prompt)}</textarea></label></div>
+  </section>`;
+}
+
+/* Step 3 · Skills & Tools (tabs: Skills / MCP / Secrets) */
+function panelSkills(){
+  const sc=(data.skill_candidates||[]).length, mc=(data.mcp_candidates||[]).length;
+  return `<section class="panel" data-step="2">
+    <p class="eyebrow">Step 3 of 4 · Skills &amp; Tools</p>
+    <h2>Choose its capabilities</h2>
+    <p class="sub">Only what you tick travels with the agent.</p>
+    <div class="tabs">
+      <button type="button" class="tab active" onclick="switchTab('skills',this)">Skills <span class="cnt">${sc}</span></button>
+      <button type="button" class="tab" onclick="switchTab('mcp',this)">MCP servers <span class="cnt">${mc}</span></button>
+      <button type="button" class="tab" onclick="switchTab('vault',this)">Secrets <span class="cnt" id="vaultCnt">${vault.length}</span></button>
+    </div>
+    <div class="tabpane" data-pane="skills"><div class="card">${skillGroups()}</div></div>
+    <div class="tabpane" data-pane="mcp" hidden><div class="card">${mcpGroups()}</div></div>
+    <div class="tabpane" data-pane="vault" hidden><div class="card">${vaultPaneHTML()}</div></div>
+  </section>`;
+}
+function switchTab(name, btn){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tabpane').forEach(p=>p.hidden = p.dataset.pane!==name);
+}
+function skillItem(c,i){
+  if(c.builtin) return `<label class="item"><input type="checkbox" id="skill-${i}" ${c.checked?'checked':''}><div><div class="nm">${esc(c.name)} <span class="tag ink">builtin</span></div></div></label>`;
+  const sc = c.scope==='user' ? '<span class="tag user">global</span>' : '<span class="tag proj">project</span>';
+  const hb = c.harness ? `<span class="tag">${esc(hLabel(c.harness))}</span>` : '';
+  const og = c.origin && c.origin!=='repo-native' ? `<span class="tag">${esc(c.origin)}</span>` : '';
+  return `<label class="item"><input type="checkbox" id="skill-${i}" ${c.checked?'checked':''}><div><div class="nm">${esc(c.name)} ${sc}${hb}${og}</div>${c.description?`<div class="ds">${esc(c.description)}</div>`:''}</div></label>`;
+}
+function skillGroups(){
+  const cs = data.skill_candidates||[];
+  if(!cs.length) return '<p class="empty">No skills detected in this project.</p>';
+  // Within each scope, cluster by harness (stable sort) so multi-harness lists read cleanly.
+  const idx = cs.map((c,i)=>i);
+  const proj=[],user=[],bi=[];
+  idx.sort((a,b)=>(cs[a].harness||'').localeCompare(cs[b].harness||''));
+  idx.forEach(i=>{const c=cs[i],h=skillItem(c,i); c.builtin?bi.push(h):(c.scope==='user'?user.push(h):proj.push(h));});
+  return (proj.length?`<div class="grp"><h3>Current directory</h3>${proj.join('')}</div>`:'')
+       + (user.length?`<div class="grp"><h3>User-level (global)</h3>${user.join('')}</div>`:'')
+       + (bi.length?`<div class="grp"><h3>Inferred builtin</h3>${bi.join('')}</div>`:'');
+}
+function mcpItem(c,i){
+  const sc = c.scope==='user' ? '<span class="tag user">global</span>' : '<span class="tag proj">project</span>';
+  const hb = c.harness ? `<span class="tag">${esc(hLabel(c.harness))}</span>` : '';
+  const wb = c.compatible ? '' : '<span class="tag bad">stdio · not deployable</span>';
+  return `<label class="item"><input type="checkbox" id="mcp-${i}" ${c.checked?'checked':''}><div><div class="nm">${esc(c.name)} ${sc}${hb}<span class="tag">${esc(c.type)}</span>${wb}</div></div></label>`;
+}
+function mcpGroups(){
+  const cs = data.mcp_candidates||[];
+  if(!cs.length) return '<p class="empty">No MCP servers detected.</p>';
+  const proj=[],user=[];
+  cs.forEach((c,i)=>{const h=mcpItem(c,i); c.scope==='user'?user.push(h):proj.push(h);});
+  return (proj.length?`<div class="grp"><h3>Current directory</h3>${proj.join('')}</div>`:'')
+       + (user.length?`<div class="grp"><h3>User-level (global)</h3>${user.join('')}</div>`:'');
+}
+
+/* vault / secrets */
+function vaultPaneHTML(){
+  const rows = vault.length ? vault.map((c,i)=>
+    `<div class="vrow">
+       <input type="text" class="vn" id="v-name-${i}" value="${esc(c.name)}" placeholder="ENV_VAR_NAME">
+       <input type="text" class="vp" id="v-purpose-${i}" value="${esc(c.purpose)}" placeholder="what it's for">
+       <label class="vreq"><input type="checkbox" id="v-req-${i}" ${c.required?'checked':''}>required</label>
+       <button type="button" class="vdel" title="remove" onclick="delVault(${i})">×</button>
+     </div>`).join('')
+    : '<p class="empty">No credentials declared. Add one if this agent needs API keys or secrets from its subscribers.</p>';
+  return `<p class="card-note">Credentials each subscriber provides during onboarding — declare what's needed; values are never entered or stored here.</p>${rows}<button type="button" class="addv" onclick="addVault()">+ Add credential</button>`;
+}
+function syncVault(){ vault.forEach((c,i)=>{ if($('v-name-'+i)){ c.name=$('v-name-'+i).value.trim(); c.purpose=$('v-purpose-'+i).value.trim(); c.required=$('v-req-'+i).checked; } }); }
+function refreshVaultPane(){ const p=document.querySelector('[data-pane="vault"] .card'); if(p) p.innerHTML=vaultPaneHTML(); if($('vaultCnt')) $('vaultCnt').textContent=vault.length; }
+function addVault(){ syncVault(); vault.push({name:'',purpose:'',required:true}); refreshVaultPane(); }
+function delVault(i){ syncVault(); vault.splice(i,1); refreshVaultPane(); }
+
+/* Step 4 · Review (no reasoning dump — confidence lives inline on each step) */
+function panelReview(){
+  return `<section class="panel" data-step="3">
+    <p class="eyebrow">Step 4 of 4 · Review &amp; Deploy</p>
+    <h2>Review and ship</h2>
+    <p class="sub">Confirm everything, then deploy or save as a draft.</p>
+    <div class="card"><dl class="sum" id="reviewSum"></dl></div>
+  </section>`;
+}
+function fillReview(){
+  collect();
+  const m=spec.metadata;
+  const skillNames=(data.skill_candidates||[]).filter((c,i)=>{const e=$('skill-'+i);return e&&e.checked;}).map(c=>c.name);
+  const mcpNames=(data.mcp_candidates||[]).filter((c,i)=>{const e=$('mcp-'+i);return e&&e.checked;}).map(c=>c.name);
+  const secretNames=vault.filter(c=>c.name).map(c=>c.name);
+  const chips=(arr,mono)=> arr.length ? arr.map(n=>`<span class="rtag${mono?' mono':''}">${esc(n)}</span>`).join('') : '<span class="empty">none</span>';
+  const c=palette[m.theme_color]||'#1b365d';
+  const sw=`<span style="display:inline-block;width:13px;height:13px;border-radius:4px;vertical-align:-2px;margin:0 5px;background:${c}"></span>`;
+  $('reviewSum').innerHTML = `
+    <dt>Name</dt><dd>${esc(m.name)||'<span class="empty">unnamed</span>'}</dd>
+    <dt>Description</dt><dd>${esc(m.description)||'<span class="empty">—</span>'}</dd>
+    <dt>Category</dt><dd>${esc(m.category)||'—'}${sw}${esc(m.theme_color||'')}</dd>
+    <dt>Visibility</dt><dd>${esc(m.visibility||'private')}</dd>
+    <dt>Model</dt><dd>${esc(spec.persona.model_class||'balanced')}</dd>
+    <dt>Skills (${skillNames.length})</dt><dd class="chips">${chips(skillNames)}</dd>
+    <dt>MCP servers (${mcpNames.length})</dt><dd class="chips">${chips(mcpNames)}</dd>
+    <dt>Secrets (${secretNames.length})</dt><dd class="chips">${chips(secretNames,true)}</dd>`;
+}
+
+/* navigation */
+function go(n){
+  if(n<0||n>=STEPS.length) return;
+  collect();
+  step = n;
+  document.querySelectorAll('.panel').forEach(p=>{const on=+p.dataset.step===n; p.classList.toggle('show',on); p.hidden=!on;});
+  document.querySelectorAll('.step-nav li').forEach((li,i)=>{li.classList.toggle('active',i===n); li.classList.toggle('done',i<n);});
+  if(n===3) fillReview();
+  const last = n===STEPS.length-1;
+  $('btnBack').hidden=n===0; $('btnNext').hidden=last; $('btnDeploy').hidden=!last; $('btnDone').hidden=!last;
+  setStatus(''); $('panels').parentElement.scrollTop=0;
+}
+function pickTheme(tok){
+  spec.metadata.theme_color = tok; applyAccent(tok);
+  document.querySelectorAll('.swatches .sw').forEach(s=>s.classList.remove('sel'));
+  if(event&&event.target) event.target.classList.add('sel');
+}
+function applyAccent(tok){
+  const hex = palette[tok] || '#1b365d';
+  document.documentElement.style.setProperty('--accent', hex);
+  document.documentElement.style.setProperty('--accent-soft', hex+'22');
+}
+function collect(){
+  const m=spec.metadata, p=spec.persona;
+  if($('f_name')) m.name=$('f_name').value.trim();
+  if($('f_desc')) m.description=$('f_desc').value.trim();
+  if($('f_cat')) m.category=$('f_cat').value;
+  if($('f_prompt')) p.system_prompt=$('f_prompt').value;
+  spec.skills=[];
+  (data.skill_candidates||[]).forEach((c,i)=>{ const el=$('skill-'+i); if(!el||!el.checked) return;
+    if(c.builtin) spec.skills.push({type:'builtin',provider:'anthropic',id:c.builtin_id});
+    else { const s={type:'custom_local',path:c.path}; if(c.scope==='user') s.scope='user'; spec.skills.push(s);} });
+  spec.mcp_servers=[];
+  (data.mcp_candidates||[]).forEach((c,i)=>{ const el=$('mcp-'+i); if(!el||!el.checked) return;
+    const s={name:c.name,type:c.type}; if(c.url)s.url=c.url; if(c.command)s.command=c.command; spec.mcp_servers.push(s); });
+  syncVault();
+  spec.vault_hints = {
+    required_credentials: vault.filter(c=>c.name&&c.required).map(c=>({name:c.name,purpose:c.purpose,required:true})),
+    optional_credentials: vault.filter(c=>c.name&&!c.required).map(c=>({name:c.name,purpose:c.purpose,required:false})),
+  };
+  return spec;
+}
+let busy=false;
+async function submit(path){
+  if(busy) return; busy=true; setStatus('Working…');
+  ['btnSaveDraft','btnBack','btnNext','btnDeploy','btnDone'].forEach(b=>$(b).disabled=true);
+  try{
+    const r=await fetch(path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(collect())});
+    const j=await r.json();
+    if(j.error) setStatus('✗ '+j.error);
+    else if(j.status==='saved') setStatus('✓ Saved askdao-agent.yml');
+    else { setStatus('✓ '+(j.message||j.status)+' — you can close this tab.'); document.body.style.opacity=.6; return; }
+  }catch(e){ setStatus('✗ '+e); }
+  finally{ busy=false; ['btnSaveDraft','btnBack','btnNext','btnDeploy','btnDone'].forEach(b=>$(b).disabled=false); }
+}
+function setStatus(s){ $('status').textContent=s; }
+
+// confidence tooltip — single fixed node near <body>, positioned by JS; immune
+// to card stacking-contexts and the .wrap scroll-overflow that clipped the old
+// CSS pseudo-element version. Flips above the badge when there's no room below.
+document.addEventListener('mouseover', e=>{
+  const c = e.target.closest && e.target.closest('.conf'); if(!c) return;
+  const t=$('tip'); t.textContent=c.getAttribute('data-tip')||'';
+  const r=c.getBoundingClientRect();
+  t.style.left=r.left+'px'; t.style.top=(r.bottom+8)+'px'; t.classList.add('show');
+  requestAnimationFrame(()=>{ const tr=t.getBoundingClientRect();
+    if(tr.bottom>innerHeight-12) t.style.top=Math.max(8, r.top-tr.height-8)+'px';
+    if(tr.right>innerWidth-12) t.style.left=Math.max(8, innerWidth-tr.width-12)+'px';
+  });
+});
+document.addEventListener('mouseout', e=>{ if(e.target.closest && e.target.closest('.conf')) $('tip').classList.remove('show'); });
+
+load();
+</script>
+</body>
+</html>

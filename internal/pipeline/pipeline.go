@@ -108,8 +108,8 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	if df, err := scanner.ParseDockerfile(filepath.Join(root, "Dockerfile")); err == nil && df.Exists {
 		det.DetectedDockerfile = df
 	}
-	det.DetectedMCPConfigs, _ = scanner.DetectMCPConfigs(root)
-	det.DetectedSkills, _ = scanner.DetectSkills(root, pkgs)
+	det.DetectedMCPConfigs, _ = scanner.DetectMCPConfigs(root, scanner.ScanScopeOpts{HomeDir: opts.HomeDir})
+	det.DetectedSkills, _ = scanner.DetectSkills(root, pkgs, scanner.ScanScopeOpts{HomeDir: opts.HomeDir})
 	det.DetectedRequiredSecrets, _ = scanner.DetectRequiredSecrets(root, det.DetectedMCPConfigs)
 	if hs, err := scanner.DetectHarnessSignals(scanner.HarnessProbeOpts{HomeDir: opts.HomeDir}); err == nil {
 		det.DetectedHarnessSignals = hs

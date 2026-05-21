@@ -31,58 +31,93 @@ type mcpServer struct {
 	Command string `json:"command"`
 }
 
-// DetectMCPConfigs reads every known MCP config file at root and returns one
-// DetectedMCPConfig per file present, with each server tagged for Anthropic
-// Managed Agents compatibility (only `type: url` is portable).
-func DetectMCPConfigs(root string) ([]types.DetectedMCPConfig, error) {
+// DetectMCPConfigs reads every known MCP config file across two scopes:
+//
+//   - project scope: mcpConfigSources under root (Scope="project")
+//   - user scope: the global MCP config of whichever harnesses the project root
+//     marks (a .claude/ project pulls in ~/.claude.json) — Scope="user". Gated
+//     by opts.HomeDir; empty HomeDir skips user scope.
+//
+// Each server is tagged for Anthropic Managed Agents compatibility (only
+// `type: url` is portable).
+func DetectMCPConfigs(root string, opts ScanScopeOpts) ([]types.DetectedMCPConfig, error) {
 	if root == "" {
 		return nil, errors.New("scanner: root must be non-empty")
 	}
 	var out []types.DetectedMCPConfig
+
+	// Project scope — Source stays project-relative.
 	for _, rel := range mcpConfigSources {
-		path := filepath.Join(root, rel)
-		data, err := os.ReadFile(path)
-		if os.IsNotExist(err) {
-			continue
-		}
+		cfg, err := readMCPConfig(filepath.Join(root, rel), rel, "project", harnessForProjectDir(rel))
 		if err != nil {
 			return nil, err
 		}
-		var raw mcpFile
-		if err := json.Unmarshal(data, &raw); err != nil {
-			// Malformed config shouldn't stop the whole scan — record nothing
-			// for this source and move on.
-			continue
+		if cfg != nil {
+			out = append(out, *cfg)
 		}
-		var servers []types.MCPServerConfig
-		for name, s := range raw.MCPServers {
-			t := s.Type
-			if t == "" {
-				if s.URL != "" {
-					t = "url"
-				} else if s.Command != "" {
-					t = "stdio"
+	}
+
+	// User scope — global MCP config, gated by the project's harness markers.
+	if opts.HomeDir != "" {
+		for _, h := range activeHarnesses(root) {
+			for _, rel := range h.userMCPFiles {
+				path := filepath.Join(opts.HomeDir, rel)
+				cfg, err := readMCPConfig(path, path, "user", h.name)
+				if err != nil {
+					return nil, err
+				}
+				if cfg != nil {
+					out = append(out, *cfg)
 				}
 			}
-			compat := t == "url"
-			warn := ""
-			if !compat {
-				warn = "Anthropic Managed Agents only supports type=url; stdio MCP cannot be deployed"
-			}
-			servers = append(servers, types.MCPServerConfig{
-				Name:                name,
-				Type:                t,
-				URL:                 s.URL,
-				Command:             s.Command,
-				AnthropicCompatible: compat,
-				Warning:             warn,
-			})
 		}
-		sort.Slice(servers, func(i, j int) bool { return servers[i].Name < servers[j].Name })
-		if len(servers) == 0 {
-			continue
-		}
-		out = append(out, types.DetectedMCPConfig{Source: rel, Servers: servers})
 	}
 	return out, nil
+}
+
+// readMCPConfig parses one MCP config file. source is recorded verbatim into
+// DetectedMCPConfig.Source; scope ("project"|"user") and harness tag the result.
+// A missing file or malformed JSON yields (nil, nil) so the scan continues; only
+// an unexpected read error propagates. Returns nil when zero servers declared.
+func readMCPConfig(path, source, scope, harness string) (*types.DetectedMCPConfig, error) {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var raw mcpFile
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, nil // malformed → skip this source
+	}
+	var servers []types.MCPServerConfig
+	for name, s := range raw.MCPServers {
+		t := s.Type
+		if t == "" {
+			if s.URL != "" {
+				t = "url"
+			} else if s.Command != "" {
+				t = "stdio"
+			}
+		}
+		compat := t == "url"
+		warn := ""
+		if !compat {
+			warn = "Anthropic Managed Agents only supports type=url; stdio MCP cannot be deployed"
+		}
+		servers = append(servers, types.MCPServerConfig{
+			Name:                name,
+			Type:                t,
+			URL:                 s.URL,
+			Command:             s.Command,
+			AnthropicCompatible: compat,
+			Warning:             warn,
+		})
+	}
+	sort.Slice(servers, func(i, j int) bool { return servers[i].Name < servers[j].Name })
+	if len(servers) == 0 {
+		return nil, nil
+	}
+	return &types.DetectedMCPConfig{Source: source, Scope: scope, Harness: harness, Servers: servers}, nil
 }

@@ -28,10 +28,6 @@ func main() {
 		fmt.Printf("askdao-cli %s\n", version)
 	case "help", "-h", "--help":
 		printRootHelp(os.Stdout)
-	case "detect":
-		os.Exit(runDetect(ctx, os.Args[2:]))
-	case "bundle":
-		os.Exit(runBundle(ctx, os.Args[2:]))
 	case "agent":
 		os.Exit(runAgent(ctx, os.Args[2:]))
 	case "auth":
@@ -52,10 +48,8 @@ func runAgent(ctx context.Context, args []string) int {
 	sub := args[0]
 	rest := args[1:]
 	switch sub {
-	case "init":
-		return runInit(ctx, rest)
-	case "show":
-		return runShow(ctx, rest)
+	case "edit":
+		return runEdit(ctx, rest)
 	case "deploy":
 		return runDeploy(ctx, rest)
 	case "help", "-h", "--help":
@@ -80,11 +74,8 @@ COMMANDS:
     auth login                     Browser-bound login (OAuth 2.0 Device Code Flow)
     auth status                    Show the currently-logged-in identity
     auth logout                    Delete local credentials
-    detect [path]                  Print detection report (L1-L3, no LLM)
-    bundle [path]                  Preview the deployment payload (what gets uploaded)
-    agent init [name] [--auto]     Generate askdao-agent.yml at project root
-    agent show [flags]             Show the mid-density review card
-    agent deploy [--harness id]    Push agent to conductor
+    agent edit [--dir path]        Scan + open the web studio to review/edit/deploy an agent
+    agent deploy [--harness id]    Push an edited askdao-agent.yml to conductor
     version                        Print version
     help                           Show this help
 
@@ -97,18 +88,14 @@ func printAgentHelp(w io.Writer) {
     askdao agent <subcommand> [args]
 
 SUBCOMMANDS:
-    init [name] [--auto] [--from path] [--harness id]
-        Generate askdao-agent.yml at the project root and .askdao/ for tool
-        products (recommendation.yml + detection.json). With --auto, runs the
-        L1-L4 pipeline + interactive review. `+"`name`"+` is optional and
-        defaults to the project directory name.
-
-    show [--full|--reasoning|--warnings|--persona|--deps|--mcp] [--dir path]
-        Render the mid-density review card. Flags drill into one section.
+    edit [--dir path] [--harness id] [--no-ui] [--force]
+        Scan the project (or load an existing askdao-agent.yml), open the local
+        web studio to review/edit the spec + Agent profile and tick the skills /
+        MCP servers to include, then Save or one-stop Deploy. --no-ui writes a
+        draft and exits (CI/headless).
 
     deploy [--harness id] [--force] [--bio text] [--dir path]
-        Read <dir>/askdao-agent.yml + recommendation snapshot, diff against the
-        original recommendation, and push spec
-        to the chosen harness.
+        Read <dir>/askdao-agent.yml, package custom_local skills, and push to the
+        chosen harness via conductor.
 `)
 }

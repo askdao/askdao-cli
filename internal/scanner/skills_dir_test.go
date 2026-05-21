@@ -22,7 +22,7 @@ func TestDetectSkills_CustomDirsAndInference(t *testing.T) {
 		},
 	}
 
-	got, err := DetectSkills(root, pkgs)
+	got, err := DetectSkills(root, pkgs, ScanScopeOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestDetectSkills_CustomDirsAndInference(t *testing.T) {
 }
 
 func TestDetectSkills_NoMatches(t *testing.T) {
-	got, err := DetectSkills(t.TempDir(), nil)
+	got, err := DetectSkills(t.TempDir(), nil, ScanScopeOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,5 +75,50 @@ func TestInferBuiltinSkills_DedupesByID(t *testing.T) {
 	// Higher-conf rule (pdfplumber) wins.
 	if got[0].Confidence < 0.78 {
 		t.Errorf("expected pdfplumber rule (conf 0.78), got %v", got[0])
+	}
+}
+
+func TestDetectSkills_UserScopeGatedByMarker(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	// Project marker (.claude/) + a project-scope skill.
+	mustWrite(t, filepath.Join(root, ".claude", "skills", "proj-skill", "SKILL.md"), "# proj\n")
+	// A global skill under a fake HOME.
+	mustWrite(t, filepath.Join(home, ".claude", "skills", "global-skill", "SKILL.md"), "# global\n")
+
+	got, err := DetectSkills(root, nil, ScanScopeOpts{HomeDir: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var proj, user *types.DetectedSkill
+	for i := range got {
+		switch got[i].SkillName {
+		case "proj-skill":
+			proj = &got[i]
+		case "global-skill":
+			user = &got[i]
+		}
+	}
+	if proj == nil || proj.Scope != "project" || proj.Harness != "claude" {
+		t.Errorf("proj-skill: want scope=project harness=claude, got %+v", proj)
+	}
+	if user == nil || user.Scope != "user" || user.Harness != "claude" {
+		t.Errorf("global-skill: want scope=user harness=claude, got %+v", user)
+	}
+}
+
+func TestDetectSkills_UserScopeSkippedWithoutMarker(t *testing.T) {
+	root := t.TempDir() // no .claude/ marker
+	home := t.TempDir()
+	mustWrite(t, filepath.Join(home, ".claude", "skills", "global-skill", "SKILL.md"), "# global\n")
+
+	got, err := DetectSkills(root, nil, ScanScopeOpts{HomeDir: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range got {
+		if s.Scope == "user" {
+			t.Errorf("no harness marker in root → user scope must be skipped, got %+v", s)
+		}
 	}
 }

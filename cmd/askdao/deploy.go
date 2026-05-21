@@ -421,3 +421,105 @@ func readSpec(path string) (*types.AgentSpec, error) {
 	}
 	return &s, nil
 }
+
+// resolveSkillDir resolves a custom_local skill's on-disk directory. Project
+// scope (relative path) joins dir; user scope (Scope=="user", an absolute path,
+// or a ~-prefixed path) resolves against the home dir / filesystem so global
+// skills picked in the web studio package correctly.
+func resolveSkillDir(dir string, s types.Skill) (string, error) {
+	path := s.Path
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(home, filepath.FromSlash(path[2:])), nil
+	}
+	if filepath.IsAbs(path) || s.Scope == "user" {
+		return filepath.FromSlash(path), nil
+	}
+	return filepath.Join(dir, filepath.FromSlash(path)), nil
+}
+
+// packageSkills zips every custom_local skill referenced by spec into a
+// name→zip map, applying the harness-neutral invariant (zip top dir =
+// filepath.Base). Shared by `agent deploy` (CLI) and the web studio's
+// OnDeploy. Returns a descriptive error on a missing dir / SKILL.md / name
+// collision.
+func packageSkills(dir string, spec *types.AgentSpec) (map[string][]byte, error) {
+	skillZips := map[string][]byte{}
+	for _, s := range spec.Skills {
+		if s.Type != "custom_local" {
+			continue
+		}
+		if s.Path == "" {
+			return nil, fmt.Errorf("a custom_local skill entry is missing 'path'")
+		}
+		skillName := filepath.Base(filepath.Clean(s.Path))
+		if skillName == "" || skillName == "." || skillName == "/" {
+			return nil, fmt.Errorf("custom_local skill path %q: cannot resolve a skill name", s.Path)
+		}
+		skillDir, err := resolveSkillDir(dir, s)
+		if err != nil {
+			return nil, err
+		}
+		if fi, serr := os.Stat(skillDir); serr != nil || !fi.IsDir() {
+			return nil, fmt.Errorf("custom_local skill %q: directory not found at %s", s.Path, skillDir)
+		}
+		if _, serr := os.Stat(filepath.Join(skillDir, "SKILL.md")); serr != nil {
+			return nil, fmt.Errorf("custom_local skill %q: %s has no SKILL.md", s.Path, skillDir)
+		}
+		zb, zerr := deploy.ZipDir(skillDir, skillName)
+		if zerr != nil {
+			return nil, fmt.Errorf("packaging skill %q: %w", s.Path, zerr)
+		}
+		if _, dup := skillZips[skillName]; dup {
+			return nil, fmt.Errorf("skill name collision %q (two paths share a basename)", skillName)
+		}
+		skillZips[skillName] = zb
+	}
+	return skillZips, nil
+}
+
+// deployFromDir reads <dir>/askdao-agent.yml, packages its custom_local skills,
+// and POSTs to conductor /cli/deploy. It performs no interactive prompting —
+// callers handle typed errors (*deploy.ErrKolProfileRequired,
+// *deploy.ErrBlockingWarnings). Used by the web studio's one-stop OnDeploy.
+func deployFromDir(ctx context.Context, dir, harnessOverride string, force bool) (*deploy.DeployResponse, error) {
+	agentYAML, err := os.ReadFile(filepath.Join(dir, askdaoAgentFileName))
+	if err != nil {
+		return nil, err
+	}
+	var spec types.AgentSpec
+	if err := yaml.Unmarshal(agentYAML, &spec); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", askdaoAgentFileName, err)
+	}
+	skillZips, err := packageSkills(dir, &spec)
+	if err != nil {
+		return nil, err
+	}
+	var detection []byte
+	if d, derr := os.ReadFile(filepath.Join(dir, ".askdao", "detection.json")); derr == nil {
+		detection = d
+	}
+	harnessID := harnessOverride
+	if harnessID == "" {
+		harnessID = spec.PreferredHarness
+	}
+	if harnessID == "" {
+		harnessID = "anthropic_managed_agents"
+	}
+	conductorURL, token, err := resolveServerAndToken()
+	if err != nil {
+		return nil, err
+	}
+	cl := deploy.NewClient(conductorURL)
+	cl.AuthToken = token
+	return cl.Deploy(ctx, deploy.DeployInput{
+		AgentYAML: agentYAML,
+		Detection: detection,
+		HarnessID: harnessID,
+		Force:     force,
+		SkillZips: skillZips,
+	})
+}

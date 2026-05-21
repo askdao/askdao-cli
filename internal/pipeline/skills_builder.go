@@ -53,7 +53,11 @@ func BuildAgentSpecSkills(det *types.Detection) []types.Skill {
 	var builtins []types.Skill
 
 	for _, s := range det.DetectedSkills {
-		if s.SkillName != "" && s.Source != "" {
+		// Project-scope concrete skills become the default skills[]. User-scope
+		// (global, ~/.claude/skills) skills are deliberately excluded here — the
+		// web studio surfaces them as opt-in candidates, so a KOL's entire global
+		// skill library does not auto-ship with every agent.
+		if s.SkillName != "" && s.Source != "" && s.Scope != "user" {
 			customs = append(customs, types.Skill{
 				Type: "custom_local",
 				Path: filepath.ToSlash(filepath.Dir(s.Source)),

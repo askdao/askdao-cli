@@ -1,5 +1,7 @@
 # askdao-cli Observe 层：运行时观测驱动的 Agent 环境规格生成
 
+> ⚠️ **2026-05-21 立足点纠正（务必先读）**：本稿在不了解代码 + 误判场景为通用 Code App 下提出。评审后锁定真实立足点 = **Skills Pipeline + Anthropic Managed Agents MVP**。**四条观测路径（import 解析 / snapshot / tracer 注入 / 包安装命令解析）+ §6 重造 schema 均作废**；实际吸收的只有「本地 Web 工作台 + 字段级 provenance + skill 相关性筛选」，且 observe 从"推断包依赖"重定向为"观测实际激活的 skill/MCP"。纠正详情 + v0.8 落地见 [`review-observe-pivot-2026-05-21.md`](./review-observe-pivot-2026-05-21.md)。下文 §三~§六的包推断设计**仅作历史参考**。
+
 > **文档性质**：多轮讨论汇总 + 技术方案 + 实施计划
 > **快照时间**：2026-05-20
 > **前置文档**：askdao-cli-overview.md（v0.7.1, 13K+ 行 Go）

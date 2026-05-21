@@ -57,16 +57,22 @@ var builtinSkillRules = []builtinSkillRule{
 	{"docx", []string{"python-docx"}, "detected dependency: python-docx", 0.8},
 }
 
-// DetectSkills walks every candidate skill directory and emits one
-// custom_local entry per `<dir>/<skill-name>/SKILL.md`, enriched with the
-// frontmatter description, the whole-directory size, and (when a
-// skills-lock.json is present) whether the skill is a vendored dependency or
-// repo-native. Then it appends a single inferred-builtin entry whose
+// DetectSkills emits one custom_local entry per `<dir>/<skill-name>/SKILL.md`
+// across two scopes:
+//
+//   - project scope: every skillDirCandidates dir under root (Scope="project")
+//   - user scope: the global skill dirs of whichever harnesses the project root
+//     marks (a .claude/ project pulls in ~/.claude/skills, etc.) — Scope="user".
+//     Gated by opts.HomeDir; empty HomeDir skips user scope.
+//
+// Each entry is enriched with the frontmatter description, whole-directory size,
+// vendored-vs-repo-native origin (from skills-lock.json, project scope only),
+// and a harness tag. Then it appends a single inferred-builtin entry whose
 // ImpliedAnthropicSkills slice carries any matched skill IDs.
 //
 // pkgs is the syft-derived package map (from ScanPackages) used as input to
 // the builtin-skill heuristic; pass nil to skip inference.
-func DetectSkills(root string, pkgs map[string][]types.Package) ([]types.DetectedSkill, error) {
+func DetectSkills(root string, pkgs map[string][]types.Package, opts ScanScopeOpts) ([]types.DetectedSkill, error) {
 	if root == "" {
 		return nil, errors.New("scanner: root must be non-empty")
 	}
@@ -74,45 +80,80 @@ func DetectSkills(root string, pkgs map[string][]types.Package) ([]types.Detecte
 	lock, _ := LoadSkillsLock(root) // best-effort; nil/empty when absent or malformed
 
 	var out []types.DetectedSkill
+
+	// Project scope — candidate dirs relative to root; Source stays project-relative.
 	for _, rel := range skillDirCandidates {
-		base := filepath.Join(root, rel)
-		entries, err := os.ReadDir(base)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
+		skills, err := scanSkillBase(filepath.Join(root, rel), rel, "project", harnessForProjectDir(rel), lock)
 		if err != nil {
 			return nil, err
 		}
-		for _, e := range entries {
-			if !e.IsDir() {
-				continue
+		out = append(out, skills...)
+	}
+
+	// User scope — global skills under HOME, gated by the project's harness markers.
+	// Source is absolute so deploy can locate user-scope skill dirs; lock is nil
+	// (the project skills-lock.json does not govern global skills).
+	if opts.HomeDir != "" {
+		for _, h := range activeHarnesses(root) {
+			for _, rel := range h.userSkillDirs {
+				base := filepath.Join(opts.HomeDir, rel)
+				skills, err := scanSkillBase(base, base, "user", h.name, nil)
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, skills...)
 			}
-			skillFile := filepath.Join(base, e.Name(), "SKILL.md")
-			info, err := os.Stat(skillFile)
-			if err != nil {
-				continue
-			}
-			ds := types.DetectedSkill{
-				Source:          filepath.ToSlash(filepath.Join(rel, e.Name(), "SKILL.md")),
-				SkillName:       e.Name(),
-				Kind:            "custom_local",
-				SizeBytes:       info.Size(),
-				IsLocalOriginal: true,
-			}
-			_, ds.Description = parseSkillFrontmatter(skillFile)
-			ds.BundleBytes, ds.BundleFiles = dirSize(filepath.Join(base, e.Name()))
-			if ref, ok := lock[e.Name()]; ok {
-				ds.LockedSource = ref.Source
-				ds.LockedHash = ref.LockedHash
-				ds.IsLocalOriginal = false
-			}
-			out = append(out, ds)
 		}
 	}
+
 	sort.Slice(out, func(i, j int) bool { return out[i].Source < out[j].Source })
 
 	if implied := inferBuiltinSkills(pkgs); len(implied) > 0 {
 		out = append(out, types.DetectedSkill{ImpliedAnthropicSkills: implied})
+	}
+	return out, nil
+}
+
+// scanSkillBase enumerates `<base>/<name>/SKILL.md` entries. sourcePrefix is the
+// path recorded into DetectedSkill.Source (project-relative for project scope,
+// absolute for user scope). scope ("project"|"user") and harness tag each entry.
+// lock enriches vendored-vs-native origin; pass nil to skip (user scope). A
+// missing base directory yields (nil, nil) so callers can probe optimistically.
+func scanSkillBase(base, sourcePrefix, scope, harness string, lock map[string]SkillsLockEntry) ([]types.DetectedSkill, error) {
+	entries, err := os.ReadDir(base)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []types.DetectedSkill
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		skillFile := filepath.Join(base, e.Name(), "SKILL.md")
+		info, err := os.Stat(skillFile)
+		if err != nil {
+			continue
+		}
+		ds := types.DetectedSkill{
+			Source:          filepath.ToSlash(filepath.Join(sourcePrefix, e.Name(), "SKILL.md")),
+			SkillName:       e.Name(),
+			Kind:            "custom_local",
+			SizeBytes:       info.Size(),
+			IsLocalOriginal: true,
+			Scope:           scope,
+			Harness:         harness,
+		}
+		_, ds.Description = parseSkillFrontmatter(skillFile)
+		ds.BundleBytes, ds.BundleFiles = dirSize(filepath.Join(base, e.Name()))
+		if ref, ok := lock[e.Name()]; ok {
+			ds.LockedSource = ref.Source
+			ds.LockedHash = ref.LockedHash
+			ds.IsLocalOriginal = false
+		}
+		out = append(out, ds)
 	}
 	return out, nil
 }

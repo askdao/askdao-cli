@@ -2,7 +2,47 @@
 
 > 新会话上手 / 上下文切换的入口文档。读完这一页就能继续工作。
 >
-> Last updated: 2026-05-14
+> Last updated: 2026-05-21
+
+---
+
+## v0.8 — `agent edit` 本地 Web 工作台
+
+> observe-layer-design.md 评审纠偏后启动。立足点 = **Skills Pipeline + Anthropic Managed Agents MVP**。
+> 纠偏全过程 + 决策见 [`review-observe-pivot-2026-05-21.md`](./review-observe-pivot-2026-05-21.md)。
+
+### ✅ 第一步已完成（已 commit + push）
+
+- **commit** `0a49333`（38 files, +1806/-1062），分支 `feature/agent-edit-web-studio` 已 push 到 `origin`，**PR 未开**（入口 `https://github.com/askdao/askdao-cli/pull/new/feature/agent-edit-web-studio`）。
+- 全测试绿（`go test ./...`）+ `make build` 通过。二进制 `./askdao`（git-ignored）。
+- plan：`~/.claude/plans/anthropic-managed-pure-pixel.md`。
+
+**交付内容**：
+- **命令精简**：审阅入口从 init/show + `[A/E/R/S/...]` 字符菜单收敛为 `askdao agent edit` 本地 Web 工作台；命令集 = `auth` + `agent edit/deploy`，删 init/show/detect/bundle/argparse。
+- **webstudio**（`internal/webstudio/`）：`127.0.0.1` 随机端口 + go:embed 自包含单页；写 yaml/deploy 由 cmd 注入 `OnSave`/`OnDeploy` 回调解耦（不依赖 pipeline/deploy）。
+- **harness 感知双 scope 扫描**（`internal/scanner/harness_scope.go`）：`.claude/`→扫 `~/.claude/skills`+`~/.claude.json`；`DetectedSkill`/`DetectedMCPConfig` 加 `Scope`/`Harness`；`archetype` 跳过 user scope；`skills_builder` 默认只产 project scope（修复 skill 过度包含）。
+- **schema**：`metadata.category` + `theme_color`（预设色板 token，`webstudio/theme.go`）+ `Skill.Scope`。
+- **deploy 复用**：`cmd/askdao/deploy.go` 的 `deployFromDir`/`packageSkills`（含 user-scope skill 的绝对/`~` 路径解析）。
+
+**前端 4 轮打磨后的最终形态**（`internal/webstudio/studio.html`，Kami 设计系统）：
+全宽 topbar（屏幕左上 AskDAO logo + "AskDAO Agent"）+ 主体/footer 限宽 920 居中聚焦；4 步向导（Identity → Persona → Skills & Tools → Review）；accent 实时跟随 theme_color；Step1 description 多行 + Visibility/Theme 各自独立 card；Step3 **Skills / MCP servers / Secrets 三 tab**（harness 准确名 Claude Code/OpenAI Codex/...；vault_hints 行编辑）；信心度徽标穿插推荐字段（body 级 fixed tooltip，hover 显理由）；Step4 Review 列出选中项**名称 chips**。
+
+### ⏳ 第二步：4 项待续（起点待与哥对齐）
+
+> **重要**：抛"从哪项开始"的选择题时哥选择 clarify，**说明他对第二步的范围/优先级/是否并行另有想法**。新窗口**第一件事先问哥**想澄清什么、第二步怎么排，**不要盲目开做**。下面是我对 4 项的理解（供对齐用）：
+
+- **A. observe hook 预勾（`agent edit --observe`）** — 纯 askdao-cli，**实验性，需先 spike**。用 Claude Code hooks 观测一次真实 session 实际激活的 skill/MCP → 自动预勾选（替代纯手动勾，兑现 observe 重定向后的核心价值）。机制：写临时 `.claude/settings.local.json`（PostToolUse → HTTP hook 指向 webstudio server，server 兼 hook receiver）→ 引导跑一次 → 收集激活项预勾 → 清理（零残留）。**前置 spike**：先验证 Claude Code hooks 能否拿到 *skill 激活* 事件（可能只有 Bash/Edit/MCP tool 事件，skill 激活或需从 MCP tool 调用 / transcript 间接推断）。线索：`harness-design/investigations/` 三份 observe 报告 + `harness-design/claude-managed-agents-docs` hooks 文档。
+- **B. 主题色跨仓贯通** — 跨 conductor + askdao-ai-web，确定性高。让 `theme_color`/`category` 在订阅者端真正生效（现 cli 存了下游没用）。conductor `spec.py` 镜像字段 + `/cli/deploy` 持久化 + Group 带色；askdao-ai-web Group 页 `/k/{kol}/g/{group}` 按 token 渲染（对齐 `data-agent-tone`）。**theme_color 是 token 名，三端共用同一张 token→hex 表，源是 `webstudio/theme.go`**。conductor 改动走 long-running 分支（见 memory `feedback_branch_strategy_concurrent_devs`）。
+- **C. Codex/Cursor/Cowork harness 路径补全** — 纯 askdao-cli，小。`harness_scope.go` 的 `harnessConventions` 里 codex/cursor 的 `userSkillDirs`/`userMCPFiles` 现为 nil（TODO），cowork 未加 marker。需核对各自全局 skill/MCP 约定（Codex 工作目录 marker = `.agent`，user 根目录/MCP 配置待查 `harness-design/openai-agents-sdk-docs` + codex 文档）。当前 Anthropic MVP 以 Claude Code 为主，价值在未来 harness。
+- **D. kol_profile 云端引导** — 依赖云端就绪。`edit` 的 OnDeploy 遇 `kol_profile_required` 已返回"去 askdao.ai 补填"文案；但 `deploy.go` 的 CLI `runDeploy` 仍是旧 `setupKolProfile`（CLI prompt bio + PATCH）。哥定调 KOL profile 归 askdao.ai 云端 → CLI 握手也应改引导（去掉/降级 CLI bio prompt）。依赖 askdao.ai 云端 KOL profile 表单就绪。
+
+### 新窗口怎么继续
+
+1. 读本段（HANDOFF v0.8）+ [`review-observe-pivot-2026-05-21.md`](./review-observe-pivot-2026-05-21.md) + plan `~/.claude/plans/anthropic-managed-pure-pixel.md`。
+2. `cd askdao-cli && git checkout feature/agent-edit-web-studio`（已是当前分支）。
+3. **先与哥对齐第二步起点/范围/优先级**（见上方"重要"），再动手。
+4. 关键文件：`internal/webstudio/{server,api,theme,studio.html,CLAUDE.md}` · `internal/scanner/harness_scope.go` · `cmd/askdao/{edit,common,deploy,main}.go` · `internal/types/{agent_spec,detection}.go` · `internal/pipeline/{pipeline,skills_builder}.go`。
+5. 验证习惯：改后 `go test ./...` + `make build`；UI 改动用 `/tmp/mockserve.py` 起 mock + playwright 截图验证（本会话用过的模式，mock 注入 StudioData JSON + serve studio.html/logo.png）。
 
 ---
 
