@@ -59,7 +59,10 @@ func TestServerHandlers(t *testing.T) {
 	opts := Options{
 		Data:     &StudioData{Spec: &types.AgentSpec{Metadata: types.Metadata{Name: "x"}}},
 		OnSave:   func(*types.AgentSpec) error { saved = true; return nil },
-		OnDeploy: func(*types.AgentSpec) (string, error) { deployed = true; return "Created agent agt_1", nil },
+		OnDeploy: func(*types.AgentSpec) (*DeployResult, error) {
+			deployed = true
+			return &DeployResult{Message: "Created agent agt_1", GroupLink: "https://askdao.ai/g/x", AgentID: "agt_1", Created: true}, nil
+		},
 	}
 	srv := httptest.NewServer(buildMux(opts, done))
 	defer srv.Close()
@@ -83,6 +86,11 @@ func TestServerHandlers(t *testing.T) {
 	r, _ = http.Post(srv.URL+"/api/deploy", "application/json", bytes.NewBufferString(body))
 	if r.StatusCode != 200 || !deployed {
 		t.Errorf("/api/deploy not handled: status=%d deployed=%v", r.StatusCode, deployed)
+	}
+	var dep map[string]interface{}
+	_ = json.NewDecoder(r.Body).Decode(&dep)
+	if dep["group_link"] != "https://askdao.ai/g/x" || dep["agent_id"] != "agt_1" || dep["created"] != true {
+		t.Errorf("/api/deploy must surface structured group_link/agent_id/created: %v", dep)
 	}
 	select {
 	case <-done:

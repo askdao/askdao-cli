@@ -37,6 +37,16 @@ type ObservedData struct {
 	MCPServers []string `json:"mcp_servers"`
 }
 
+// DeployResult is the structured outcome of a deploy, surfaced to the success
+// card. GroupLink travels as its own field (not buried in Message) so the card
+// can render a clickable button — the subscriber entry point the KOL wants.
+type DeployResult struct {
+	Message   string `json:"message"`
+	GroupLink string `json:"group_link,omitempty"`
+	AgentID   string `json:"agent_id,omitempty"`
+	Created   bool   `json:"created"`
+}
+
 // SkillCandidate is one selectable skill — a concrete custom_local skill (with a
 // directory Path) or an implied builtin (Builtin=true, BuiltinID set).
 type SkillCandidate struct {

@@ -112,15 +112,20 @@ func runEdit(ctx context.Context, args []string) int {
 		OnSave: func(edited *types.AgentSpec) error {
 			return writeAgentSpec(*dir, edited)
 		},
-		OnDeploy: func(edited *types.AgentSpec) (string, error) {
+		OnDeploy: func(edited *types.AgentSpec) (*webstudio.DeployResult, error) {
 			if err := writeAgentSpec(*dir, edited); err != nil {
-				return "", err
+				return nil, err
 			}
 			resp, derr := deployFromDir(ctx, *dir, *harness, *force)
 			if derr != nil {
-				return "", studioDeployError(derr)
+				return nil, studioDeployError(derr)
 			}
-			return deployResultLine(resp), nil
+			return &webstudio.DeployResult{
+				Message:   deployResultLine(resp),
+				GroupLink: resp.GroupLink,
+				AgentID:   resp.AgentID,
+				Created:   resp.Created,
+			}, nil
 		},
 	})
 	if err != nil {
