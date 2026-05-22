@@ -1,8 +1,9 @@
-// [INPUT]: 标准库 (context/embed/encoding/json/fmt/net/net/http/os/exec/runtime/time) + internal/types
-// [OUTPUT]: 对外提供 Options / Serve；包内 buildMux / openBrowser
+// [INPUT]: 标准库 (context/embed/encoding/json/fmt/net/net/http/os/exec/runtime/sort/strings/sync/time) + internal/types
+// [OUTPUT]: 对外提供 Options / Serve；包内 buildMux / openBrowser / observed
 // [POS]: webstudio 的本地 HTTP server —— 绑 127.0.0.1:随机端口，serve go:embed 的 studio.html +
 //
-//	/api/spec(GET) /api/save /api/deploy /api/done；写 yaml / deploy 由 cmd 层注入回调解耦；
+//	/api/spec(GET) /api/save /api/deploy /api/done /api/observe(GET 读名单 / POST 收 hook 上报)；
+//	写 yaml / deploy 由 cmd 层注入 OnSave/OnDeploy 回调解耦，OnReady(port) 在 serve 后回调供 cmd 写 hook settings；
 //	阻塞至 KOL 在浏览器点 部署 或 完成。buildMux 抽出供 httptest 单测。
 //
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -17,6 +18,9 @@ import (
 	"net/http"
 	"os/exec"
 	"runtime"
+	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/askdao/askdao-cli/internal/types"
@@ -30,12 +34,15 @@ var logoPNG []byte
 
 // Options drives one studio session. Data is the payload served to the browser;
 // OnSave persists the edited spec (write askdao-agent.yml); OnDeploy persists +
-// pushes to conductor and returns a human-readable result line. Both are
-// injected by the cmd layer so webstudio stays free of pipeline/deploy deps.
+// pushes to conductor and returns a human-readable result line. OnReady, if set,
+// is called with the bound port once the server is listening (before blocking) —
+// the --observe path uses it to write the hook settings that point back here.
+// All are injected by the cmd layer so webstudio stays free of pipeline/deploy deps.
 type Options struct {
 	Data      *StudioData
 	OnSave    func(*types.AgentSpec) error
 	OnDeploy  func(*types.AgentSpec) (string, error)
+	OnReady   func(port int)
 	NoBrowser bool
 }
 
@@ -53,6 +60,12 @@ func Serve(opts Options) error {
 	done := make(chan error, 1)
 	srv := &http.Server{Handler: buildMux(opts, done)}
 	go func() { _ = srv.Serve(ln) }()
+
+	// Hand the bound port to the cmd layer before blocking — --observe writes the
+	// hook settings now, so the next `claude` session snapshots them at startup.
+	if opts.OnReady != nil {
+		opts.OnReady(port)
+	}
 
 	fmt.Printf("→ Agent studio at %s\n", url)
 	if !opts.NoBrowser {
@@ -72,6 +85,7 @@ func Serve(opts Options) error {
 // httptest can exercise the handlers without binding a socket.
 func buildMux(opts Options, done chan error) *http.ServeMux {
 	mux := http.NewServeMux()
+	obs := newObserved()
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -136,7 +150,106 @@ func buildMux(opts Options, done chan error) *http.ServeMux {
 		signal(done)
 	})
 
+	// /api/observe doubles as the Claude Code PreToolUse hook receiver (POST) and
+	// the frontend poll source (GET). POST always returns 200 — observe is a
+	// non-blocking overlay and must never disrupt the KOL's claude session.
+	mux.HandleFunc("/api/observe", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			skills, servers := obs.snapshot()
+			writeJSON(w, ObservedData{Skills: skills, MCPServers: servers})
+			return
+		}
+		var p struct {
+			ToolName  string                 `json:"tool_name"`
+			ToolInput map[string]interface{} `json:"tool_input"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&p)
+		switch {
+		case p.ToolName == "Skill":
+			obs.addSkill(skillNameFrom(p.ToolInput))
+		case strings.HasPrefix(p.ToolName, "mcp__"):
+			obs.addMCPServer(mcpServerOf(p.ToolName))
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
 	return mux
+}
+
+// observed is the running set of skills / MCP servers seen via /api/observe during
+// an --observe session. Claude Code PreToolUse hooks POST here concurrently, so
+// every access is mutex-guarded.
+type observed struct {
+	mu         sync.Mutex
+	skills     map[string]struct{}
+	mcpServers map[string]struct{}
+}
+
+func newObserved() *observed {
+	return &observed{skills: map[string]struct{}{}, mcpServers: map[string]struct{}{}}
+}
+
+func (o *observed) addSkill(name string) {
+	if name == "" {
+		return
+	}
+	o.mu.Lock()
+	o.skills[name] = struct{}{}
+	o.mu.Unlock()
+}
+
+func (o *observed) addMCPServer(name string) {
+	if name == "" {
+		return
+	}
+	o.mu.Lock()
+	o.mcpServers[name] = struct{}{}
+	o.mu.Unlock()
+}
+
+// snapshot returns the observed names as sorted slices, never nil (so the JSON
+// renders [] not null).
+func (o *observed) snapshot() (skills, servers []string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return keysSorted(o.skills), keysSorted(o.mcpServers)
+}
+
+func keysSorted(m map[string]struct{}) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// skillNameFrom defensively extracts the skill name from a Skill tool_input:
+// prefer "skill", fall back to "name", then the first string value (spike R2 —
+// the Skill input schema is not an official contract).
+func skillNameFrom(input map[string]interface{}) string {
+	if input == nil {
+		return ""
+	}
+	if s, ok := input["skill"].(string); ok && s != "" {
+		return s
+	}
+	if s, ok := input["name"].(string); ok && s != "" {
+		return s
+	}
+	for _, v := range input {
+		if s, ok := v.(string); ok && s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// mcpServerOf splits mcp__<server>__<tool> down to the server name.
+func mcpServerOf(toolName string) string {
+	rest := strings.TrimPrefix(toolName, "mcp__")
+	parts := strings.SplitN(rest, "__", 2)
+	return parts[0]
 }
 
 // signal delivers a non-blocking nil to done (buffered cap 1; extra sends drop).

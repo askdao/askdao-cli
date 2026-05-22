@@ -133,6 +133,16 @@
   .tag.bad  { color:var(--err); border-color:var(--err-border); background:var(--err-bg); }
   .empty { color:var(--stone); font-style:italic; font-size:13px; }
 
+  /* observe overlay (--observe): highlight skills/MCP a real session actually used */
+  .obsbar { display:flex; align-items:center; gap:14px; flex-wrap:wrap; background:var(--accent-soft);
+            border:1px solid var(--ring-warm); border-radius:10px; padding:12px 16px; margin-bottom:16px; }
+  .obsbar .obsmsg { flex:1; min-width:240px; font-family:var(--sans); font-size:13px; color:var(--charcoal); line-height:1.5; }
+  .obsbar code { font-family:var(--mono); font-size:12px; background:var(--ivory); border:1px solid var(--border-cream); border-radius:5px; padding:1px 6px; }
+  .obsbar .obscount { display:block; margin-top:5px; font-size:12px; font-weight:600; color:var(--olive); }
+  .obsbar button { white-space:nowrap; }
+  .item.used { border-color:var(--ok-border); background:var(--ok-bg); }
+  .tag.used { color:var(--ok); border-color:var(--ok-border); background:var(--ivory); }
+
   /* vault rows */
   .vrow { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
   .vrow .vn { flex:0 0 200px; font-family:var(--mono); font-size:13px; }
@@ -222,6 +232,7 @@ async function load(){
   $('projName').textContent = data.project_name || 'agent';
   applyAccent(spec.metadata.theme_color);
   renderNav(); renderPanels(); go(0);
+  startObservePolling();
 }
 function initVault(){
   const v = spec.vault_hints||{};
@@ -289,6 +300,7 @@ function panelSkills(){
     <p class="eyebrow">Step 3 of 4 · Skills &amp; Tools</p>
     <h2>Choose its capabilities</h2>
     <p class="sub">Only what you tick travels with the agent.</p>
+    ${observeBar()}
     <div class="tabs">
       <button type="button" class="tab active" onclick="switchTab('skills',this)">Skills <span class="cnt">${sc}</span></button>
       <button type="button" class="tab" onclick="switchTab('mcp',this)">MCP servers <span class="cnt">${mc}</span></button>
@@ -336,6 +348,49 @@ function mcpGroups(){
   cs.forEach((c,i)=>{const h=mcpItem(c,i); c.scope==='user'?user.push(h):proj.push(h);});
   return (proj.length?`<div class="grp"><h3>Current directory</h3>${proj.join('')}</div>`:'')
        + (user.length?`<div class="grp"><h3>User-level (global)</h3>${user.join('')}</div>`:'');
+}
+
+/* observe overlay (--observe): poll /api/observe, highlight what a real claude
+   session actually used, and offer a one-tap narrow. Additive — default ticks
+   stay as a safety net; nothing is auto-unticked unless the KOL asks. */
+let lastObserved = {skills:[], mcp_servers:[]};
+function observeBar(){
+  if(!data.observe) return '';
+  return `<div class="obsbar">
+    <div class="obsmsg"><b>Observe mode.</b> In a second terminal, run <code>claude</code> in this project and walk a representative scenario — the skills &amp; MCP it actually uses get highlighted below.
+      <span class="obscount" id="obsCount">Watching for activity…</span></div>
+    <button type="button" class="act btn" onclick="narrowToObserved()">Keep only observed</button>
+  </div>`;
+}
+function startObservePolling(){
+  if(!data.observe) return;
+  const poll=async()=>{ try{ applyObserved(await (await fetch('/api/observe')).json()); }catch(e){} };
+  poll();
+  setInterval(poll, 2000);
+}
+function applyObserved(o){
+  lastObserved = o || {skills:[], mcp_servers:[]};
+  const usedSkills=new Set(lastObserved.skills||[]), usedMCP=new Set(lastObserved.mcp_servers||[]);
+  (data.skill_candidates||[]).forEach((c,i)=>{ if(!c.builtin) markUsed('skill-'+i, usedSkills.has(c.name)); });
+  (data.mcp_candidates||[]).forEach((c,i)=>{ markUsed('mcp-'+i, usedMCP.has(c.name)); });
+  const el=$('obsCount');
+  if(el){ const n=usedSkills.size, m=usedMCP.size;
+    el.textContent = (n||m) ? `✓ observed ${n} skill${n===1?'':'s'} · ${m} MCP server${m===1?'':'s'}` : 'Watching for activity…'; }
+}
+function markUsed(inputId, used){
+  const el=$(inputId); if(!el) return;
+  const item=el.closest('.item'); if(!item) return;
+  item.classList.toggle('used', used);
+  let badge=item.querySelector('.tag.used');
+  if(used && !badge){ const nm=item.querySelector('.nm'); if(nm){ badge=document.createElement('span'); badge.className='tag used'; badge.textContent='✓ used'; nm.appendChild(badge); } }
+  else if(!used && badge){ badge.remove(); }
+}
+function narrowToObserved(){
+  const usedSkills=new Set(lastObserved.skills||[]), usedMCP=new Set(lastObserved.mcp_servers||[]);
+  // builtins aren't activated via the Skill tool, so observe can't see them — leave them as-is.
+  (data.skill_candidates||[]).forEach((c,i)=>{ if(c.builtin) return; const el=$('skill-'+i); if(el) el.checked=usedSkills.has(c.name); });
+  (data.mcp_candidates||[]).forEach((c,i)=>{ const el=$('mcp-'+i); if(el) el.checked=usedMCP.has(c.name); });
+  setStatus('Narrowed to observed skills/MCP — review, then deploy.');
 }
 
 /* vault / secrets */
