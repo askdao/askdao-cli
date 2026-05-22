@@ -26,6 +26,7 @@ type StudioData struct {
 	ProjectName     string                    `json:"project_name"`
 	Harness         string                    `json:"harness"`
 	Observe         bool                      `json:"observe"` // --observe session: frontend shows the observe panel + polls /api/observe
+	Icons           []IconDef                 `json:"icons"`   // avatar icon 网格的 lucide 子集（AvatarIcons）
 }
 
 // ObservedData is the GET /api/observe payload: the skills and MCP servers seen
@@ -72,6 +73,7 @@ func BuildStudioData(spec *types.AgentSpec, det *types.Detection, harnessLabel s
 		Spec:       spec,
 		Palette:    Palette,
 		Categories: Categories,
+		Icons:      AvatarIcons,
 		Harness:    harnessLabel,
 	}
 	if spec != nil {

@@ -152,7 +152,10 @@ func TestDeploy_EndToEnd_UpdateMode(t *testing.T) {
 	}
 }
 
-func TestDeploy_KolProfileRequired_RetriesAfterSetup(t *testing.T) {
+func TestDeploy_KolProfileRequired_GuidesToWeb(t *testing.T) {
+	// D 改造：KOL profile 归 askdao.ai 云端，不再在本地 CLI prompt bio / 自动 PATCH。
+	// 遇 409 kol_profile_required → 引导去 askdao.ai/workspace + exit 1，不 retry，
+	// 不调 /kol-profile（对齐 edit.go 的 studioDeployError）。
 	root := withWorkdir(t)
 	writeMinimalAgent(t, root, "test-agent")
 
@@ -160,33 +163,16 @@ func TestDeploy_KolProfileRequired_RetriesAfterSetup(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/cli/deploy":
-			n := atomic.AddInt32(&deployCalls, 1)
-			if n == 1 {
-				writeJSON(w, http.StatusConflict, map[string]interface{}{
-					"detail": map[string]interface{}{
-						"reason": "kol_profile_required",
-						"fields": []string{"kol_join_mode", "kol_bio"},
-						"hint":   "PATCH /api/v1/users/me/kol-profile with kol_join_mode='free'",
-					},
-				})
-				return
-			}
-			writeJSON(w, http.StatusOK, deploy.DeployResponse{
-				AgentID: "agt_after_setup", AnthropicAgentID: "agent_y", AnthropicEnvironmentID: "env_y",
-				GroupID: "grp_y", GroupLink: "https://askdao.ai/k/usr_2/g/grp_y",
-				TranslationReport: deploy.TranslationReport{Harness: "anthropic_managed_agents"},
+			atomic.AddInt32(&deployCalls, 1)
+			writeJSON(w, http.StatusConflict, map[string]interface{}{
+				"detail": map[string]interface{}{
+					"reason": "kol_profile_required",
+					"fields": []string{"kol_join_mode", "kol_bio"},
+					"hint":   "PATCH /api/v1/users/me/kol-profile with kol_join_mode='free'",
+				},
 			})
 		case "/api/v1/users/me/kol-profile":
 			atomic.AddInt32(&patchCalls, 1)
-			if r.Method != http.MethodPatch {
-				t.Errorf("kol-profile method = %s, want PATCH", r.Method)
-			}
-			var body deploy.KolProfilePatch
-			_ = json.NewDecoder(r.Body).Decode(&body)
-			if body.KolJoinMode != "free" || body.KolBio != "I build agents" {
-				t.Errorf("kol-profile body = %+v", body)
-			}
-			writeJSON(w, http.StatusOK, map[string]interface{}{"user_id": "usr_2", "is_kol": true, "kol_join_mode": "free"})
 		default:
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
@@ -197,21 +183,19 @@ func TestDeploy_KolProfileRequired_RetriesAfterSetup(t *testing.T) {
 
 	out, restore := captureStdout(t)
 	defer restore()
-	code := runDeploy(context.Background(), []string{"--dir", "test-agent", "--bio", "I build agents"})
+	code := runDeploy(context.Background(), []string{"--dir", "test-agent"})
 	got := out()
-	if code != 0 {
-		t.Fatalf("deploy exit = %d\n--- output ---\n%s", code, got)
+	if code != 1 {
+		t.Fatalf("deploy exit = %d, want 1\n--- output ---\n%s", code, got)
 	}
-	if deployCalls != 2 {
-		t.Errorf("deploy called %d times, want 2 (initial + retry)", deployCalls)
+	if deployCalls != 1 {
+		t.Errorf("deploy called %d times, want 1 (no retry)", deployCalls)
 	}
-	if patchCalls != 1 {
-		t.Errorf("kol-profile PATCH called %d times, want 1", patchCalls)
+	if patchCalls != 0 {
+		t.Errorf("kol-profile PATCH called %d times, want 0 (setup delegated to web)", patchCalls)
 	}
-	for _, want := range []string{"KOL profile", "Retrying deploy", "agt_after_setup"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("output missing %q\n--- output ---\n%s", want, got)
-		}
+	if !strings.Contains(got, "askdao.ai/workspace") {
+		t.Errorf("output should guide to askdao.ai/workspace\n--- output ---\n%s", got)
 	}
 }
 

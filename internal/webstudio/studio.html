@@ -94,6 +94,11 @@
   .seg label:has(input:checked) { border-color:var(--accent); color:var(--accent); background:var(--ivory); box-shadow:0 0 0 1px var(--accent); font-weight:600; }
 
   .swatches { display:flex; gap:12px; flex-wrap:wrap; }
+  .av-row { display:flex; gap:14px; align-items:flex-start; }
+  .av-preview { width:48px; height:48px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; background:#1b365d; }
+  .av-grid { display:grid; grid-template-columns:repeat(auto-fill,34px); gap:6px; max-height:160px; overflow-y:auto; flex:1; }
+  .av-cell { height:34px; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--line,#e5e5e5); border-radius:6px; background:#fff; cursor:pointer; color:var(--stone,#666); font-size:12px; padding:0; }
+  .av-cell.sel { border-color:var(--accent); background:var(--accent-soft); color:var(--accent); }
   .sw { width:38px; height:38px; border-radius:10px; cursor:pointer; border:2px solid transparent; position:relative; transition:transform .14s; }
   .sw:hover { transform:translateY(-2px); }
   .sw.sel::after { content:"✓"; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; font-size:15px; font-weight:700; text-shadow:0 1px 2px rgba(0,0,0,.35); }
@@ -245,7 +250,7 @@ function renderNav(){
   $('stepNav').innerHTML = STEPS.map((s,i)=>
     `<li data-i="${i}" onclick="go(${i})"><span class="dot">${i+1}</span><span class="st">Step ${i+1}</span><span class="lb">${s.label}</span></li>`).join('');
 }
-function renderPanels(){ $('panels').innerHTML = panelIdentity()+panelPersona()+panelSkills()+panelReview(); }
+function renderPanels(){ $('panels').innerHTML = panelIdentity()+panelPersona()+panelSkills()+panelReview(); renderIconGrid(); renderAvatar(); }
 
 /* Step 1 · Identity */
 function panelIdentity(){
@@ -261,6 +266,7 @@ function panelIdentity(){
     <p class="sub">Name it, describe what it's for, and give it a face.</p>
     <div class="card">
       <label class="f"><span>Agent name</span><input type="text" id="f_name" value="${esc(m.name)}"></label>
+      <label class="f"><span>Display name · what subscribers see (optional)</span><input type="text" id="f_display" value="${esc(m.display_name||'')}" placeholder="${esc(m.name)||'e.g. 投资军师'}"></label>
       <label class="f"><span>Description · what it does, who it's for</span>
         <textarea id="f_desc" class="desc" placeholder="e.g. A spelling tutor for grade-school homework — it spots errors, explains the rules, and gives practice exercises.">${esc(m.description)}</textarea></label>
       <label class="f"><span>Category</span><select id="f_cat">${cats}</select></label>
@@ -274,6 +280,14 @@ function panelIdentity(){
       <p class="card-head">Theme color</p>
       <p class="card-note">The brand color subscribers see on this agent's chat &amp; group page.</p>
       <div class="swatches">${sw}</div>
+    </div>
+    <div class="card">
+      <p class="card-head">Avatar</p>
+      <p class="card-note">A face for your agent — pick an icon (tinted with your theme color) or keep the initial.</p>
+      <div class="av-row">
+        <div id="avPreview" class="av-preview"></div>
+        <div id="avGrid" class="av-grid"></div>
+      </div>
     </div>
   </section>`;
 }
@@ -430,6 +444,7 @@ function fillReview(){
   const sw=`<span style="display:inline-block;width:13px;height:13px;border-radius:4px;vertical-align:-2px;margin:0 5px;background:${c}"></span>`;
   $('reviewSum').innerHTML = `
     <dt>Name</dt><dd>${esc(m.name)||'<span class="empty">unnamed</span>'}</dd>
+    <dt>Display name</dt><dd>${esc(m.display_name)||'<span class="empty">—</span>'}</dd>
     <dt>Description</dt><dd>${esc(m.description)||'<span class="empty">—</span>'}</dd>
     <dt>Category</dt><dd>${esc(m.category)||'—'}${sw}${esc(m.theme_color||'')}</dd>
     <dt>Visibility</dt><dd>${esc(m.visibility||'private')}</dd>
@@ -455,15 +470,47 @@ function pickTheme(tok){
   spec.metadata.theme_color = tok; applyAccent(tok);
   document.querySelectorAll('.swatches .sw').forEach(s=>s.classList.remove('sel'));
   if(event&&event.target) event.target.classList.add('sel');
+  renderAvatar();
 }
 function applyAccent(tok){
   const hex = palette[tok] || '#1b365d';
   document.documentElement.style.setProperty('--accent', hex);
   document.documentElement.style.setProperty('--accent-soft', hex+'22');
 }
+/* avatar: ""=initial / "icon:<name>"=lucide+theme_color circle. 颜色复用 theme_color. */
+function avatarInner(value){
+  const m=spec.metadata;
+  if(value && value.indexOf('icon:')===0){
+    const ic=(data.icons||[]).find(i=>i.name===value.slice(5));
+    if(ic) return `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:55%;height:55%">${ic.svg}</svg>`;
+  }
+  const nm=m.display_name||m.name||'·';
+  const ch=(nm.match(/\p{L}/u)||['·'])[0].toUpperCase();
+  return `<span style="color:#fff;font-weight:600;font-size:20px">${esc(ch)}</span>`;
+}
+function renderAvatar(){
+  const pv=$('avPreview'); if(!pv) return;
+  pv.style.background=palette[spec.metadata.theme_color]||'#1b365d';
+  pv.innerHTML=avatarInner(spec.metadata.avatar||'');
+}
+function pickAvatar(value){
+  spec.metadata.avatar=value;
+  document.querySelectorAll('#avGrid .av-cell').forEach(c=>c.classList.remove('sel'));
+  if(event&&event.currentTarget) event.currentTarget.classList.add('sel');
+  renderAvatar();
+}
+function renderIconGrid(){
+  const g=$('avGrid'); if(!g) return;
+  const cur=spec.metadata.avatar||'';
+  let h=`<button type="button" class="av-cell${cur===''?' sel':''}" title="Default (initial)" onclick="pickAvatar('')">Aa</button>`;
+  h+=(data.icons||[]).map(ic=>{const v='icon:'+ic.name;
+    return `<button type="button" class="av-cell${cur===v?' sel':''}" title="${esc(ic.name)}" onclick="pickAvatar('${v}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px">${ic.svg}</svg></button>`;}).join('');
+  g.innerHTML=h;
+}
 function collect(){
   const m=spec.metadata, p=spec.persona;
   if($('f_name')) m.name=$('f_name').value.trim();
+  if($('f_display')) m.display_name=$('f_display').value.trim();
   if($('f_desc')) m.description=$('f_desc').value.trim();
   if($('f_cat')) m.category=$('f_cat').value;
   if($('f_prompt')) p.system_prompt=$('f_prompt').value;

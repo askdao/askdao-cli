@@ -211,7 +211,7 @@ func writeBaseline(dir string, spec *types.AgentSpec, det *types.Detection) {
 func studioDeployError(derr error) error {
 	var kpr *deploy.ErrKolProfileRequired
 	if errors.As(derr, &kpr) {
-		return fmt.Errorf("your KOL profile isn't set up yet — complete it at https://askdao.ai, then deploy again")
+		return fmt.Errorf("your KOL profile isn't set up yet — complete it at https://askdao.ai/workspace, then deploy again")
 	}
 	var bw *deploy.ErrBlockingWarnings
 	if errors.As(derr, &bw) {
