@@ -184,3 +184,44 @@ func TestServeOnReady(t *testing.T) {
 		t.Fatal("OnReady did not fire within 5s")
 	}
 }
+
+func TestDefaultAvatarForCategory(t *testing.T) {
+	cases := map[string]string{
+		"education":  "icon:graduation-cap",
+		"finance":    "icon:trending-up",
+		"tech":       "icon:code",
+		"health":     "icon:heart-pulse",
+		"creative":   "icon:palette",
+		"design":     "icon:palette",
+		"business":   "icon:briefcase",
+		"data":       "icon:database",
+		"lifestyle":  "icon:leaf",
+		"  Finance ": "icon:trending-up", // trim + lowercase
+		"FINANCE":    "icon:trending-up",
+		"unknown":    "icon:bot", // fallback
+		"":           "icon:bot",
+	}
+	for cat, want := range cases {
+		if got := DefaultAvatarForCategory(cat); got != want {
+			t.Errorf("DefaultAvatarForCategory(%q) = %q, want %q", cat, got, want)
+		}
+	}
+}
+
+// TestCategoryDefaultIconsInWhitelist guards that every category default icon
+// (and the "bot" fallback) is a real lucide name in AvatarIcons — otherwise the
+// frontend can't render it. Prevents drift when editing categoryDefaultIcon.
+func TestCategoryDefaultIconsInWhitelist(t *testing.T) {
+	valid := map[string]bool{}
+	for _, ic := range AvatarIcons {
+		valid[ic.Name] = true
+	}
+	for cat, ic := range categoryDefaultIcon {
+		if !valid[ic] {
+			t.Errorf("categoryDefaultIcon[%q]=%q not in AvatarIcons whitelist", cat, ic)
+		}
+	}
+	if !valid["bot"] {
+		t.Error(`fallback icon "bot" not in AvatarIcons whitelist`)
+	}
+}

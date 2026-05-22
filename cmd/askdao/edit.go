@@ -51,9 +51,17 @@ func runEdit(ctx context.Context, args []string) int {
 		return code
 	}
 
-	// Default the theme palette token from the category when unset.
+	// Default the theme palette token + avatar icon from the category when unset.
+	// Deterministic backstop for the identity layer: the recommend LLM is asked
+	// to fill these, but cli guarantees a sensible non-empty avatar/theme so a
+	// deployed agent always renders with an icon + brand color (not a bare
+	// initial). display_name is intentionally NOT defaulted here — empty falls
+	// back to name in the frontend (display_name || name || agent_id).
 	if spec.Metadata.ThemeColor == "" {
 		spec.Metadata.ThemeColor = webstudio.DefaultThemeForCategory(spec.Metadata.Category)
+	}
+	if spec.Metadata.Avatar == "" {
+		spec.Metadata.Avatar = webstudio.DefaultAvatarForCategory(spec.Metadata.Category)
 	}
 
 	if *noUI {

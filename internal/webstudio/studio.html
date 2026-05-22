@@ -269,18 +269,18 @@ function panelIdentity(){
     <p class="sub">Name it, describe what it's for, and give it a face.</p>
     <div class="card">
       <label class="f"><span>Agent name</span><input type="text" id="f_name" value="${esc(m.name)}" placeholder="my-agent"><div class="field-err" id="err_name"></div></label>
-      <label class="f"><span>Display name · what subscribers see</span><input type="text" id="f_display" value="${esc(m.display_name||'')}" placeholder="${esc(m.name)||'e.g. 投资军师'}"><div class="field-err" id="err_display"></div></label>
-      <label class="f"><span>Description · what it does, who it's for</span>
+      <label class="f"><span>Display name · what subscribers see ${confBadge('display_name','display')}</span><input type="text" id="f_display" value="${esc(m.display_name||'')}" placeholder="${esc(m.name)||'e.g. 投资军师'}"><div class="field-err" id="err_display"></div></label>
+      <label class="f"><span>Description · what it does, who it's for ${confBadge('description','desc')}</span>
         <textarea id="f_desc" class="desc" placeholder="e.g. A spelling tutor for grade-school homework — it spots errors, explains the rules, and gives practice exercises.">${esc(m.description)}</textarea><div class="field-err" id="err_desc"></div></label>
-      <label class="f"><span>Category</span><select id="f_cat">${cats}</select></label>
+      <label class="f"><span>Category ${confBadge('category')}</span><select id="f_cat">${cats}</select></label>
     </div>
     <div class="card">
-      <p class="card-head">Theme color</p>
+      <p class="card-head">Theme color ${confBadge('theme_color','theme','color')}</p>
       <p class="card-note">The brand color subscribers see on this agent's chat &amp; group page.</p>
       <div class="swatches">${sw}</div>
     </div>
     <div class="card">
-      <p class="card-head">Avatar</p>
+      <p class="card-head">Avatar ${confBadge('avatar','icon')}</p>
       <p class="card-note">A face for your agent — pick an icon (tinted with your theme color) or keep the initial.</p>
       <div class="av-row">
         <div id="avPreview" class="av-preview"></div>

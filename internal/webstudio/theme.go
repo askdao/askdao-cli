@@ -60,3 +60,30 @@ func DefaultThemeForCategory(category string) string {
 	}
 	return "slate"
 }
+
+// categoryDefaultIcon maps a coarse agent category to its default lucide icon
+// name. Mirror of categoryDefault; every value MUST be in AvatarIcons (icons.go)
+// + conductor _AVATAR_ICON_WHITELIST so the frontend can render it.
+var categoryDefaultIcon = map[string]string{
+	"education": "graduation-cap",
+	"finance":   "trending-up",
+	"tech":      "code",
+	"health":    "heart-pulse",
+	"creative":  "palette",
+	"design":    "palette",
+	"business":  "briefcase",
+	"data":      "database",
+	"lifestyle": "leaf",
+}
+
+// DefaultAvatarForCategory returns the avatar token ("icon:<lucide-name>") to
+// default for a category, falling back to "icon:bot" for unknown/empty —— so a
+// deployed agent always has an icon avatar rather than a bare initial. Mirrors
+// DefaultThemeForCategory; cli-side deterministic backstop when the recommend
+// LLM omits avatar.
+func DefaultAvatarForCategory(category string) string {
+	if ic, ok := categoryDefaultIcon[strings.ToLower(strings.TrimSpace(category))]; ok {
+		return "icon:" + ic
+	}
+	return "icon:bot"
+}
