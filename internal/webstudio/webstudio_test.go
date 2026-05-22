@@ -91,6 +91,36 @@ func TestServerHandlers(t *testing.T) {
 	}
 }
 
+func TestDoneSavesSpec(t *testing.T) {
+	var savedSpec *types.AgentSpec
+	done := make(chan error, 1)
+	opts := Options{
+		Data:   &StudioData{Spec: &types.AgentSpec{Metadata: types.Metadata{Name: "x"}}},
+		OnSave: func(s *types.AgentSpec) error { savedSpec = s; return nil },
+	}
+	srv := httptest.NewServer(buildMux(opts, done))
+	defer srv.Close()
+
+	// Save & finish must persist edits (display_name/avatar) before exiting,
+	// otherwise deploy reads a stale yaml missing those fields.
+	body := `{"metadata":{"name":"y","display_name":"Y","avatar":"icon:star"}}`
+	r, err := http.Post(srv.URL+"/api/done", "application/json", bytes.NewBufferString(body))
+	if err != nil || r.StatusCode != 200 {
+		t.Fatalf("/api/done status=%v err=%v", r.StatusCode, err)
+	}
+	if savedSpec == nil {
+		t.Fatal("/api/done must call OnSave to persist edits")
+	}
+	if savedSpec.Metadata.DisplayName != "Y" || savedSpec.Metadata.Avatar != "icon:star" {
+		t.Errorf("/api/done dropped display_name/avatar: %+v", savedSpec.Metadata)
+	}
+	select {
+	case <-done:
+	default:
+		t.Errorf("/api/done should signal done")
+	}
+}
+
 func TestObserveEndpoint(t *testing.T) {
 	done := make(chan error, 1)
 	srv := httptest.NewServer(buildMux(Options{Data: &StudioData{}}, done))
