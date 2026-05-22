@@ -96,7 +96,7 @@
   .swatches { display:flex; gap:12px; flex-wrap:wrap; }
   .av-row { display:flex; gap:14px; align-items:flex-start; }
   .av-preview { width:48px; height:48px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; background:#1b365d; }
-  .av-grid { display:grid; grid-template-columns:repeat(auto-fill,34px); gap:6px; max-height:160px; overflow-y:auto; flex:1; }
+  .av-grid { display:grid; grid-template-columns:repeat(auto-fill,34px); gap:6px; flex:1; }
   .av-cell { height:34px; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--line,#e5e5e5); border-radius:6px; background:#fff; cursor:pointer; color:var(--stone,#666); font-size:12px; padding:0; }
   .av-cell.sel { border-color:var(--accent); background:var(--accent-soft); color:var(--accent); }
   .sw { width:38px; height:38px; border-radius:10px; cursor:pointer; border:2px solid transparent; position:relative; transition:transform .14s; }
@@ -174,8 +174,6 @@
   .btn:hover { border-color:var(--ring-warm); background:var(--parchment); }
   .btn.primary { background:var(--accent); border:1px solid var(--accent); color:#fff; }
   .btn.primary:hover { filter:brightness(.92); }
-  .btn.ghost { border-color:transparent; color:var(--charcoal); }
-  .btn.ghost:hover { background:var(--parchment); }
   button:disabled { opacity:.45; cursor:default; filter:none; }
   [hidden] { display:none !important; }
 
@@ -204,7 +202,7 @@
 
 <footer><div class="fbar">
   <span class="status" id="status"></span>
-  <button class="act btn ghost" id="btnSaveDraft" onclick="submit('/api/save')">Save draft</button>
+  <button class="act btn" id="btnSaveDraft" onclick="submit('/api/save')">Save draft</button>
   <button class="act btn" id="btnBack" onclick="go(step-1)">Back</button>
   <button class="act btn primary" id="btnNext" onclick="go(step+1)">Next</button>
   <button class="act btn primary" id="btnDeploy" hidden onclick="submit('/api/deploy')">Deploy agent</button>
@@ -272,11 +270,6 @@ function panelIdentity(){
       <label class="f"><span>Category</span><select id="f_cat">${cats}</select></label>
     </div>
     <div class="card">
-      <p class="card-head">Visibility ${confBadge('visibility','visible','access')}</p>
-      <p class="card-note">Who can find and use this agent once it's deployed.</p>
-      <div class="seg">${vis}</div>
-    </div>
-    <div class="card">
       <p class="card-head">Theme color</p>
       <p class="card-note">The brand color subscribers see on this agent's chat &amp; group page.</p>
       <div class="swatches">${sw}</div>
@@ -288,6 +281,11 @@ function panelIdentity(){
         <div id="avPreview" class="av-preview"></div>
         <div id="avGrid" class="av-grid"></div>
       </div>
+    </div>
+    <div class="card">
+      <p class="card-head">Visibility ${confBadge('visibility','visible','access')}</p>
+      <p class="card-note">Who can find and use this agent once it's deployed.</p>
+      <div class="seg">${vis}</div>
     </div>
   </section>`;
 }
