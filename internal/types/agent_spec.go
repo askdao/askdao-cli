@@ -76,9 +76,15 @@ type Metadata struct {
 	// CLI / conductor / askdao-ai-web share one token→color table so the
 	// subscriber Group page (/k/{kol}/g/{group}) renders the brand color. The KOL
 	// picks it in the web studio; it defaults from Category.
-	ThemeColor string            `json:"theme_color,omitempty" yaml:"theme_color,omitempty"`
-	GroupName  string            `json:"group_name,omitempty"  yaml:"group_name,omitempty"`
-	Labels     map[string]string `json:"labels,omitempty"      yaml:"labels,omitempty"`
+	ThemeColor string `json:"theme_color,omitempty" yaml:"theme_color,omitempty"`
+	// DisplayName / Avatar: 订阅者身份层（agent-bound 纯展示）。DisplayName 中文展示名，
+	// 与 Name（运行时标识 + dedup key）解耦，改它不动 dedup；Avatar 单 string 前缀
+	// （""=程序化默认 / "icon:<lucide-name>" / url，颜色复用 ThemeColor）。conductor
+	// 镜像 + /cli/deploy 双路径持久化，订阅者端 <AgentAvatar> 渲染。
+	DisplayName string            `json:"display_name,omitempty" yaml:"display_name,omitempty"`
+	Avatar      string            `json:"avatar,omitempty"       yaml:"avatar,omitempty"`
+	GroupName   string            `json:"group_name,omitempty"  yaml:"group_name,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"      yaml:"labels,omitempty"`
 }
 
 // Persona is the model + role semantic layer. ModelPreferences are tried in
