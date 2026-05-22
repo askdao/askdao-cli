@@ -3,9 +3,13 @@ package webstudio
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/askdao/askdao-cli/internal/types"
 )
@@ -84,5 +88,99 @@ func TestServerHandlers(t *testing.T) {
 	case <-done:
 	default:
 		t.Errorf("/api/deploy should signal done")
+	}
+}
+
+func TestObserveEndpoint(t *testing.T) {
+	done := make(chan error, 1)
+	srv := httptest.NewServer(buildMux(Options{Data: &StudioData{}}, done))
+	defer srv.Close()
+
+	post := func(body string) int {
+		r, err := http.Post(srv.URL+"/api/observe", "application/json", bytes.NewBufferString(body))
+		if err != nil {
+			t.Fatalf("POST /api/observe: %v", err)
+		}
+		r.Body.Close()
+		return r.StatusCode
+	}
+
+	cases := []string{
+		`{"tool_name":"Skill","tool_input":{"skill":"spelling-homework-generator"}}`,
+		`{"tool_name":"mcp__askdao-voice__elevenlabs_text_to_speech","tool_input":{}}`,
+		`{"tool_name":"mcp__askdao-voice__elevenlabs_search_voices","tool_input":{}}`, // same server -> deduped
+		`{"tool_name":"Skill","tool_input":{"name":"browse"}}`,                        // R2: fall back to name
+		`{"tool_name":"Bash","tool_input":{"command":"ls"}}`,                          // non-target -> ignored
+		`{"tool_name":"Skill","tool_input":{}}`,                                       // no name -> ignored
+		`not even json`,                                                               // garbage -> still 200
+	}
+	for _, c := range cases {
+		if code := post(c); code != 200 {
+			t.Errorf("POST must always 200 (non-blocking), got %d for %s", code, c)
+		}
+	}
+
+	r, _ := http.Get(srv.URL + "/api/observe")
+	var got ObservedData
+	_ = json.NewDecoder(r.Body).Decode(&got)
+	r.Body.Close()
+
+	if want := []string{"browse", "spelling-homework-generator"}; !reflect.DeepEqual(got.Skills, want) {
+		t.Errorf("skills = %v, want %v", got.Skills, want)
+	}
+	if want := []string{"askdao-voice"}; !reflect.DeepEqual(got.MCPServers, want) {
+		t.Errorf("mcp_servers = %v, want %v", got.MCPServers, want)
+	}
+}
+
+func TestObserveConcurrent(t *testing.T) {
+	done := make(chan error, 1)
+	srv := httptest.NewServer(buildMux(Options{Data: &StudioData{}}, done))
+	defer srv.Close()
+
+	const n = 50
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			body := fmt.Sprintf(`{"tool_name":"Skill","tool_input":{"skill":"skill-%d"}}`, i)
+			if r, err := http.Post(srv.URL+"/api/observe", "application/json", bytes.NewBufferString(body)); err == nil {
+				r.Body.Close()
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	r, _ := http.Get(srv.URL + "/api/observe")
+	var got ObservedData
+	_ = json.NewDecoder(r.Body).Decode(&got)
+	r.Body.Close()
+	if len(got.Skills) != n {
+		t.Errorf("concurrent POST: got %d skills, want %d", len(got.Skills), n)
+	}
+}
+
+// TestServeOnReady verifies OnReady fires with the bound port before Serve blocks.
+func TestServeOnReady(t *testing.T) {
+	gotPort := make(chan int, 1)
+	go func() {
+		_ = Serve(Options{
+			Data:      &StudioData{},
+			NoBrowser: true,
+			OnReady:   func(port int) { gotPort <- port },
+		})
+	}()
+	select {
+	case port := <-gotPort:
+		if port <= 0 {
+			t.Errorf("OnReady port = %d, want > 0", port)
+		}
+		// Unblock the backgrounded Serve so it shuts down cleanly.
+		if r, err := http.Post(fmt.Sprintf("http://127.0.0.1:%d/api/done", port), "application/json", nil); err == nil {
+			r.Body.Close()
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnReady did not fire within 5s")
 	}
 }

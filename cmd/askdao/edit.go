@@ -1,11 +1,11 @@
 // [INPUT]: internal/pipeline（Run）+ internal/webstudio（Serve / BuildStudioData / DefaultThemeForCategory）
 //
-//   - internal/deploy（DeployResponse / Err* 类型）+ internal/types（AgentSpec / Detection）+ yaml；
+//   - internal/deploy（DeployResponse / Err* 类型）+ internal/observe（Install / SweepStale）+ internal/types（AgentSpec / Detection）+ yaml；
 //     复用同包 helper：chooseLLMClient / readSpec / resolveServerAndToken / deployFromDir / ensureAskdaoDir /
 //     defaultAgentName / askdaoAgentFileName / askdaoDirName
 //
 // [OUTPUT]: runEdit — `askdao agent edit` 命令实装
-// [POS]: cmd/askdao 的核心命令 —— 扫描/加载 → 本地 Web 工作台审阅编辑 → 一站式发布；取代旧的 init/show CLI 审阅
+// [POS]: cmd/askdao 的核心命令 —— 扫描/加载 → 本地 Web 工作台审阅编辑（--observe 观测真实 session 预勾真正用到的 skill/MCP）→ 一站式发布；取代旧的 init/show CLI 审阅
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package main
 
@@ -21,21 +21,25 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/askdao/askdao-cli/internal/deploy"
+	"github.com/askdao/askdao-cli/internal/observe"
 	"github.com/askdao/askdao-cli/internal/pipeline"
 	"github.com/askdao/askdao-cli/internal/types"
 	"github.com/askdao/askdao-cli/internal/webstudio"
 )
 
-// runEdit implements `askdao agent edit [--dir path] [--harness id] [--no-ui] [--force]`.
+// runEdit implements `askdao agent edit [--dir path] [--harness id] [--no-ui] [--force] [--observe]`.
 // It loads an existing askdao-agent.yml (or scans + generates a draft when
 // absent), opens the local web studio for review/edit/skill-selection, and lets
 // the KOL Save or one-stop Deploy. --no-ui writes a draft and exits (CI/headless).
+// --observe arms temporary Claude Code hooks so the studio pre-selects the
+// skills/MCP a real claude session actually activates.
 func runEdit(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("edit", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "KOL project root containing (or to hold) askdao-agent.yml")
 	harness := fs.String("harness", "", "Override preferred_harness (anthropic_managed_agents | ...)")
 	noUI := fs.Bool("no-ui", false, "Skip the browser; scan and write a draft only (CI/headless)")
 	force := fs.Bool("force", false, "Deploy despite HIGH-severity translation warnings")
+	observeMode := fs.Bool("observe", false, "Arm temporary hooks to pre-select skills/MCP a real claude session uses")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -62,8 +66,41 @@ func runEdit(ctx context.Context, args []string) int {
 		return 0
 	}
 
+	data := webstudio.BuildStudioData(spec, det, "Anthropic Managed Agents")
+	data.Observe = *observeMode
+
+	// --observe arms temporary hooks bound to the studio port (set in OnReady, once
+	// the port is known) and tears them down on the way out. SweepStale first clears
+	// anything a previously-killed run left behind; defer cleanup handles the normal
+	// exit. A Ctrl-C'd process is caught by the next run's SweepStale (spike R6).
+	var observeCleanup func() error
+	if *observeMode {
+		if err := observe.SweepStale(*dir); err != nil {
+			fmt.Fprintln(os.Stderr, "edit: observe sweep:", err)
+		}
+		defer func() {
+			if observeCleanup != nil {
+				if err := observeCleanup(); err != nil {
+					fmt.Fprintln(os.Stderr, "edit: observe cleanup:", err)
+				}
+			}
+		}()
+	}
+
 	err := webstudio.Serve(webstudio.Options{
-		Data: webstudio.BuildStudioData(spec, det, "Anthropic Managed Agents"),
+		Data: data,
+		OnReady: func(port int) {
+			if !*observeMode {
+				return
+			}
+			cleanup, err := observe.Install(*dir, port)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "edit: observe install:", err)
+				return
+			}
+			observeCleanup = cleanup
+			printObserveGuide(*dir)
+		},
 		OnSave: func(edited *types.AgentSpec) error {
 			return writeAgentSpec(*dir, edited)
 		},
@@ -83,6 +120,20 @@ func runEdit(ctx context.Context, args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// printObserveGuide tells the KOL to drive a real claude session in a second
+// terminal so the studio can pre-select the skills/MCP actually activated.
+func printObserveGuide(dir string) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		abs = dir
+	}
+	fmt.Println("\n● Observe mode — temporary PreToolUse hooks are armed.")
+	fmt.Println("  In a SECOND terminal, run a representative scenario in this project:")
+	fmt.Printf("      cd %s && claude\n", abs)
+	fmt.Println("  Skills / MCP servers light up in the studio as they activate.")
+	fmt.Println("  Hooks are removed automatically when you Deploy / finish / Ctrl-C.")
 }
 
 // loadOrScan returns the spec to edit plus the detection backing the studio's
