@@ -20,5 +20,6 @@
 - **风格对齐 askdao-ai-web**：复制 Kami Design System 的 token（color/font/radius/shadow/spacing），与主 web 应用一脉相承（哥要求）；非独立创意美学。设计来源见 `askdao-ai-web/src/config/style/theme.css`。
 - **scope 分组 + 默认勾选**：见 api.go —— user(全局)skill 默认不勾，避免 KOL 全局 skill 库被自动打包进每个 agent。
 - **observe 是叠加层不是唯一真相**：`--observe` 观测到的项只做证据高亮 + 一键收窄建议，默认全勾保持为安全网；`observed` 是 server 运行时状态（非 `BuildStudioData` 静态快照），前端轮询叠加。临时 hook settings 的写入/合并/清理（零残留三件套）在 [../observe/CLAUDE.md](../observe/CLAUDE.md)；cmd 经 `OnReady(port)` 串联两者。
+- **输入校验**（`validateStep`/`validateAll`/`showErrors`/`clearErrors`）：必填 = name + model_class（后端 required）+ display_name + description + system_prompt + vault secret name（产品要求）；name slug 格式 `^[a-z0-9]+(-[a-z0-9]+)*$`（≤64）。**Next 翻页拦当前 step + Deploy/finish 全量拦并跳第一个错误 step**；Save draft 宽松（仅 name 非空）。字段下 `.field-err` 红字 + 输入 `.invalid` 红框。镜像 conductor 校验契约；受控选择器（visibility/model radio、theme/avatar/category picker）天然合法不校验。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

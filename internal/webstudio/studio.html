@@ -86,6 +86,9 @@
   textarea.prompt { min-height:200px; resize:vertical; font-family:var(--mono); font-size:13px; line-height:1.6; }
   input:focus, textarea:focus, select:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
   input::placeholder, textarea::placeholder { color:var(--silver); }
+  .invalid, .invalid:focus { border-color:var(--err) !important; box-shadow:0 0 0 3px var(--err-bg) !important; }
+  .field-err { color:var(--err); font-family:var(--sans); font-size:12px; line-height:1.4; margin-top:6px; }
+  .field-err:empty { display:none; }
 
   .seg { display:flex; gap:8px; flex-wrap:wrap; }
   .seg label { flex:1; min-width:90px; text-align:center; font-family:var(--sans); font-size:13px; color:var(--olive);
@@ -265,10 +268,10 @@ function panelIdentity(){
     <h2>Give your agent an identity</h2>
     <p class="sub">Name it, describe what it's for, and give it a face.</p>
     <div class="card">
-      <label class="f"><span>Agent name</span><input type="text" id="f_name" value="${esc(m.name)}"></label>
-      <label class="f"><span>Display name · what subscribers see (optional)</span><input type="text" id="f_display" value="${esc(m.display_name||'')}" placeholder="${esc(m.name)||'e.g. 投资军师'}"></label>
+      <label class="f"><span>Agent name</span><input type="text" id="f_name" value="${esc(m.name)}" placeholder="my-agent"><div class="field-err" id="err_name"></div></label>
+      <label class="f"><span>Display name · what subscribers see</span><input type="text" id="f_display" value="${esc(m.display_name||'')}" placeholder="${esc(m.name)||'e.g. 投资军师'}"><div class="field-err" id="err_display"></div></label>
       <label class="f"><span>Description · what it does, who it's for</span>
-        <textarea id="f_desc" class="desc" placeholder="e.g. A spelling tutor for grade-school homework — it spots errors, explains the rules, and gives practice exercises.">${esc(m.description)}</textarea></label>
+        <textarea id="f_desc" class="desc" placeholder="e.g. A spelling tutor for grade-school homework — it spots errors, explains the rules, and gives practice exercises.">${esc(m.description)}</textarea><div class="field-err" id="err_desc"></div></label>
       <label class="f"><span>Category</span><select id="f_cat">${cats}</select></label>
     </div>
     <div class="card">
@@ -301,9 +304,9 @@ function panelPersona(){
     <p class="eyebrow">Step 2 of 4 · Persona</p>
     <h2>Shape its voice</h2>
     <p class="sub">Pick the model class and write the system prompt that defines its behaviour.</p>
-    <div class="card"><label class="f"><span>Model class ${confBadge('model')}</span><div class="seg">${classes}</div></label></div>
+    <div class="card"><label class="f"><span>Model class ${confBadge('model')}</span><div class="seg">${classes}</div><div class="field-err" id="err_model"></div></label></div>
     <div class="card"><label class="f"><span>System prompt ${confBadge('persona','system','prompt')}</span>
-      <textarea id="f_prompt" class="prompt" placeholder="You are a …">${esc(p.system_prompt)}</textarea></label></div>
+      <textarea id="f_prompt" class="prompt" placeholder="You are a …">${esc(p.system_prompt)}</textarea><div class="field-err" id="err_prompt"></div></label></div>
   </section>`;
 }
 
@@ -417,7 +420,7 @@ function vaultPaneHTML(){
        <button type="button" class="vdel" title="remove" onclick="delVault(${i})">×</button>
      </div>`).join('')
     : '<p class="empty">No credentials declared. Add one if this agent needs API keys or secrets from its subscribers.</p>';
-  return `<p class="card-note">Credentials each subscriber provides during onboarding — declare what's needed; values are never entered or stored here.</p>${rows}<button type="button" class="addv" onclick="addVault()">+ Add credential</button>`;
+  return `<p class="card-note">Credentials each subscriber provides during onboarding — declare what's needed; values are never entered or stored here.</p><div class="field-err" id="err_vault"></div>${rows}<button type="button" class="addv" onclick="addVault()">+ Add credential</button>`;
 }
 function syncVault(){ vault.forEach((c,i)=>{ if($('v-name-'+i)){ c.name=$('v-name-'+i).value.trim(); c.purpose=$('v-purpose-'+i).value.trim(); c.required=$('v-req-'+i).checked; } }); }
 function refreshVaultPane(){ const p=document.querySelector('[data-pane="vault"] .card'); if(p) p.innerHTML=vaultPaneHTML(); if($('vaultCnt')) $('vaultCnt').textContent=vault.length; }
@@ -461,10 +464,62 @@ function fillReview(){
     <dt>Secrets (${secretNames.length})</dt><dd class="chips">${chips(secretNames,true)}</dd>`;
 }
 
+/* validation — required fields + slug name format; gates Next + Deploy. Draft stays
+   lenient (name only). Mirrors conductor's required set (name/model_class) plus the
+   product-required fields (display_name/description/system_prompt/secret name). */
+const NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const FIELD_INPUT = {name:'f_name', display:'f_display', desc:'f_desc', prompt:'f_prompt'};
+function validateStep(n){
+  collect();
+  const m=spec.metadata, p=spec.persona, errs=[];
+  if(n===0){
+    const name=(m.name||'').trim();
+    if(!name) errs.push({id:'name', msg:'Agent name is required'});
+    else if(!NAME_RE.test(name)) errs.push({id:'name', msg:'Use lowercase letters, numbers and hyphens, e.g. my-agent'});
+    else if(name.length>64) errs.push({id:'name', msg:'Keep the name under 64 characters'});
+    if(!(m.display_name||'').trim()) errs.push({id:'display', msg:'Display name is required'});
+    if(!(m.description||'').trim()) errs.push({id:'desc', msg:'Description is required'});
+  } else if(n===1){
+    if(!(p.model_class||'').trim()) errs.push({id:'model', msg:'Pick a model class'});
+    if(!(p.system_prompt||'').trim()) errs.push({id:'prompt', msg:'System prompt is required'});
+  } else if(n===2){
+    syncVault();
+    vault.forEach((c,i)=>{ if(!(c.name||'').trim() && (c.purpose||'').trim()) errs.push({id:'v-name-'+i, vault:true}); });
+  }
+  return errs;
+}
+function validateAll(){
+  for(let n=0;n<3;n++){ const e=validateStep(n); if(e.length) return {step:n, errs:e}; }
+  return null;
+}
+function clearErrors(){
+  document.querySelectorAll('.field-err').forEach(e=>e.textContent='');
+  document.querySelectorAll('.invalid').forEach(e=>e.classList.remove('invalid'));
+}
+function showErrors(errs){
+  clearErrors();
+  let first=null, vaultErr=false;
+  errs.forEach(e=>{
+    if(e.vault){ vaultErr=true; const inp=$(e.id); if(inp){ inp.classList.add('invalid'); if(!first) first=inp; } return; }
+    const box=$('err_'+e.id); if(box) box.textContent=e.msg;
+    const inp=FIELD_INPUT[e.id]&&$(FIELD_INPUT[e.id]);
+    if(inp){ inp.classList.add('invalid'); if(!first) first=inp; }
+    else if(box && !first) first=box;
+  });
+  if(vaultErr){
+    const vb=$('err_vault'); if(vb) vb.textContent='Every secret needs a name (or remove the empty row)';
+    const sb=document.querySelectorAll('.tab')[2]; if(sb) switchTab('vault', sb);
+  }
+  setStatus('✗ Please fix the highlighted fields');
+  if(first) first.scrollIntoView({block:'center', behavior:'smooth'});
+}
+
 /* navigation */
 function go(n){
   if(n<0||n>=STEPS.length) return;
   collect();
+  if(n>step){ const errs=validateStep(step); if(errs.length){ showErrors(errs); return; } }
+  clearErrors();
   step = n;
   document.querySelectorAll('.panel').forEach(p=>{const on=+p.dataset.step===n; p.classList.toggle('show',on); p.hidden=!on;});
   document.querySelectorAll('.step-nav li').forEach((li,i)=>{li.classList.toggle('active',i===n); li.classList.toggle('done',i<n);});
@@ -537,7 +592,16 @@ function collect(){
 }
 let busy=false;
 async function submit(path){
-  if(busy) return; busy=true; setStatus('Working…');
+  if(busy) return;
+  collect();
+  if(path==='/api/save'){
+    // draft stays lenient: only name (file + dedup key) must be present
+    if(!(spec.metadata.name||'').trim()){ if(step!==0) go(0); showErrors([{id:'name', msg:'Agent name is required, even for a draft'}]); return; }
+  } else {
+    const bad=validateAll();
+    if(bad){ if(step!==bad.step) go(bad.step); showErrors(bad.errs); return; }
+  }
+  busy=true; setStatus('Working…');
   ['btnSaveDraft','btnBack','btnNext','btnDeploy','btnDone'].forEach(b=>$(b).disabled=true);
   try{
     const r=await fetch(path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(collect())});
