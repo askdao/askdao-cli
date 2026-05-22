@@ -10,17 +10,16 @@ import (
 	"github.com/askdao/askdao-cli/internal/types"
 )
 
-// mcpConfigSources are the well-known MCP config files we probe in priority
-// order. Each `host` is the runtime that originally writes it; we record the
-// source path verbatim so KOLs can trace which file fed the recommendation.
+// mcpConfigSources are the project-scope MCP config files we probe. User-scope
+// configs (Claude Code's ~/.claude.json, Cowork's claude_desktop_config.json)
+// are added separately via activeHarnesses. We record the source path verbatim
+// so KOLs can trace which file fed the recommendation.
 var mcpConfigSources = []string{
 	".mcp.json",
-	".cursor/mcp.json",
-	"claude_desktop_config.json",
 }
 
-// mcpFile mirrors the canonical `mcpServers` map shape that all three known
-// hosts (Claude Code, Claude Desktop, Cursor) share.
+// mcpFile mirrors the canonical `mcpServers` map shape shared by the project
+// .mcp.json and the user-scope configs (Claude Code, Cowork/Claude Desktop).
 type mcpFile struct {
 	MCPServers map[string]mcpServer `json:"mcpServers"`
 }
@@ -59,9 +58,9 @@ func DetectMCPConfigs(root string, opts ScanScopeOpts) ([]types.DetectedMCPConfi
 
 	// User scope — global MCP config, gated by the project's harness markers.
 	if opts.HomeDir != "" {
-		for _, h := range activeHarnesses(root) {
-			for _, rel := range h.userMCPFiles {
-				path := filepath.Join(opts.HomeDir, rel)
+		for _, h := range activeHarnesses(root, opts.HomeDir) {
+			for _, p := range h.userMCPFiles {
+				path := p.resolve(opts.HomeDir)
 				cfg, err := readMCPConfig(path, path, "user", h.name)
 				if err != nil {
 					return nil, err

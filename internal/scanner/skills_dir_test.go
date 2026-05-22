@@ -107,6 +107,29 @@ func TestDetectSkills_UserScopeGatedByMarker(t *testing.T) {
 	}
 }
 
+func TestDetectSkills_CodexUserScope(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	// .codex/ marker activates Codex user-scope discovery.
+	mustWrite(t, filepath.Join(root, ".codex", "config.toml"), "x")
+	// Codex global skills live at ~/.agents/skills (official path).
+	mustWrite(t, filepath.Join(home, ".agents", "skills", "codex-skill", "SKILL.md"), "# codex\n")
+
+	got, err := DetectSkills(root, nil, ScanScopeOpts{HomeDir: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var user *types.DetectedSkill
+	for i := range got {
+		if got[i].SkillName == "codex-skill" {
+			user = &got[i]
+		}
+	}
+	if user == nil || user.Scope != "user" || user.Harness != "codex" {
+		t.Errorf("codex-skill: want scope=user harness=codex, got %+v", user)
+	}
+}
+
 func TestDetectSkills_UserScopeSkippedWithoutMarker(t *testing.T) {
 	root := t.TempDir() // no .claude/ marker
 	home := t.TempDir()

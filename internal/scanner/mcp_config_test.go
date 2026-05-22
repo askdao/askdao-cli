@@ -123,3 +123,32 @@ func TestDetectMCPConfigs_UserScope(t *testing.T) {
 		t.Errorf("expected user-scope claude MCP 'global-mcp', got %+v", got)
 	}
 }
+
+func TestDetectMCPConfigs_CoworkUserScope(t *testing.T) {
+	root := t.TempDir() // Cowork is markerless — no project marker required.
+	home := t.TempDir()
+	// Force home-fallback so appDataDir is deterministic across CI OSes.
+	t.Setenv("APPDATA", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	// Cowork's MCP lives in claude_desktop_config.json under the app-data dir.
+	cfgPath := filepath.Join(appDataDir(home), "Claude", "claude_desktop_config.json")
+	mustWrite(t, cfgPath, `{"mcpServers":{"cowork-mcp":{"type":"url","url":"https://y"}}}`)
+
+	got, err := DetectMCPConfigs(root, ScanScopeOpts{HomeDir: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, cfg := range got {
+		if cfg.Scope == "user" && cfg.Harness == "cowork" {
+			for _, s := range cfg.Servers {
+				if s.Name == "cowork-mcp" {
+					found = true
+				}
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected user-scope cowork MCP 'cowork-mcp', got %+v", got)
+	}
+}

@@ -30,7 +30,6 @@ import (
 var SkillDirCandidates = []string{
 	".claude/skills",
 	".agents/skills",
-	".cursor/skills",
 	"skills",
 	"agents/skills",
 }
@@ -94,9 +93,9 @@ func DetectSkills(root string, pkgs map[string][]types.Package, opts ScanScopeOp
 	// Source is absolute so deploy can locate user-scope skill dirs; lock is nil
 	// (the project skills-lock.json does not govern global skills).
 	if opts.HomeDir != "" {
-		for _, h := range activeHarnesses(root) {
-			for _, rel := range h.userSkillDirs {
-				base := filepath.Join(opts.HomeDir, rel)
+		for _, h := range activeHarnesses(root, opts.HomeDir) {
+			for _, p := range h.userSkillDirs {
+				base := p.resolve(opts.HomeDir)
 				skills, err := scanSkillBase(base, base, "user", h.name, nil)
 				if err != nil {
 					return nil, err
