@@ -160,11 +160,13 @@
   .addv:hover { border-color:var(--accent); background:var(--accent-soft); }
 
   .sum { display:grid; grid-template-columns:130px 1fr; gap:10px 16px; font-size:14px; align-items:start; }
-  .sum dt { font-family:var(--sans); font-size:12px; color:var(--olive); padding-top:2px; }
+  .sum dt { font-family:var(--sans); font-size:12px; font-weight:600; color:var(--charcoal); padding-top:2px; }
   .sum dd { margin:0; color:var(--near-black); }
   .sum dd.chips { display:flex; flex-wrap:wrap; gap:6px; }
   .rtag { display:inline-block; font-family:var(--sans); font-size:12px; padding:2px 9px; border-radius:6px; background:var(--accent-soft); color:var(--accent); }
   .rtag.mono { font-family:var(--mono); font-size:11.5px; }
+  .rev-av-corner { position:absolute; top:16px; right:16px; width:52px; height:52px; border-radius:50%; display:flex; align-items:center; justify-content:center; }
+  .rev-prompt { font-family:var(--mono); font-size:12px; line-height:1.55; color:var(--charcoal); background:var(--parchment); border:1px solid var(--border-cream); border-radius:8px; padding:10px 12px; max-height:170px; overflow-y:auto; white-space:pre-wrap; }
 
   footer { background:var(--ivory); border-top:1px solid var(--border-cream); flex-shrink:0; }
   .fbar { max-width:var(--wrap); margin:0 auto; padding:14px 28px; display:flex; align-items:center; gap:12px; }
@@ -428,7 +430,10 @@ function panelReview(){
     <p class="eyebrow">Step 4 of 4 · Review &amp; Deploy</p>
     <h2>Review and ship</h2>
     <p class="sub">Confirm everything, then deploy or save as a draft.</p>
-    <div class="card"><dl class="sum" id="reviewSum"></dl></div>
+    <div class="card" style="position:relative">
+      <div id="reviewAvatar" class="rev-av-corner"></div>
+      <dl class="sum" id="reviewSum"></dl>
+    </div>
   </section>`;
 }
 function fillReview(){
@@ -439,14 +444,18 @@ function fillReview(){
   const secretNames=vault.filter(c=>c.name).map(c=>c.name);
   const chips=(arr,mono)=> arr.length ? arr.map(n=>`<span class="rtag${mono?' mono':''}">${esc(n)}</span>`).join('') : '<span class="empty">none</span>';
   const c=palette[m.theme_color]||'#1b365d';
-  const sw=`<span style="display:inline-block;width:13px;height:13px;border-radius:4px;vertical-align:-2px;margin:0 5px;background:${c}"></span>`;
+  const sp=(spec.persona.system_prompt||'').trim();
+  const spHTML=sp?`<div class="rev-prompt">${esc(sp)}</div>`:'<span class="empty">—</span>';
+  const av=$('reviewAvatar');
+  if(av){ av.style.background=c; av.innerHTML=avatarInner(m.avatar||''); }
   $('reviewSum').innerHTML = `
     <dt>Name</dt><dd>${esc(m.name)||'<span class="empty">unnamed</span>'}</dd>
     <dt>Display name</dt><dd>${esc(m.display_name)||'<span class="empty">—</span>'}</dd>
     <dt>Description</dt><dd>${esc(m.description)||'<span class="empty">—</span>'}</dd>
-    <dt>Category</dt><dd>${esc(m.category)||'—'}${sw}${esc(m.theme_color||'')}</dd>
+    <dt>Category</dt><dd>${esc(m.category)||'—'}</dd>
     <dt>Visibility</dt><dd>${esc(m.visibility||'private')}</dd>
     <dt>Model</dt><dd>${esc(spec.persona.model_class||'balanced')}</dd>
+    <dt>System prompt</dt><dd>${spHTML}</dd>
     <dt>Skills (${skillNames.length})</dt><dd class="chips">${chips(skillNames)}</dd>
     <dt>MCP servers (${mcpNames.length})</dt><dd class="chips">${chips(mcpNames)}</dd>
     <dt>Secrets (${secretNames.length})</dt><dd class="chips">${chips(secretNames,true)}</dd>`;
