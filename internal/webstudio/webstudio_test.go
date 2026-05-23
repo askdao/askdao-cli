@@ -28,7 +28,7 @@ func TestBuildStudioData_DefaultSelection(t *testing.T) {
 			}},
 		},
 	}
-	d := BuildStudioData(&types.AgentSpec{Metadata: types.Metadata{Name: "x"}}, det, "Anthropic Managed Agents")
+	d := BuildStudioData(&types.AgentSpec{Metadata: types.Metadata{Name: "x"}}, det, "Anthropic Managed Agents", false)
 
 	wantSkill := map[string]bool{"proj-a": true, "glob-b": false, "xlsx": true}
 	seen := map[string]bool{}
@@ -49,6 +49,51 @@ func TestBuildStudioData_DefaultSelection(t *testing.T) {
 		}
 		if c.Name == "stdio-srv" && c.Checked {
 			t.Errorf("stdio MCP should default unchecked")
+		}
+	}
+}
+
+// TestBuildStudioData_RestorePrior guards issue #1: re-editing an existing yaml
+// must tick exactly what the spec declares — not the default policy. The fixture
+// inverts every default so a bug (ignoring the spec) can't pass by coincidence.
+func TestBuildStudioData_RestorePrior(t *testing.T) {
+	det := &types.Detection{
+		DetectedSkills: []types.DetectedSkill{
+			{SkillName: "proj-a", Source: ".claude/skills/proj-a/SKILL.md", Scope: "project", Harness: "claude", IsLocalOriginal: true},
+			{SkillName: "glob-b", Source: "/home/u/.claude/skills/glob-b/SKILL.md", Scope: "user", Harness: "claude", IsLocalOriginal: true},
+			{ImpliedAnthropicSkills: []types.ImpliedAnthropicSkill{{SkillID: "xlsx"}}},
+		},
+		DetectedMCPConfigs: []types.DetectedMCPConfig{
+			{Source: ".mcp.json", Scope: "project", Servers: []types.MCPServerConfig{
+				{Name: "url-srv", Type: "url", AnthropicCompatible: true},
+				{Name: "stdio-srv", Type: "stdio", AnthropicCompatible: false},
+			}},
+		},
+	}
+	// Prior selection inverts every default: a user skill + a stdio MCP are ticked
+	// (default would drop both), while the default-on project skill / builtin /
+	// compatible MCP are absent (default would tick all three).
+	spec := &types.AgentSpec{
+		Metadata: types.Metadata{Name: "x"},
+		Skills: []types.Skill{
+			{Type: "custom_local", Path: "/home/u/.claude/skills/glob-b", Scope: "user"},
+		},
+		MCPServers: []types.MCPServer{
+			{Name: "stdio-srv", Type: "stdio"},
+		},
+	}
+	d := BuildStudioData(spec, det, "Anthropic Managed Agents", true)
+
+	wantSkill := map[string]bool{"proj-a": false, "glob-b": true, "xlsx": false}
+	for _, c := range d.SkillCandidates {
+		if w, ok := wantSkill[c.Name]; ok && c.Checked != w {
+			t.Errorf("restore: skill %q checked=%v want %v", c.Name, c.Checked, w)
+		}
+	}
+	wantMCP := map[string]bool{"url-srv": false, "stdio-srv": true}
+	for _, c := range d.MCPCandidates {
+		if w, ok := wantMCP[c.Name]; ok && c.Checked != w {
+			t.Errorf("restore: mcp %q checked=%v want %v", c.Name, c.Checked, w)
 		}
 	}
 }

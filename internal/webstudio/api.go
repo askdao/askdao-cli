@@ -2,7 +2,8 @@
 // [OUTPUT]: 对外提供 StudioData / SkillCandidate / MCPCandidate / ObservedData / BuildStudioData
 // [POS]: webstudio 的数据契约层 —— 把 pipeline 产物（spec 草稿 + detection 候选）摊平成前端 JSON；
 //
-//	默认勾选策略（project 全勾 / user opt-in / 仅兼容 MCP 默认勾）在此实现
+//	restorePrior=true（编辑已有 yaml）时勾选态以 spec.skills/mcp_servers 为唯一真相；
+//	否则（全新草稿）用默认策略（project 全勾 / user opt-in / 仅兼容 MCP 默认勾）
 //
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package webstudio
@@ -76,9 +77,16 @@ type MCPCandidate struct {
 }
 
 // BuildStudioData flattens the spec draft + detection into the studio payload.
-// Default selection: project-scope skills on, user-scope (global) skills off
-// (opt-in), implied builtins on, Anthropic-compatible MCP on / incompatible off.
-func BuildStudioData(spec *types.AgentSpec, det *types.Detection, harnessLabel string) *StudioData {
+//
+// restorePrior selects how the candidate tick-state is decided:
+//   - true (editing an existing askdao-agent.yml): the KOL's prior selection is
+//     the single source of truth — tick exactly what spec.skills/mcp_servers
+//     declares, nothing else. This is what makes a re-edit faithfully reflect the
+//     saved yaml (e.g. a stdio MCP the default policy would otherwise drop).
+//   - false (a fresh draft): no authoritative selection exists yet, so apply the
+//     default policy — project-scope skills on, user-scope (global) skills off
+//     (opt-in), implied builtins on, Anthropic-compatible MCP on / incompatible off.
+func BuildStudioData(spec *types.AgentSpec, det *types.Detection, harnessLabel string, restorePrior bool) *StudioData {
 	d := &StudioData{
 		Spec:       spec,
 		Palette:    Palette,
@@ -96,14 +104,38 @@ func BuildStudioData(spec *types.AgentSpec, det *types.Detection, harnessLabel s
 		return d
 	}
 
+	// Prior-selection lookup tables. Non-nil only in restore mode; the keys mirror
+	// how collect() (studio.html) serializes a ticked candidate back into the spec:
+	// builtin→id, custom_local→path, mcp→name.
+	var priorSkills, priorMCP map[string]bool
+	if restorePrior && spec != nil {
+		priorSkills = make(map[string]bool, len(spec.Skills))
+		for _, s := range spec.Skills {
+			switch s.Type {
+			case "builtin":
+				priorSkills["builtin:"+s.ID] = true
+			case "custom_local":
+				priorSkills["local:"+filepath.ToSlash(s.Path)] = true
+			}
+		}
+		priorMCP = make(map[string]bool, len(spec.MCPServers))
+		for _, m := range spec.MCPServers {
+			priorMCP[m.Name] = true
+		}
+	}
+
 	for _, s := range det.DetectedSkills {
 		if s.SkillName == "" { // implied-builtin placeholder
 			for _, b := range s.ImpliedAnthropicSkills {
+				checked := true // default: implied builtins on
+				if priorSkills != nil {
+					checked = priorSkills["builtin:"+b.SkillID]
+				}
 				d.SkillCandidates = append(d.SkillCandidates, SkillCandidate{
 					Name:      b.SkillID,
 					Builtin:   true,
 					BuiltinID: b.SkillID,
-					Checked:   true,
+					Checked:   checked,
 				})
 			}
 			continue
@@ -119,14 +151,19 @@ func BuildStudioData(spec *types.AgentSpec, det *types.Detection, harnessLabel s
 				origin = "vendored: " + s.LockedSource
 			}
 		}
+		path := filepath.ToSlash(filepath.Dir(s.Source))
+		checked := scope != "user" // default: project on, user opt-in
+		if priorSkills != nil {
+			checked = priorSkills["local:"+path]
+		}
 		d.SkillCandidates = append(d.SkillCandidates, SkillCandidate{
 			Name:        s.SkillName,
 			Scope:       scope,
 			Harness:     s.Harness,
-			Path:        filepath.ToSlash(filepath.Dir(s.Source)),
+			Path:        path,
 			Description: s.Description,
 			Origin:      origin,
-			Checked:     scope != "user", // project default-on, user opt-in
+			Checked:     checked,
 		})
 	}
 
@@ -136,6 +173,10 @@ func BuildStudioData(spec *types.AgentSpec, det *types.Detection, harnessLabel s
 			scope = "project"
 		}
 		for _, srv := range cfg.Servers {
+			checked := srv.AnthropicCompatible // default: only deployable ones on
+			if priorMCP != nil {
+				checked = priorMCP[srv.Name]
+			}
 			d.MCPCandidates = append(d.MCPCandidates, MCPCandidate{
 				Name:       srv.Name,
 				Scope:      scope,
@@ -145,7 +186,7 @@ func BuildStudioData(spec *types.AgentSpec, det *types.Detection, harnessLabel s
 				Command:    srv.Command,
 				Compatible: srv.AnthropicCompatible,
 				Warning:    srv.Warning,
-				Checked:    srv.AnthropicCompatible, // only deployable ones default-on
+				Checked:    checked,
 			})
 		}
 	}

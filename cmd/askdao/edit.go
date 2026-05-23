@@ -47,7 +47,7 @@ func runEdit(ctx context.Context, args []string) int {
 
 	home, _ := os.UserHomeDir()
 
-	spec, det, code := loadOrScan(ctx, *dir, *harness, home)
+	spec, det, loaded, code := loadOrScan(ctx, *dir, *harness, home)
 	if spec == nil {
 		return code
 	}
@@ -75,7 +75,9 @@ func runEdit(ctx context.Context, args []string) int {
 		return 0
 	}
 
-	data := webstudio.BuildStudioData(spec, det, "Anthropic Managed Agents")
+	// loaded ⇒ editing an existing yaml: restore the KOL's saved skill/MCP
+	// selection verbatim. A fresh draft uses the default selection policy.
+	data := webstudio.BuildStudioData(spec, det, "Anthropic Managed Agents", loaded)
 	data.Observe = *observeMode
 
 	// --observe arms temporary hooks bound to the studio port (set in OnReady, once
@@ -150,11 +152,13 @@ func printObserveGuide(dir string) {
 	fmt.Println("  Hooks are removed automatically when you Deploy / finish / Ctrl-C.")
 }
 
-// loadOrScan returns the spec to edit plus the detection backing the studio's
-// skill/MCP candidate lists. An existing askdao-agent.yml is loaded verbatim
-// (with a fresh scan for candidates); otherwise the full pipeline synthesizes a
-// draft and the baseline (.askdao/) is written. Returns (nil, nil, code) on error.
-func loadOrScan(ctx context.Context, dir, harness, home string) (*types.AgentSpec, *types.Detection, int) {
+// loadOrScan returns the spec to edit, the detection backing the studio's
+// skill/MCP candidate lists, and whether an existing yaml was loaded. An existing
+// askdao-agent.yml is loaded verbatim (with a fresh scan for candidates) and
+// loaded=true so the studio restores the saved selection; otherwise the full
+// pipeline synthesizes a draft (loaded=false, default selection) and the baseline
+// (.askdao/) is written. Returns (nil, nil, false, code) on error.
+func loadOrScan(ctx context.Context, dir, harness, home string) (*types.AgentSpec, *types.Detection, bool, int) {
 	agentPath := filepath.Join(dir, askdaoAgentFileName)
 	if existing, err := readSpec(agentPath); err == nil {
 		fmt.Fprintln(os.Stderr, "→ Loaded existing", agentPath, "— re-scanning for skill/MCP candidates ...")
@@ -167,7 +171,7 @@ func loadOrScan(ctx context.Context, dir, harness, home string) (*types.AgentSpe
 		// (studio has no capabilities UI). Overwrite even on load so a stale yaml
 		// (LLM free-text scopes) is normalised on the next edit.
 		existing.Capabilities = recommender.DefaultCapabilities(detRiskHints(det))
-		return existing, det, 0
+		return existing, det, true, 0
 	}
 
 	fmt.Fprintln(os.Stderr, "→ Scanning project + generating a draft (LLM 10-20s if a conductor is configured) ...")
@@ -180,11 +184,11 @@ func loadOrScan(ctx context.Context, dir, harness, home string) (*types.AgentSpe
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "edit:", err)
-		return nil, nil, 1
+		return nil, nil, false, 1
 	}
 	if res.Recommendation == nil {
 		fmt.Fprintln(os.Stderr, "edit: recommender returned no spec")
-		return nil, nil, 1
+		return nil, nil, false, 1
 	}
 	// Deterministic builders overwrite the LLM's free-text values for hard fields
 	// (design.md §9.13): project-scope skills + capabilities. User-scope skills
@@ -193,7 +197,7 @@ func loadOrScan(ctx context.Context, dir, harness, home string) (*types.AgentSpe
 	res.Recommendation.Spec.Capabilities = recommender.DefaultCapabilities(detRiskHints(res.Detection))
 	spec := &res.Recommendation.Spec
 	writeBaseline(dir, spec, res.Detection)
-	return spec, res.Detection, 0
+	return spec, res.Detection, false, 0
 }
 
 // detRiskHints safely extracts the risk-hint policy from a (possibly nil) detection.

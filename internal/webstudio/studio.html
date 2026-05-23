@@ -183,6 +183,9 @@
   .overlay { position:fixed; inset:0; background:rgba(20,20,19,.45); display:flex; align-items:center; justify-content:center; z-index:10000; padding:24px; animation:fade .25s ease both; }
   .done-card { background:var(--ivory); border:1px solid var(--border-cream); border-radius:16px; box-shadow:0 24px 70px rgba(0,0,0,.28); padding:40px 44px; max-width:460px; width:100%; text-align:center; }
   .done-check { width:60px; height:60px; border-radius:50%; background:var(--ok); color:#fff; font-size:30px; display:flex; align-items:center; justify-content:center; margin:0 auto 18px; }
+  .done-check.err { background:var(--err); }
+  .done-dismiss { font-family:var(--sans); font-size:13.5px; font-weight:500; border-radius:8px; padding:10px 22px; cursor:pointer; border:1px solid var(--border-warm); background:transparent; color:var(--near-black); transition:all .16s; }
+  .done-dismiss:hover { border-color:var(--ring-warm); background:var(--parchment); }
   .done-card h2 { font-family:var(--serif); font-weight:500; font-size:24px; margin:0 0 8px; }
   .done-msg { color:var(--olive); font-family:var(--sans); font-size:14px; line-height:1.5; margin:0 0 22px; word-break:break-word; }
   .done-link { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-bottom:20px; }
@@ -225,16 +228,17 @@
   <button class="act btn" id="btnDone" hidden onclick="submit('/api/done')">Save &amp; finish</button>
 </div></footer>
 <div id="tip" class="tip"></div>
-<div id="doneOverlay" class="overlay" hidden>
+<div id="doneOverlay" class="overlay" hidden onclick="overlayClick(event)">
   <div class="done-card">
-    <div class="done-check">✓</div>
+    <div class="done-check" id="doneCheck">✓</div>
     <h2 id="doneTitle">Done</h2>
     <p class="done-msg" id="doneMsg"></p>
     <div class="done-link" id="doneLink" hidden>
       <a id="doneLinkOpen" target="_blank" rel="noopener">Open group page</a>
       <button type="button" id="doneLinkCopy" onclick="copyGroupLink()">Copy link</button>
     </div>
-    <p class="done-close">You can close this tab.</p>
+    <button type="button" id="doneDismiss" class="done-dismiss" hidden onclick="closeDialog()">Continue</button>
+    <p class="done-close" id="doneClose">You can close this tab.</p>
   </div>
 </div>
 
@@ -638,29 +642,43 @@ async function submit(path){
     if(bad){ if(step!==bad.step) go(bad.step); showErrors(bad.errs); return; }
   }
   busy=true; setStatus('Working…');
+  const failTitle = path==='/api/deploy' ? "Couldn't deploy" : "Couldn't save";
   ['btnSaveDraft','btnBack','btnNext','btnDeploy','btnDone'].forEach(b=>$(b).disabled=true);
   try{
     const r=await fetch(path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(collect())});
     const j=await r.json();
-    if(j.error) setStatus('✗ '+j.error);
-    else if(j.status==='saved') setStatus('✓ Saved askdao-agent.yml');
-    else if(j.status==='deployed'){ showDone('Agent deployed', j.message, j.group_link); return; }
-    else { showDone('Saved', j.message||'askdao-agent.yml saved.', ''); return; }
-  }catch(e){ setStatus('✗ '+e); }
+    if(j.error) showDialog({kind:'error', title:failTitle, msg:j.error, terminal:false});
+    else if(j.status==='saved') showDialog({kind:'success', title:'Draft saved', msg:'askdao-agent.yml saved. Keep editing or deploy when ready.', terminal:false});
+    else if(j.status==='deployed'){ showDialog({kind:'success', title:'Agent deployed', msg:j.message, link:j.group_link, terminal:true}); return; }
+    else { showDialog({kind:'success', title:'Saved', msg:j.message||'askdao-agent.yml saved.', terminal:true}); return; }
+  }catch(e){ showDialog({kind:'error', title:failTitle, msg:String(e), terminal:false}); }
   finally{ busy=false; ['btnSaveDraft','btnBack','btnNext','btnDeploy','btnDone'].forEach(b=>$(b).disabled=false); }
 }
 function setStatus(s){ $('status').textContent=s; }
-/* success card — terminal state for Deploy / Save & finish (server has exited).
-   Deploy shows the clickable group link, the subscriber entry point the KOL wants. */
-let groupLink='';
-function showDone(title, msg, link){
+/* unified result dialog — every Save/Deploy outcome surfaces here instead of the
+   cramped footer status line. kind: success(green ✓) | error(red ✕). terminal=true
+   means the server has exited (Deploy / Save & finish): show "close this tab" and
+   no dismiss. terminal=false (Draft saved / any error): the server is still up, so
+   offer a dismiss button (and click-outside) to return to editing. Deploy success
+   carries the clickable group link, the subscriber entry point the KOL wants. */
+let groupLink='', dialogTerminal=false;
+function showDialog({kind, title, msg, link, terminal}){
+  setStatus('');
+  const ok = kind!=='error';
+  const chk=$('doneCheck'); chk.textContent=ok?'✓':'✕'; chk.classList.toggle('err',!ok);
   $('doneTitle').textContent=title;
   $('doneMsg').textContent=msg||'';
   groupLink=link||'';
   $('doneLink').hidden=!groupLink;
   if(groupLink) $('doneLinkOpen').href=groupLink;
+  dialogTerminal=!!terminal;
+  $('doneClose').hidden=!terminal;
+  $('doneDismiss').hidden=terminal;
+  $('doneDismiss').textContent=ok?'Continue':'Dismiss';
   $('doneOverlay').hidden=false;
 }
+function closeDialog(){ $('doneOverlay').hidden=true; setStatus(''); }
+function overlayClick(e){ if(e.target===$('doneOverlay') && !dialogTerminal) closeDialog(); }
 function copyGroupLink(){
   if(!groupLink) return;
   navigator.clipboard.writeText(groupLink).then(()=>{ const b=$('doneLinkCopy'), t=b.textContent; b.textContent='Copied ✓'; setTimeout(()=>{b.textContent=t;},1500); });
