@@ -240,6 +240,16 @@
 
 <script>
 const STEPS = [{label:"Identity"},{label:"Persona"},{label:"Skills & Tools"},{label:"Review & Deploy"}];
+// model_class → concrete anthropic model id. collect() writes model_preferences[0]
+// from this, so the KOL's Model Class choice actually reaches the deploy adapter —
+// which picks the first anthropic id in model_preferences and ignores model_class.
+const MODEL_CLASS_ID = {
+  high_reasoning: 'claude-opus-4-7',
+  balanced:       'claude-sonnet-4-6',
+  fast:           'claude-haiku-4-5',
+  multimodal:     'claude-sonnet-4-6',
+  coding:         'claude-sonnet-4-6',
+};
 const HARNESS_NAME = {claude:"Claude Code", codex:"OpenAI Codex", cursor:"Cursor", cowork:"Claude Cowork"};
 let data, spec, palette = {}, step = 0, vault = [];
 const $ = (id) => document.getElementById(id);
@@ -599,6 +609,9 @@ function collect(){
   if($('f_desc')) m.description=$('f_desc').value.trim();
   if($('f_cat')) m.category=$('f_cat').value;
   if($('f_prompt')) p.system_prompt=$('f_prompt').value;
+  // Map model_class → concrete model id; the deploy adapter reads model_preferences,
+  // not model_class, so this is what makes the selector actually take effect.
+  p.model_preferences=[{provider:'anthropic', id: MODEL_CLASS_ID[p.model_class]||MODEL_CLASS_ID.balanced}];
   spec.skills=[];
   (data.skill_candidates||[]).forEach((c,i)=>{ const el=$('skill-'+i); if(!el||!el.checked) return;
     if(c.builtin) spec.skills.push({type:'builtin',provider:'anthropic',id:c.builtin_id});
