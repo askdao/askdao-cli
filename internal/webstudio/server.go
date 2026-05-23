@@ -145,8 +145,22 @@ func buildMux(opts Options, done chan error) *http.ServeMux {
 		signal(done)
 	})
 
+	// /api/done is "Save & finish": persist the edited spec (same as /api/save) then
+	// exit without deploying. Without the OnSave call the KOL's edits — display_name,
+	// avatar, everything — would be lost, leaving deploy to read a stale yaml.
 	mux.HandleFunc("/api/done", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]string{"status": "done"})
+		spec, err := decodeSpec(r)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		if opts.OnSave != nil {
+			if err := opts.OnSave(spec); err != nil {
+				writeErr(w, err)
+				return
+			}
+		}
+		writeJSON(w, map[string]string{"status": "done", "message": "Saved askdao-agent.yml"})
 		signal(done)
 	})
 
