@@ -34,14 +34,15 @@ var logoPNG []byte
 
 // Options drives one studio session. Data is the payload served to the browser;
 // OnSave persists the edited spec (write askdao-agent.yml); OnDeploy persists +
-// pushes to conductor and returns a human-readable result line. OnReady, if set,
-// is called with the bound port once the server is listening (before blocking) —
-// the --observe path uses it to write the hook settings that point back here.
-// All are injected by the cmd layer so webstudio stays free of pipeline/deploy deps.
+// pushes to conductor and returns a structured DeployResult (message + group link).
+// OnReady, if set, is called with the bound port once the server is listening
+// (before blocking) — the --observe path uses it to write the hook settings that
+// point back here. All are injected by the cmd layer so webstudio stays free of
+// pipeline/deploy deps.
 type Options struct {
 	Data      *StudioData
 	OnSave    func(*types.AgentSpec) error
-	OnDeploy  func(*types.AgentSpec) (string, error)
+	OnDeploy  func(*types.AgentSpec) (*DeployResult, error)
 	OnReady   func(port int)
 	NoBrowser bool
 }
@@ -133,15 +134,15 @@ func buildMux(opts Options, done chan error) *http.ServeMux {
 				return
 			}
 		}
-		msg := "Deployed."
+		res := &DeployResult{Message: "Deployed."}
 		if opts.OnDeploy != nil {
-			msg, err = opts.OnDeploy(spec)
+			res, err = opts.OnDeploy(spec)
 			if err != nil {
 				writeErr(w, err)
 				return
 			}
 		}
-		writeJSON(w, map[string]string{"status": "deployed", "message": msg})
+		writeJSON(w, map[string]interface{}{"status": "deployed", "message": res.Message, "group_link": res.GroupLink, "agent_id": res.AgentID, "created": res.Created})
 		signal(done)
 	})
 

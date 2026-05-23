@@ -180,6 +180,17 @@
   .btn.primary { background:var(--accent); border:1px solid var(--accent); color:#fff; }
   .btn.primary:hover { filter:brightness(.92); }
   button:disabled { opacity:.45; cursor:default; filter:none; }
+  .overlay { position:fixed; inset:0; background:rgba(20,20,19,.45); display:flex; align-items:center; justify-content:center; z-index:10000; padding:24px; animation:fade .25s ease both; }
+  .done-card { background:var(--ivory); border:1px solid var(--border-cream); border-radius:16px; box-shadow:0 24px 70px rgba(0,0,0,.28); padding:40px 44px; max-width:460px; width:100%; text-align:center; }
+  .done-check { width:60px; height:60px; border-radius:50%; background:var(--ok); color:#fff; font-size:30px; display:flex; align-items:center; justify-content:center; margin:0 auto 18px; }
+  .done-card h2 { font-family:var(--serif); font-weight:500; font-size:24px; margin:0 0 8px; }
+  .done-msg { color:var(--olive); font-family:var(--sans); font-size:14px; line-height:1.5; margin:0 0 22px; word-break:break-word; }
+  .done-link { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-bottom:20px; }
+  .done-link a, .done-link button { font-family:var(--sans); font-size:13.5px; font-weight:500; border-radius:8px; padding:10px 18px; cursor:pointer; text-decoration:none; transition:all .16s; border:1px solid var(--border-warm); background:transparent; color:var(--near-black); }
+  .done-link a { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .done-link a:hover { filter:brightness(.92); }
+  .done-link button:hover { border-color:var(--ring-warm); background:var(--parchment); }
+  .done-close { color:var(--stone); font-family:var(--sans); font-size:12.5px; margin:0; }
   [hidden] { display:none !important; }
 
   @media (max-width:720px){
@@ -214,9 +225,31 @@
   <button class="act btn" id="btnDone" hidden onclick="submit('/api/done')">Save &amp; finish</button>
 </div></footer>
 <div id="tip" class="tip"></div>
+<div id="doneOverlay" class="overlay" hidden>
+  <div class="done-card">
+    <div class="done-check">✓</div>
+    <h2 id="doneTitle">Done</h2>
+    <p class="done-msg" id="doneMsg"></p>
+    <div class="done-link" id="doneLink" hidden>
+      <a id="doneLinkOpen" target="_blank" rel="noopener">Open group page</a>
+      <button type="button" id="doneLinkCopy" onclick="copyGroupLink()">Copy link</button>
+    </div>
+    <p class="done-close">You can close this tab.</p>
+  </div>
+</div>
 
 <script>
 const STEPS = [{label:"Identity"},{label:"Persona"},{label:"Skills & Tools"},{label:"Review & Deploy"}];
+// model_class → concrete anthropic model id. collect() writes model_preferences[0]
+// from this, so the KOL's Model Class choice actually reaches the deploy adapter —
+// which picks the first anthropic id in model_preferences and ignores model_class.
+const MODEL_CLASS_ID = {
+  high_reasoning: 'claude-opus-4-7',
+  balanced:       'claude-sonnet-4-6',
+  fast:           'claude-haiku-4-5',
+  multimodal:     'claude-sonnet-4-6',
+  coding:         'claude-sonnet-4-6',
+};
 const HARNESS_NAME = {claude:"Claude Code", codex:"OpenAI Codex", cursor:"Cursor", cowork:"Claude Cowork"};
 let data, spec, palette = {}, step = 0, vault = [];
 const $ = (id) => document.getElementById(id);
@@ -576,6 +609,9 @@ function collect(){
   if($('f_desc')) m.description=$('f_desc').value.trim();
   if($('f_cat')) m.category=$('f_cat').value;
   if($('f_prompt')) p.system_prompt=$('f_prompt').value;
+  // Map model_class → concrete model id; the deploy adapter reads model_preferences,
+  // not model_class, so this is what makes the selector actually take effect.
+  p.model_preferences=[{provider:'anthropic', id: MODEL_CLASS_ID[p.model_class]||MODEL_CLASS_ID.balanced}];
   spec.skills=[];
   (data.skill_candidates||[]).forEach((c,i)=>{ const el=$('skill-'+i); if(!el||!el.checked) return;
     if(c.builtin) spec.skills.push({type:'builtin',provider:'anthropic',id:c.builtin_id});
@@ -608,11 +644,27 @@ async function submit(path){
     const j=await r.json();
     if(j.error) setStatus('✗ '+j.error);
     else if(j.status==='saved') setStatus('✓ Saved askdao-agent.yml');
-    else { setStatus('✓ '+(j.message||j.status)+' — you can close this tab.'); document.body.style.opacity=.6; return; }
+    else if(j.status==='deployed'){ showDone('Agent deployed', j.message, j.group_link); return; }
+    else { showDone('Saved', j.message||'askdao-agent.yml saved.', ''); return; }
   }catch(e){ setStatus('✗ '+e); }
   finally{ busy=false; ['btnSaveDraft','btnBack','btnNext','btnDeploy','btnDone'].forEach(b=>$(b).disabled=false); }
 }
 function setStatus(s){ $('status').textContent=s; }
+/* success card — terminal state for Deploy / Save & finish (server has exited).
+   Deploy shows the clickable group link, the subscriber entry point the KOL wants. */
+let groupLink='';
+function showDone(title, msg, link){
+  $('doneTitle').textContent=title;
+  $('doneMsg').textContent=msg||'';
+  groupLink=link||'';
+  $('doneLink').hidden=!groupLink;
+  if(groupLink) $('doneLinkOpen').href=groupLink;
+  $('doneOverlay').hidden=false;
+}
+function copyGroupLink(){
+  if(!groupLink) return;
+  navigator.clipboard.writeText(groupLink).then(()=>{ const b=$('doneLinkCopy'), t=b.textContent; b.textContent='Copied ✓'; setTimeout(()=>{b.textContent=t;},1500); });
+}
 
 // confidence tooltip — single fixed node near <body>, positioned by JS; immune
 // to card stacking-contexts and the .wrap scroll-overflow that clipped the old
