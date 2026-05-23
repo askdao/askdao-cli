@@ -23,6 +23,7 @@ import (
 	"github.com/askdao/askdao-cli/internal/deploy"
 	"github.com/askdao/askdao-cli/internal/observe"
 	"github.com/askdao/askdao-cli/internal/pipeline"
+	"github.com/askdao/askdao-cli/internal/recommender"
 	"github.com/askdao/askdao-cli/internal/types"
 	"github.com/askdao/askdao-cli/internal/webstudio"
 )
@@ -157,6 +158,10 @@ func loadOrScan(ctx context.Context, dir, harness, home string) (*types.AgentSpe
 		if res != nil {
 			det = res.Detection
 		}
+		// capabilities is a hard field — always deterministic, never KOL/LLM-edited
+		// (studio has no capabilities UI). Overwrite even on load so a stale yaml
+		// (LLM free-text scopes) is normalised on the next edit.
+		existing.Capabilities = recommender.DefaultCapabilities(detRiskHints(det))
 		return existing, det, 0
 	}
 
@@ -176,12 +181,22 @@ func loadOrScan(ctx context.Context, dir, harness, home string) (*types.AgentSpe
 		fmt.Fprintln(os.Stderr, "edit: recommender returned no spec")
 		return nil, nil, 1
 	}
-	// Deterministic skills builder overwrites the LLM's spec.Skills (project
-	// scope only); user-scope globals stay opt-in candidates in the studio.
+	// Deterministic builders overwrite the LLM's free-text values for hard fields
+	// (design.md §9.13): project-scope skills + capabilities. User-scope skills
+	// stay opt-in candidates in the studio.
 	res.Recommendation.Spec.Skills = res.AgentSkills
+	res.Recommendation.Spec.Capabilities = recommender.DefaultCapabilities(detRiskHints(res.Detection))
 	spec := &res.Recommendation.Spec
 	writeBaseline(dir, spec, res.Detection)
 	return spec, res.Detection, 0
+}
+
+// detRiskHints safely extracts the risk-hint policy from a (possibly nil) detection.
+func detRiskHints(det *types.Detection) types.DetectedToolRiskHints {
+	if det == nil {
+		return types.DetectedToolRiskHints{}
+	}
+	return det.DetectedToolRiskHints
 }
 
 // writeAgentSpec writes the KOL-editable askdao-agent.yml at the project root.
