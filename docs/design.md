@@ -761,24 +761,27 @@ persona:
 # capabilities · 语义化能力 + 权限策略
 # adapter 翻译：Anthropic 端 → tools[*].configs；OpenAI 端 → Capabilities
 # ============================================================
+# capabilities 是 hard field —— 由 askdao-cli recommender.DefaultCapabilities()
+# 确定性生成、不交 LLM 即兴（§9.13，同 skills）。scopes 是固定的 harness-neutral
+# 词表（非自由文本）：Anthropic 当前忽略 scopes（工具配置无 scoping 原语，adapter
+# emit IGNORED warning），未来 harness（OpenAI/E2B）可强制。
 capabilities:
   shell:
     enabled: true
-    permission: ask_for_dangerous    # always_allow / always_ask / ask_for_dangerous
-    # ask_for_dangerous: 默认 allow，但对 rm -rf / sudo / 敏感路径要求 ask
-  
+    permission: always_allow         # 有 production signals 时收紧为 ask_for_dangerous
+    scopes: [read, write, execute]
   filesystem:
     enabled: true
-    permission: allow
-    scopes: [./output, ./tmp]        # 可选：限制读写范围
-  
+    permission: always_allow
+    scopes: [read, write]
   web:
     enabled: true                    # web search + web fetch
-    permission: allow
-  
+    permission: always_allow
+    scopes: [fetch]
   code_execution:
     enabled: true                    # python / sandbox 执行
-    permission: allow
+    permission: always_allow
+    scopes: [javascript, shell]
 
 # ============================================================
 # mcp_servers · 标准 MCP 协议（两边直通）

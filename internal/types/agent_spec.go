@@ -112,11 +112,15 @@ type Capabilities struct {
 }
 
 // Capability is the (enabled, permission, optional scopes) tuple shared by all
-// capability slots.
+// capability slots. capabilities is a hard field built deterministically by
+// recommender.DefaultCapabilities (design.md §9.13), not by the LLM.
 type Capability struct {
-	Enabled    bool     `json:"enabled"           yaml:"enabled"`
-	Permission string   `json:"permission"        yaml:"permission"` // allow | always_allow | always_ask | ask_for_dangerous
-	Scopes     []string `json:"scopes,omitempty"  yaml:"scopes,omitempty"`
+	Enabled    bool   `json:"enabled"           yaml:"enabled"`
+	Permission string `json:"permission"        yaml:"permission"` // allow | always_allow | always_ask | ask_for_dangerous
+	// Scopes: fixed harness-neutral vocabulary per slot — shell: read/write/execute,
+	// filesystem: read/write, web: fetch, code_execution: javascript/shell. Anthropic
+	// ignores scopes (no scoping primitive); future harnesses may enforce them.
+	Scopes []string `json:"scopes,omitempty"  yaml:"scopes,omitempty"`
 }
 
 // MCPServer is a standard Model Context Protocol server entry. Both adapters

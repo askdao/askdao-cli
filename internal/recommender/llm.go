@@ -169,12 +169,7 @@ func DefaultMockRecommend(req RecommendRequest) *RecommendResponse {
 			},
 			SystemPrompt: "You are an AI assistant for " + req.AgentName + ".",
 		},
-		Capabilities: types.Capabilities{
-			Shell:         types.Capability{Enabled: true, Permission: defaultShellPolicy(req.Policy)},
-			Filesystem:    types.Capability{Enabled: true, Permission: "allow"},
-			Web:           types.Capability{Enabled: true, Permission: "allow"},
-			CodeExecution: types.Capability{Enabled: true, Permission: "allow"},
-		},
+		Capabilities:     DefaultCapabilities(req.Policy),
 		MCPServers:       extractCompatibleMCPServers(req.Detection),
 		Skills:           []types.Skill{},
 		Workspace:        buildWorkspace(req),
@@ -209,7 +204,7 @@ func defaultShellPolicy(p types.DetectedToolRiskHints) string {
 	if len(p.ProductionSignals) > 0 {
 		return "ask_for_dangerous"
 	}
-	return "allow"
+	return "always_allow"
 }
 
 func extractCompatibleMCPServers(d *types.Detection) []types.MCPServer {
