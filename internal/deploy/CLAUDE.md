@@ -19,7 +19,7 @@
 - **stdlib only**：`net/http` / `mime/multipart` / `encoding/json` / `archive/zip` / `errors` 等，不引第三方 HTTP / zip 库；与 `internal/recommender`（决策 9.1：HTTP 客户端域）依赖纪律一致，连 `internal/types` 都不 import —— 只收发 `[]byte`（`agent_yaml`）+ 通用 `DeployResponse`/map，yaml 解析与「转 `render.TranslationWarning`」由 `cmd` 层做。
 - **`agent_yaml` 发原始字节**：`DeployInput.AgentYAML` 是 KOL 编辑后的 `agent.yml` 原文 bytes，**不**经 `yaml.Marshal` 往返 —— 保留注释 / 字段顺序，避免 Go struct 不认识的新字段被丢（conductor `spec.py` `extra="ignore"` forward-compat）。
 - **skill file part 用 file field（带 filename）**：`mw.CreateFormFile(name, name+".zip")`（含 `Content-Disposition: ...; filename=...`）—— conductor 端 `request.form().get(skill_name)` 必须拿到 starlette `UploadFile`（有 `.read()`），text field 会被它判 `isinstance(str)` 报 400。
-- **409 双义**：conductor `/cli/deploy` 对「KOL 资料未填」和「translation_report 有 HIGH warning」都返 409，靠 `detail.reason` 区分；`classifyConflict` 解析失败（`detail` 是 str 或其它形态）→ 返 nil 让 `Deploy` 退化成通用错误（body 原样带出）。FastAPI 标准 body 形态 `{"detail": ...}`。
+- **409 双义**：conductor `/cli/deploy` 对「KOL 资料未填」和「translation_report 有 blocking（`TranslationAction.REJECTED`）warning」都返 409，靠 `detail.reason` 区分（severity 不 gate，仅 REJECTED 阻断）；`classifyConflict` 解析失败（`detail` 是 str 或其它形态）→ 返 nil 让 `Deploy` 退化成通用错误（body 原样带出）。FastAPI 标准 body 形态 `{"detail": ...}`。
 - **timeout 180s**：deploy 是「sync skill 到 OV+Managed Skills + 建 Anthropic environment + agent」三步串行的同步请求；recommend 是单次 LLM 调用 90s 够，deploy 留 180s。
 
 ## 依赖
@@ -40,7 +40,7 @@
 - `DeployResponse` ↔ conductor `app/api/cli.py:DeployResponse`（同名字段一一对应）
 - `TranslationReport` / `TranslationWarning` ↔ conductor `app/agents/adapters/translation_report.py`（`severity`/`action` 小写 enum value）
 - 409 `kol_profile_required` `detail` ↔ conductor `cli.py:deploy_agent_spec` 第 ① 步
-- 409 blocking-warnings `detail.translation_report` ↔ conductor `cli.py` `output.translation_report.has_blocking() and not force` 分支
+- 409 blocking-warnings `detail.translation_report` ↔ conductor `cli.py` `output.translation_report.has_blocking() and not force` 分支（`has_blocking` keys on `TranslationAction.REJECTED`，非 severity）
 - skill zip 格式 ↔ conductor `app/core/skill_format.py:validate_skill_zip`（zip 内有 `SKILL.md` + frontmatter `name:`）+ `app/skills/sync.py:_zip_files_for_managed`（单一顶层目录原样保留）
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

@@ -206,11 +206,11 @@ func TestDeploy_BlockingWarnings_NoForce(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]interface{}{
 			"detail": map[string]interface{}{
-				"reason": "translation_report contains HIGH severity warnings; set force=true to deploy anyway",
+				"reason": "translation_report contains REJECTED (deploy-fatal) warnings; set force=true to deploy anyway",
 				"translation_report": map[string]interface{}{
 					"harness": "anthropic_managed_agents",
 					"translation_warnings": []map[string]interface{}{
-						{"field": "workspace.base_image", "severity": "high", "action": "ignored", "reason": "managed agents have no custom base image"},
+						{"field": "custom_tools[0].name", "severity": "high", "action": "rejected", "reason": "custom tool name is invalid"},
 					},
 				},
 			},
@@ -225,9 +225,9 @@ func TestDeploy_BlockingWarnings_NoForce(t *testing.T) {
 	code := runDeploy(context.Background(), []string{"--dir", "test-agent"})
 	got := out()
 	if code == 0 {
-		t.Fatalf("deploy with HIGH warnings and no --force should fail, got 0\n--- output ---\n%s", got)
+		t.Fatalf("deploy with blocking warnings and no --force should fail, got 0\n--- output ---\n%s", got)
 	}
-	for _, want := range []string{"HIGH", "workspace.base_image", "--force"} {
+	for _, want := range []string{"HIGH", "custom_tools[0].name", "--force"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output missing %q\n--- output ---\n%s", want, got)
 		}
@@ -243,8 +243,8 @@ func TestDeploy_Force_OverridesBlockingWarnings(t *testing.T) {
 		if r.FormValue("force") != "true" {
 			writeJSON(w, http.StatusConflict, map[string]interface{}{
 				"detail": map[string]interface{}{
-					"reason":             "translation_report contains HIGH severity warnings; set force=true to deploy anyway",
-					"translation_report": map[string]interface{}{"harness": "anthropic_managed_agents", "translation_warnings": []map[string]interface{}{{"field": "workspace.base_image", "severity": "high", "action": "ignored", "reason": "x"}}},
+					"reason":             "translation_report contains REJECTED (deploy-fatal) warnings; set force=true to deploy anyway",
+					"translation_report": map[string]interface{}{"harness": "anthropic_managed_agents", "translation_warnings": []map[string]interface{}{{"field": "custom_tools[0].name", "severity": "high", "action": "rejected", "reason": "x"}}},
 				},
 			})
 			return
@@ -254,7 +254,7 @@ func TestDeploy_Force_OverridesBlockingWarnings(t *testing.T) {
 			GroupID: "grp_z", GroupLink: "https://askdao.ai/k/usr_3/g/grp_z",
 			TranslationReport: deploy.TranslationReport{
 				Harness:             "anthropic_managed_agents",
-				TranslationWarnings: []deploy.TranslationWarning{{Field: "workspace.base_image", Severity: "high", Action: "ignored", Reason: "x"}},
+				TranslationWarnings: []deploy.TranslationWarning{{Field: "custom_tools[0].name", Severity: "high", Action: "rejected", Reason: "x"}},
 			},
 		})
 	}))
