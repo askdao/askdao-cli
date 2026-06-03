@@ -39,7 +39,7 @@ func runEdit(ctx context.Context, args []string) int {
 	dir := fs.String("dir", ".", "KOL project root containing (or to hold) askdao-agent.yml")
 	harness := fs.String("harness", "", "Override preferred_harness (anthropic_managed_agents | ...)")
 	noUI := fs.Bool("no-ui", false, "Skip the browser; scan and write a draft only (CI/headless)")
-	force := fs.Bool("force", false, "Deploy despite HIGH-severity translation warnings")
+	force := fs.Bool("force", false, "Deploy despite blocking (deploy-fatal) translation warnings")
 	observeMode := fs.Bool("observe", false, "Arm temporary hooks to pre-select skills/MCP a real claude session uses")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -247,7 +247,7 @@ func studioDeployError(derr error) error {
 	}
 	var bw *deploy.ErrBlockingWarnings
 	if errors.As(derr, &bw) {
-		return fmt.Errorf("deploy blocked by HIGH-severity translation warnings — fix the spec or re-run edit with --force")
+		return fmt.Errorf("deploy blocked by deploy-fatal (rejected) translation warnings — fix the spec or re-run edit with --force")
 	}
 	return derr
 }

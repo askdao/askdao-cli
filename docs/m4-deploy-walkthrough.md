@@ -155,7 +155,7 @@ export ASKDAO_CONDUCTOR_TOKEN="$(cat /tmp/askdao-token)"
 3. `multipart/form-data` POST `https://api.askdao.ai/api/v1/cli/deploy` —— `Authorization: Bearer` + form fields：`agent_yml`（原文）+ 每个 skill 一个 zip part（field 名 `skill_zip__<skill_name>`）
 4. 收 conductor 响应：`agent_id` / `anthropic_agent_id` / `anthropic_environment_id` / `group_id` / `group_link` / `skills[*]`（resolved `anthropic_skill_id` + `ov_content_uri`）/ `translation_report`
 5. 若返 `409 kol_profile_required` → 用 `-bio` 值 PATCH `/api/v1/users/me/kol-profile` → 重跑 POST
-6. 若 `translation_report.has_blocking()`（HIGH-severity warning）且无 `-force` → exit 1
+6. 若 `translation_report.has_blocking()`（仅 `TranslationAction.REJECTED` 触发，severity 不 gate）且无 `-force` → exit 1；base_image 等 fail-soft 字段不阻断
 7. 渲染结果到 stdout
 
 ### 预期输出（实测）

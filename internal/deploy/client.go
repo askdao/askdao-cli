@@ -38,7 +38,8 @@ type DeployInput struct {
 	// HarnessID overrides the harness; optional (conductor defaults to
 	// anthropic_managed_agents).
 	HarnessID string
-	// Force deploys even if the translation report has HIGH-severity warnings.
+	// Force deploys even if the translation report has blocking (REJECTED /
+	// deploy-fatal) warnings.
 	Force bool
 	// SkillZips maps a form file-field name (the basename of a custom_local
 	// skill's path) to the zip bytes of that skill's directory.
@@ -113,14 +114,16 @@ func (e *ErrKolProfileRequired) Error() string {
 }
 
 // ErrBlockingWarnings is returned by Deploy when the translation report has
-// HIGH-severity warnings and DeployInput.Force was not set. Detect with errors.As.
+// blocking (REJECTED / deploy-fatal) warnings and DeployInput.Force was not
+// set. Severity does not gate deploy — only TranslationAction.REJECTED does.
+// Detect with errors.As.
 type ErrBlockingWarnings struct {
 	Report TranslationReport
 }
 
 func (e *ErrBlockingWarnings) Error() string {
 	return fmt.Sprintf(
-		"translation report has HIGH-severity warnings (%d total); re-run with --force to deploy anyway",
+		"translation report has blocking (deploy-fatal) warnings (%d total); re-run with --force to deploy anyway",
 		len(e.Report.TranslationWarnings),
 	)
 }
@@ -226,7 +229,7 @@ func (c *Client) Deploy(ctx context.Context, in DeployInput) (*DeployResponse, e
 }
 
 // conflictDetail captures the two known 409 detail shapes the conductor emits
-// from /cli/deploy: kol_profile_required and "HIGH-severity warnings".
+// from /cli/deploy: kol_profile_required and blocking (REJECTED) warnings.
 type conflictDetail struct {
 	Reason            string             `json:"reason"`
 	Fields            []string           `json:"fields"`

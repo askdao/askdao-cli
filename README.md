@@ -93,7 +93,7 @@ $ askdao agent deploy
 ✓ Deploy complete. Open https://askdao.ai/k/<you>/g/grp_c1aeb63d... to chat.
 ```
 
-Re-deploying the same `metadata.name` **updates the agent in place** (`Updated existing agent (v1 → v2)`) instead of stacking duplicates. Pass `--force` to deploy despite HIGH-severity translation warnings. KOL profile setup is handled on the askdao.ai web — the studio links you there if it's not done yet.
+Re-deploying the same `metadata.name` **updates the agent in place** (`Updated existing agent (v1 → v2)`) instead of stacking duplicates. Pass `--force` to deploy despite blocking (deploy-fatal) translation warnings. Note: a custom `base_image` and other Managed-Agent-irrelevant fields are dropped with only a low-severity note — they never block the deploy. KOL profile setup is handled on the askdao.ai web — the studio links you there if it's not done yet.
 
 ---
 

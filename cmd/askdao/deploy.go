@@ -1,9 +1,9 @@
 // [INPUT]: 标准库 + internal/auth（Credentials / Load / ErrNoCredentials）+ internal/deploy（Client / DeployInput / ZipDir / Err* 类型）+ internal/render（Diff / TranslationWarnings）+ internal/types（AgentSpec）+ gopkg.in/yaml.v3
-// [OUTPUT]: runDeploy — `askdao agent deploy` 命令实装
-// [POS]: cmd/askdao 的 deploy 子命令；读 <dir>/askdao-agent.yml 原文 + 按 skill.path（相对 KOL 项目根的目录路径，
+// [OUTPUT]: runDeploy — `askdao agent deploy` 命令实装；packageSkills / deployFromDir / resolveSkillDir — skill 打包真相源（CLI + 工作台共用）
+// [POS]: cmd/askdao 的 deploy 子命令；读 <dir>/askdao-agent.yml 原文 + 经 packageSkills 按 skill.path（project 相对 / 绝对 / ~ / Scope=="user"）
 //
-//	harness 中性 invariant）递归打 zip → 经 internal/deploy.Client 上传 conductor /cli/deploy；处理
-//	kol_profile_required 时引导去 askdao.ai/workspace（KOL profile 归云端）+ HIGH-warning gating + 结果打印。Token / server URL 解析顺序见 resolveServerAndToken
+//	统一解析 + 递归打 zip（harness 中性 invariant）→ 经 internal/deploy.Client 上传 conductor /cli/deploy；处理
+//	kol_profile_required 时引导去 askdao.ai/workspace（KOL profile 归云端）+ blocking-warning gating（仅 REJECTED 阻断，severity 不 gate）+ 结果打印。Token / server URL 解析顺序见 resolveServerAndToken
 //	(env > credentials.json > error)，对齐 docs/cli-auth-device-flow.md §6.3.
 //
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -28,18 +28,20 @@ import (
 )
 
 // runDeploy implements `askdao agent deploy [--dir path] [--harness id] [--force]`:
-// reads <dir>/askdao-agent.yml (sent verbatim), packages each custom_local
-// skill directory (located at <dir>/<skill.path>) into a zip — recursively
+// reads <dir>/askdao-agent.yml (sent verbatim), packages every custom_local
+// skill directory into a zip via the shared packageSkills (recursively
 // including SKILL.md + scripts/ + assets/ + references/ etc., harness-neutral
-// by virtue of filepath.Base — POSTs everything to the conductor /cli/deploy
-// endpoint, runs the kol_profile_required handshake when needed, gates on
-// HIGH-severity translation warnings (override with --force), and prints the
-// resulting agent / group / skill IDs.
+// by virtue of filepath.Base) — the same source of truth the web studio's
+// deployFromDir uses, so CLI and studio resolve project / absolute / ~ /
+// user-scope skill paths identically — POSTs everything to the conductor
+// /cli/deploy endpoint, runs the kol_profile_required handshake when needed,
+// gates on blocking (REJECTED / deploy-fatal) translation warnings (override
+// with --force), and prints the resulting agent / group / skill IDs.
 func runDeploy(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("deploy", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "KOL project root containing askdao-agent.yml")
 	harness := fs.String("harness", "", "Override preferred_harness from askdao-agent.yml")
-	force := fs.Bool("force", false, "Deploy even if the translation report has HIGH-severity warnings")
+	force := fs.Bool("force", false, "Deploy even if the translation report has blocking (deploy-fatal) warnings")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -77,48 +79,18 @@ func runDeploy(ctx context.Context, args []string) int {
 		return 3
 	}
 
-	// Package each custom_local skill's directory. s.Path is the skill dir
-	// path relative to the project root (e.g. ".agents/skills/tts"); the zip's
-	// top-level entry is always filepath.Base(s.Path) — the harness-neutral
-	// invariant from design.md §9.14 (the .claude/ or .agents/ prefix is
-	// stripped at packaging time so Anthropic only ever sees `tts/SKILL.md`
-	// regardless of which harness convention the KOL uses on disk).
-	skillZips := map[string][]byte{}
-	for _, s := range spec.Skills {
-		if s.Type != "custom_local" {
-			continue
-		}
-		if s.Path == "" {
-			fmt.Fprintln(os.Stderr, "deploy: a custom_local skill entry is missing 'path'")
-			return 1
-		}
-		skillName := filepath.Base(filepath.Clean(s.Path))
-		if skillName == "" || skillName == "." || skillName == "/" {
-			fmt.Fprintf(os.Stderr, "deploy: custom_local skill path %q: cannot resolve a skill name\n", s.Path)
-			return 1
-		}
-		skillDir := filepath.Join(*dir, filepath.FromSlash(s.Path))
-		if fi, serr := os.Stat(skillDir); serr != nil || !fi.IsDir() {
-			fmt.Fprintf(os.Stderr,
-				"deploy: custom_local skill %q: directory not found at %s\n"+
-					"        skills[].path should be the skill directory relative to project root (e.g. .agents/skills/tts).\n",
-				s.Path, skillDir)
-			return 1
-		}
-		if _, serr := os.Stat(filepath.Join(skillDir, "SKILL.md")); serr != nil {
-			fmt.Fprintf(os.Stderr, "deploy: custom_local skill %q: %s does not contain a SKILL.md\n", s.Path, skillDir)
-			return 1
-		}
-		zb, zerr := deploy.ZipDir(skillDir, skillName)
-		if zerr != nil {
-			fmt.Fprintf(os.Stderr, "deploy: packaging skill %q: %v\n", s.Path, zerr)
-			return 1
-		}
-		if _, dup := skillZips[skillName]; dup {
-			fmt.Fprintf(os.Stderr, "deploy: skill name collision %q (two paths produce the same basename)\n", skillName)
-			return 1
-		}
-		skillZips[skillName] = zb
+	// Package each custom_local skill's directory via the shared packageSkills —
+	// the single source of truth also used by the web studio's deployFromDir.
+	// It resolves project-relative, absolute, ~-prefixed, and Scope=="user"
+	// (global) skill paths uniformly (see resolveSkillDir), and applies the
+	// harness-neutral invariant (zip top dir = filepath.Base, design.md §9.14:
+	// Anthropic only ever sees `tts/SKILL.md` regardless of the on-disk
+	// .claude/ or .agents/ prefix). Keeping a separate inline loop here once
+	// caused the CLI to mishandle global skills the studio packaged fine.
+	skillZips, err := packageSkills(*dir, &spec)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "deploy:", err)
+		return 1
 	}
 
 	// Optional detection.json — sent if present.
@@ -167,7 +139,7 @@ func runDeploy(ctx context.Context, args []string) int {
 		var bw *deploy.ErrBlockingWarnings
 		if errors.As(derr, &bw) {
 			fmt.Println()
-			fmt.Println("✗ deploy: the translation report has HIGH-severity warnings:")
+			fmt.Println("✗ deploy: the translation report has blocking (deploy-fatal) warnings:")
 			fmt.Println()
 			render.RenderTranslationWarnings(render.New(), bw.Report.Harness, toRenderWarnings(bw.Report), render.ViewAll)
 			fmt.Println("  Fix agent.yml, or re-run with --force to deploy anyway.")
@@ -215,8 +187,9 @@ func printDeployResult(resp *deploy.DeployResponse) {
 	if warnings := toRenderWarnings(resp.TranslationReport); len(warnings) > 0 {
 		fmt.Println()
 		// Prelude so the ⚠️ section is not mistaken for a deploy failure.
-		// Anything HIGH would have already 409-blocked the deploy upstream;
-		// at this point the agent is live and these are advisory only.
+		// Anything REJECTED (deploy-fatal) would have already 409-blocked the
+		// deploy upstream; at this point the agent is live and these are
+		// advisory only (this adapter is fail-soft and never rejects).
 		fmt.Println("ℹ The following non-blocking warnings were flagged during translation.")
 		fmt.Println("  Your agent is live and ready to use — these are advisory notes.")
 		fmt.Println()

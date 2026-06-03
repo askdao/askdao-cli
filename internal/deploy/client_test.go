@@ -122,7 +122,7 @@ func TestClient_Deploy_BlockingWarnings(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
-		_, _ = io.WriteString(w, `{"detail":{"reason":"translation_report contains HIGH severity warnings; set force=true to deploy anyway","translation_report":{"harness":"anthropic_managed_agents","translation_warnings":[{"field":"workspace.base_image","severity":"high","action":"ignored","reason":"managed agents have no custom base image"}]}}}`)
+		_, _ = io.WriteString(w, `{"detail":{"reason":"translation_report contains REJECTED (deploy-fatal) warnings; set force=true to deploy anyway","translation_report":{"harness":"anthropic_managed_agents","translation_warnings":[{"field":"custom_tools[0].name","severity":"high","action":"rejected","reason":"custom tool name is invalid"}]}}}`)
 	}))
 	defer srv.Close()
 
@@ -136,7 +136,7 @@ func TestClient_Deploy_BlockingWarnings(t *testing.T) {
 		t.Fatalf("warnings = %+v", bw.Report.TranslationWarnings)
 	}
 	wn := bw.Report.TranslationWarnings[0]
-	if wn.Field != "workspace.base_image" || wn.Severity != "high" || wn.Action != "ignored" {
+	if wn.Field != "custom_tools[0].name" || wn.Severity != "high" || wn.Action != "rejected" {
 		t.Errorf("parsed warning = %+v", wn)
 	}
 }
