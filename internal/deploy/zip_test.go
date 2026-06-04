@@ -64,6 +64,69 @@ func TestZipDir_MissingDir(t *testing.T) {
 	}
 }
 
+// TestZipDir_IgnoreFilter 守护安全过滤：默认排除 dotenv / node_modules / .git / 编辑器垃圾，
+// .askdaoignore 兜底排除项目特有路径；SKILL.md 与合法 skill 文件保留。
+func TestZipDir_IgnoreFilter(t *testing.T) {
+	src := t.TempDir()
+	// 应保留
+	mustWrite(t, filepath.Join(src, "SKILL.md"), "---\nname: my-skill\n---\nhi\n")
+	mustWrite(t, filepath.Join(src, "assets", "logo.png"), "PNG")
+	// 默认排除（安全 / 垃圾）
+	mustWrite(t, filepath.Join(src, ".env"), "SECRET=shhh")
+	mustWrite(t, filepath.Join(src, ".env.production"), "TOKEN=leak")
+	mustWrite(t, filepath.Join(src, "node_modules", "left-pad", "index.js"), "module.exports={}")
+	mustWrite(t, filepath.Join(src, ".git", "config"), "[core]")
+	mustWrite(t, filepath.Join(src, "notes.swp"), "vim junk")
+	// .askdaoignore 兜底排除 + 反向纳入
+	mustWrite(t, filepath.Join(src, ".askdaoignore"), "build/\nsecret_notes.md\n!assets/logo.png\n")
+	mustWrite(t, filepath.Join(src, "build", "out.txt"), "artifact")
+	mustWrite(t, filepath.Join(src, "secret_notes.md"), "private")
+
+	data, err := ZipDir(src, "my-skill")
+	if err != nil {
+		t.Fatalf("ZipDir: %v", err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("zip.NewReader: %v", err)
+	}
+	got := map[string]bool{}
+	for _, f := range zr.File {
+		got[f.Name] = true
+	}
+
+	wantPresent := []string{"my-skill/SKILL.md", "my-skill/assets/logo.png"}
+	for _, n := range wantPresent {
+		if !got[n] {
+			t.Errorf("expected %q present, zip = %v", n, keys(got))
+		}
+	}
+	wantAbsent := []string{
+		"my-skill/.env",
+		"my-skill/.env.production",
+		"my-skill/node_modules/left-pad/index.js",
+		"my-skill/.git/config",
+		"my-skill/notes.swp",
+		"my-skill/.askdaoignore",
+		"my-skill/build/out.txt",
+		"my-skill/secret_notes.md",
+	}
+	for _, n := range wantAbsent {
+		if got[n] {
+			t.Errorf("expected %q EXCLUDED, but it was packed", n)
+		}
+	}
+}
+
+func keys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func mustWrite(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
