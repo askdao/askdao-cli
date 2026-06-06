@@ -37,8 +37,9 @@ type mcpServer struct {
 //     marks (a .claude/ project pulls in ~/.claude.json) — Scope="user". Gated
 //     by opts.HomeDir; empty HomeDir skips user scope.
 //
-// Each server is tagged for Anthropic Managed Agents compatibility (only
-// `type: url` is portable).
+// Each server is tagged for Anthropic Managed Agents compatibility: any remote
+// (URL-bearing) transport is portable and normalized to `type: url` — Claude
+// Code labels these `http`/`sse` — while stdio (local subprocess) is not.
 func DetectMCPConfigs(root string, opts ScanScopeOpts) ([]types.DetectedMCPConfig, error) {
 	if root == "" {
 		return nil, errors.New("scanner: root must be non-empty")
@@ -100,10 +101,18 @@ func readMCPConfig(path, source, scope, harness string) (*types.DetectedMCPConfi
 				t = "stdio"
 			}
 		}
+		// Anthropic Managed Agents deploys remote (URL-based) MCP servers; its
+		// spec calls the transport "url". Claude Code / Cowork label the same
+		// remote transport "http" or "sse". Collapse every URL-bearing remote
+		// transport to the portable "url"; only stdio (a local subprocess) is
+		// non-deployable.
+		if s.URL != "" && t != "stdio" {
+			t = "url"
+		}
 		compat := t == "url"
 		warn := ""
 		if !compat {
-			warn = "Anthropic Managed Agents only supports type=url; stdio MCP cannot be deployed"
+			warn = "Anthropic Managed Agents only supports remote (url) MCP servers; stdio MCP cannot be deployed"
 		}
 		servers = append(servers, types.MCPServerConfig{
 			Name:                name,

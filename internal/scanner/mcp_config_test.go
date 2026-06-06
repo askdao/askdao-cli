@@ -75,6 +75,46 @@ func TestDetectMCPConfigs_TypeInference(t *testing.T) {
 	}
 }
 
+// Regression: Claude Code / Cowork label remote MCP servers "http" or "sse"
+// (Anthropic's spec calls the same remote transport "url"). These ARE
+// deployable to Managed Agents and must normalize to "url" + compatible — the
+// gateway at mcp.askdao.ai/mcp is exactly such a server. Only stdio is dropped.
+func TestDetectMCPConfigs_RemoteHTTPCompatible(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, ".mcp.json"), `{
+      "mcpServers": {
+        "askdao-voice": {"type": "http", "url": "https://mcp.askdao.ai/mcp"},
+        "sse-server":   {"type": "sse",  "url": "https://example.com/sse"},
+        "local-fs":     {"type": "stdio", "command": "mcp-server-filesystem"}
+      }
+    }`)
+	got, err := DetectMCPConfigs(root, ScanScopeOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range got[0].Servers {
+		switch s.Name {
+		case "askdao-voice", "sse-server":
+			if s.Type != "url" {
+				t.Errorf("%s: remote transport should normalize to url, got %q", s.Name, s.Type)
+			}
+			if !s.AnthropicCompatible {
+				t.Errorf("%s: remote (http/sse) MCP must be Anthropic-compatible", s.Name)
+			}
+			if s.Warning != "" {
+				t.Errorf("%s: compatible server should carry no warning, got %q", s.Name, s.Warning)
+			}
+		case "local-fs":
+			if s.AnthropicCompatible {
+				t.Errorf("local-fs: stdio must remain incompatible")
+			}
+			if s.Warning == "" {
+				t.Errorf("local-fs: stdio should carry a warning")
+			}
+		}
+	}
+}
+
 func TestDetectMCPConfigs_Missing(t *testing.T) {
 	got, err := DetectMCPConfigs(t.TempDir(), ScanScopeOpts{})
 	if err != nil {
