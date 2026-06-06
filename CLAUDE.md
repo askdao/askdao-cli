@@ -34,21 +34,23 @@ LICENSE - MIT
 ## 命令骨架
 
 ```
-askdao auth login [--server url] [--no-browser]  # OAuth 2.0 Device Code Flow（RFC 8628）+ 落 ~/.config/askdao/credentials.json (0600)
+askdao auth login [--server url] [--name device] [--no-browser]  # OAuth 2.0 Device Code Flow（RFC 8628）+ 落 ~/.config/askdao/credentials.json (0600)
 askdao auth status                         # 显示当前登录身份；未登录 exit 1
 askdao auth logout                         # 删除本地 credentials（不撤销服务端 token，撤销走 web UI v2）
-askdao detect [path]                       # 打印 detection report（含 archetype + 部署清单），不创建 agent
-askdao bundle [path]                       # 预览部署清单：会上传哪些文件（skill 整目录 + origin tag）/ 哪些被排除
-askdao agent init [name] [--auto]          # 在项目根创建 askdao-agent.yml + .askdao/（--auto 跑 L1-L4 流水线 + 交互审阅）
-askdao agent show [flags] [--dir path]     # 渲染 agent spec（中等详情卡片 / 聚焦视图）
-askdao agent deploy [--dir path] [--force] # 打包 custom skill 整目录 + 经 Conductor /cli/deploy 推到 Anthropic Managed Agents（**v0.7.1 起 update-mode**：同 yaml.metadata.name 重 deploy → in-place update Anthropic agent + env，复用 agent_id/group_id；改 name → fork 新 agent）
-askdao agent validate                      # 校验 askdao-agent.yml（计划，未实装）
+askdao agent edit [--dir path] [--harness id] [--no-ui] [--force] [--observe]
+                                           # v0.8 核心命令：扫描(或加载已有 askdao-agent.yml)+ 重扫拿 skill/MCP 候选 → 开本地 Web 工作台审阅/编辑 spec+Agent profile、按 scope 勾选 skill/MCP → Save 或一站式 Deploy。--no-ui 只写草稿退出(CI/headless)；--observe 临时挂 PreToolUse hook 预勾真实 claude session 实际激活的 skill/MCP
+askdao agent deploy [--dir path] [--harness id] [--force]
+                                           # 读 <dir>/askdao-agent.yml 原始字节 + 打包 custom_local skill 整目录 + 经 Conductor /cli/deploy 推到 Anthropic Managed Agents（**v0.7.1 起 update-mode**：同 yaml.metadata.name 重 deploy → in-place update Anthropic agent + env，复用 agent_id/group_id；改 name → fork 新 agent）
+askdao version                             # 打印版本
+askdao help                                # 顶层帮助（子命令用 askdao <cmd> --help 看 flag）
 ```
+
+> **v0.8 命令精简**：旧 `detect` / `bundle` / `agent init` / `agent show`（及 `agent validate` 计划项）已**移除**——其价值（扫描报告 / 上传清单预览 / 卡片审阅）全收进 `agent edit` 本地 Web 工作台。系统未上线，无向后兼容包袱，不保留旧命令。
 
 **产物布局**（v0.7 起项目根扁平化 + `.askdao/` 工具空间）：
 - `<root>/askdao-agent.yml` — KOL 唯一编辑对象（项目宣言文件，含 `persona.system_prompt` literal block 完整内容）
 - `<root>/.askdao/recommendation.yml` — diff baseline（deploy 用作 KOL 改动检测）
-- `<root>/.askdao/detection.json` — 确定性扫描结果（每次 init 重生成）
+- `<root>/.askdao/detection.json` — 确定性扫描结果（每次 `agent edit` 重生成）
 
 deploy 的 token 解析顺序：`ASKDAO_CONDUCTOR_TOKEN + ASKDAO_CONDUCTOR_URL` 同时设置 → 用 env（CI / 一次性覆盖）；否则读 `credentials.json`（`askdao auth login` 的产物）；都没有 → 报错并提示登录。两个 env 必须成对，单设一个明确报错（防止误配置静默降级）。设计稿 [`docs/cli-auth-device-flow.md`](docs/cli-auth-device-flow.md) §6.3。
 
