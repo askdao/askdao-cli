@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/askdao/askdao-cli/internal/types"
@@ -176,6 +177,7 @@ func DefaultMockRecommend(req RecommendRequest) *RecommendResponse {
 		VaultHints:       buildVaultHints(req.Detection),
 		PreferredHarness: harnessFor(req),
 	}
+	syncNetworkingFromMCP(&spec)
 
 	resp := &RecommendResponse{
 		Spec:             spec,
@@ -228,7 +230,6 @@ func buildWorkspace(req RecommendRequest) types.Workspace {
 		Workdir: "/app",
 		Networking: types.Networking{
 			Mode:                 "limited",
-			AllowMCPServers:      true,
 			AllowPackageManagers: false,
 			AllowedHosts:         []string{"api.anthropic.com", "api.openai.com"},
 		},
@@ -268,6 +269,34 @@ func buildWorkspace(req RecommendRequest) types.Workspace {
 
 	ws.Packages = types.WorkspacePackages{Pip: pip, Npm: npm, Apt: aptList}
 	return ws
+}
+
+// syncNetworkingFromMCP sets allow_mcp_servers and adds MCP server hostnames
+// to allowed_hosts, deduped against any pre-existing entries.
+func syncNetworkingFromMCP(spec *types.AgentSpec) {
+	hasMCP := len(spec.MCPServers) > 0
+	spec.Workspace.Networking.AllowMCPServers = hasMCP
+	if !hasMCP {
+		return
+	}
+	existing := map[string]bool{}
+	for _, h := range spec.Workspace.Networking.AllowedHosts {
+		existing[h] = true
+	}
+	for _, srv := range spec.MCPServers {
+		if srv.URL == "" {
+			continue
+		}
+		u, err := url.Parse(srv.URL)
+		if err != nil || u.Hostname() == "" {
+			continue
+		}
+		host := u.Hostname()
+		if !existing[host] {
+			spec.Workspace.Networking.AllowedHosts = append(spec.Workspace.Networking.AllowedHosts, host)
+			existing[host] = true
+		}
+	}
 }
 
 func buildVaultHints(d *types.Detection) types.VaultHints {

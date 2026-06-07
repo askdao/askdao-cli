@@ -15,6 +15,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -208,11 +209,44 @@ func detRiskHints(det *types.Detection) types.DetectedToolRiskHints {
 	return det.DetectedToolRiskHints
 }
 
+// syncNetworkingFromMCP derives workspace.networking fields from mcp_servers:
+// allow_mcp_servers mirrors whether any MCP server is configured, and
+// allowed_hosts includes each MCP server's hostname (deduped, preserving
+// any pre-existing hosts).
+func syncNetworkingFromMCP(spec *types.AgentSpec) {
+	hasMCP := len(spec.MCPServers) > 0
+	spec.Workspace.Networking.AllowMCPServers = hasMCP
+
+	if !hasMCP {
+		return
+	}
+
+	existing := map[string]bool{}
+	for _, h := range spec.Workspace.Networking.AllowedHosts {
+		existing[h] = true
+	}
+	for _, srv := range spec.MCPServers {
+		if srv.URL == "" {
+			continue
+		}
+		u, err := url.Parse(srv.URL)
+		if err != nil || u.Hostname() == "" {
+			continue
+		}
+		host := u.Hostname()
+		if !existing[host] {
+			spec.Workspace.Networking.AllowedHosts = append(spec.Workspace.Networking.AllowedHosts, host)
+			existing[host] = true
+		}
+	}
+}
+
 // writeAgentSpec writes the KOL-editable askdao-agent.yml at the project root.
 func writeAgentSpec(dir string, spec *types.AgentSpec) error {
 	if err := ensureAskdaoDir(dir); err != nil {
 		return err
 	}
+	syncNetworkingFromMCP(spec)
 	yml, err := yaml.Marshal(spec)
 	if err != nil {
 		return fmt.Errorf("yaml marshal: %w", err)
