@@ -4,7 +4,8 @@
 //
 // [OUTPUT]: 对外提供 DetectSkills（custom_local skill 枚举 + bundle 体积 + lockfile 关联 + builtin 反向推）、
 //
-//	LoadSkillsLock（skills-lock.json → name→SkillRef map）、SkillDirCandidates、hashFile
+//	LoadSkillsLock（skills-lock.json → name→SkillRef map）、SkillDirCandidates、ParseSkillFrontmatter
+//	（SKILL.md frontmatter name/description 行级解析，deploy 前置校验共用）、hashFile
 //
 // [POS]: internal/scanner 的 skill 探测器；产物喂 payload.go 做上传清单分类、archetype.go 做原型判定、recommender 做 L4 推荐
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -145,7 +146,7 @@ func scanSkillBase(base, sourcePrefix, scope, harness string, lock map[string]Sk
 			Scope:           scope,
 			Harness:         harness,
 		}
-		_, ds.Description = parseSkillFrontmatter(skillFile)
+		_, ds.Description = ParseSkillFrontmatter(skillFile)
 		ds.BundleBytes, ds.BundleFiles = dirSize(filepath.Join(base, e.Name()))
 		if ref, ok := lock[e.Name()]; ok {
 			ds.LockedSource = ref.Source
@@ -218,11 +219,13 @@ func LoadSkillsLock(root string) (map[string]SkillsLockEntry, error) {
 	return nil, nil
 }
 
-// parseSkillFrontmatter reads the leading `--- ... ---` YAML frontmatter of a
+// ParseSkillFrontmatter reads the leading `--- ... ---` YAML frontmatter of a
 // SKILL.md and returns its `name` / `description` values. It does a tiny
 // line-based parse (no YAML dep) — enough for the flat `key: value` shape
 // SKILL.md frontmatter uses in practice. Missing frontmatter → empty strings.
-func parseSkillFrontmatter(path string) (name, description string) {
+// Exported so deploy-time validation (cmd/askdao packageSkills) shares the
+// same parser the scanner uses for detection.
+func ParseSkillFrontmatter(path string) (name, description string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", ""

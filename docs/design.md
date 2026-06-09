@@ -1356,6 +1356,17 @@ vs v0.2（~2950 行）：累计增量 ~1330 行。
 | 2 | `askdao plugin export`（影响②）：detection/AgentSpec → Claude Code plugin 目录（+ Codex）。先定 AgentSpec↔plugin 映射表（进 §5）。 | 中 | 阶段 1 之后；先在 askdao-cloud 起 design issue 讨论分发模型 |
 | 3 | 架构层（影响③）：AgentSpec 目标矩阵 +2 列、askdao-cloud 发行模型决策、conductor 要不要 PluginAdapter / plugin-ingest。跨 askdao-cli + askdao-cloud + conductor。 | 高（战略）| 阶段 2 落地、跑过几个真实 KOL plugin 之后 |
 
+#### 野生案例验证：guige-skills（2026-06，详见 `WxArticle-Project-To-Claude-Plugin.md`）
+
+一个真实个人 skill 集（13 skill）从 install.sh/symlink 迁移到 plugin 体系的公开实录，是本节判断的第一个野外样本。带来的增量输入：
+
+1. **开放问题①有了低成本答案**：「repo 即 marketplace」（`.claude-plugin/marketplace.json` 的 `source.repo` 指向自身）= 零基础设施分发，两行命令安装。AskDAO MVP 不需要自建 marketplace，git repo 本身就是。
+2. **开放问题③的输入**：plugin 公开分发无准入，做不了 paid 订阅 → plugin export 定位为**免费获客渠道**，云端部署是**变现渠道**，并存而非二选一。文章「坑一：换机器依赖缺失」也佐证 plugin 不管 runtime——askdao 的差异化恰在 managed runtime + 环境 + 订阅。
+3. **影响①新信号**：野生 plugin 的 skill 内嵌 `agents/*.yaml`（skill 级子 agent）。本表「组件目录」已列 plugin 根的 `agents/`，但 skill 内嵌这一层级 detection schema 未覆盖，plugin archetype 落地时需纳入。
+4. **影响②硬不变量实证**：name/version 跨多套 manifest 不一致 → 客户端加载报错且极难定位。emitter 必须保证一致性 + CI 校验（文章 `scripts/validate.py` 模式：manifest name/version 一致 + 每 skill 有 SKILL.md + frontmatter 含 name/description + name 唯一）。
+5. **不等 plugin 化即可用**：「description 是给 AI 看的触发指令——列触发场景 > 写功能描述，含反触发条件，80-150 字」。askdao-cli 上传 skill 到 Managed Agents 同样靠 description 做语义匹配 → 已落地为 deploy 前置校验（frontmatter name/description 必填，见 §9.14 packageSkills），工作台 description 质量提示进 backlog。
+6. **skill 自包含纪律**：「skill 间不互读私有目录，共享走顶层 references/ 或 CLI 接口」。askdao-cli 按 skill 目录独立打 zip 隐含同一假设——KOL 的 skill 若互读兄弟目录，部署后会静默断掉，文档需显式声明。
+
 ---
 
 ### 9.12 Agent 项目布局：单文件宣言 + `.askdao/` 工具空间 ✅ 已定（v0.7）

@@ -1,4 +1,4 @@
-// [INPUT]: 标准库 + internal/auth（Credentials / Load / ErrNoCredentials）+ internal/deploy（Client / DeployInput / ZipDir / Err* 类型）+ internal/render（Diff / TranslationWarnings）+ internal/types（AgentSpec）+ gopkg.in/yaml.v3
+// [INPUT]: 标准库 + internal/auth（Credentials / Load / ErrNoCredentials）+ internal/deploy（Client / DeployInput / ZipDir / Err* 类型）+ internal/render（Diff / TranslationWarnings）+ internal/scanner（ParseSkillFrontmatter — deploy 前置校验）+ internal/types（AgentSpec）+ gopkg.in/yaml.v3
 // [OUTPUT]: runDeploy — `askdao agent deploy` 命令实装；packageSkills / deployFromDir / resolveSkillDir — skill 打包真相源（CLI + 工作台共用）
 // [POS]: cmd/askdao 的 deploy 子命令；读 <dir>/askdao-agent.yml 原文 + 经 packageSkills 按 skill.path（project 相对 / 绝对 / ~ / Scope=="user"）
 //
@@ -24,6 +24,7 @@ import (
 	"github.com/askdao/askdao-cli/internal/auth"
 	"github.com/askdao/askdao-cli/internal/deploy"
 	"github.com/askdao/askdao-cli/internal/render"
+	"github.com/askdao/askdao-cli/internal/scanner"
 	"github.com/askdao/askdao-cli/internal/types"
 )
 
@@ -379,9 +380,12 @@ func resolveSkillDir(dir string, s types.Skill) (string, error) {
 // name→zip map, applying the harness-neutral invariant (zip top dir =
 // filepath.Base). Shared by `agent deploy` (CLI) and the web studio's
 // OnDeploy. Returns a descriptive error on a missing dir / SKILL.md / name
-// collision.
+// collision / incomplete SKILL.md frontmatter (name + description are how
+// the model decides to activate a skill — a skill missing them deploys
+// fine but never triggers, so we fail fast here instead).
 func packageSkills(dir string, spec *types.AgentSpec) (map[string][]byte, error) {
 	skillZips := map[string][]byte{}
+	fmNames := map[string]string{} // frontmatter name → yaml path (collision detection)
 	for _, s := range spec.Skills {
 		if s.Type != "custom_local" {
 			continue
@@ -400,9 +404,21 @@ func packageSkills(dir string, spec *types.AgentSpec) (map[string][]byte, error)
 		if fi, serr := os.Stat(skillDir); serr != nil || !fi.IsDir() {
 			return nil, fmt.Errorf("custom_local skill %q: directory not found at %s", s.Path, skillDir)
 		}
-		if _, serr := os.Stat(filepath.Join(skillDir, "SKILL.md")); serr != nil {
+		skillMD := filepath.Join(skillDir, "SKILL.md")
+		if _, serr := os.Stat(skillMD); serr != nil {
 			return nil, fmt.Errorf("custom_local skill %q: %s has no SKILL.md", s.Path, skillDir)
 		}
+		fmName, fmDesc := scanner.ParseSkillFrontmatter(skillMD)
+		if fmName == "" {
+			return nil, fmt.Errorf("custom_local skill %q: SKILL.md frontmatter must declare 'name' (add a leading `---` block with name + description)", s.Path)
+		}
+		if fmDesc == "" {
+			return nil, fmt.Errorf("custom_local skill %q: SKILL.md frontmatter must declare 'description' — it is the trigger instruction the model matches against; without it the skill never activates", s.Path)
+		}
+		if prev, dup := fmNames[fmName]; dup {
+			return nil, fmt.Errorf("skill frontmatter name collision %q (declared by both %s and %s)", fmName, prev, s.Path)
+		}
+		fmNames[fmName] = s.Path
 		zb, zerr := deploy.ZipDir(skillDir, skillName)
 		if zerr != nil {
 			return nil, fmt.Errorf("packaging skill %q: %w", s.Path, zerr)
