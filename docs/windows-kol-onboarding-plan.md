@@ -124,9 +124,11 @@ claude mcp add --transport http askdao-mcp https://mcp.askdao.ai/mcp \
 - checksums + 版本号注入（`-ldflags -X main.version=`）
 - 私有阶段协作者经 `gh release download` 获取；为日后开源预留 scoop manifest / `install.ps1` 的目录占位
 
-### M2. `askdao mcp setup` — MCP 配置自动注入（约 1 天，跨 cli + conductor）
+### M2. `askdao mcp setup` — MCP 配置自动注入（约 1 天，跨 cli + conductor）✅ 第一步已落地 2026-06-10
 
 替代 S4 交付后的 S5 手工命令，KOL 体验收敛为三行：`auth login` → `mcp setup` → 开始调试。
+conductor 侧 endpoint（PR conductor#149）+ cli 侧命令均已实现；token 动态化（第二步）保持触发条件待命。
+部署前置：Secrets Manager `askdao/conductor` 需手工 put `MCP_GATEWAY_CLI_TOKEN`（CDK 注入已就位，askdao-cloud@4c5801e）。
 
 **conductor 侧**：新增 `GET /api/v1/cli/mcp-credentials`
 

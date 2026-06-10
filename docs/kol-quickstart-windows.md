@@ -54,6 +54,14 @@ askdao auth login
 
 askdao-mcp 是平台的工具网关（播客生成、语音合成、文生图、美股行情、SEC 财报等），地址 `https://mcp.askdao.ai/mcp`。你需要让本地的 Claude Code / Codex 连上它，调试确认后再部署。
 
+**推荐方式（v0.9+ 一条命令）**：第 3 步登录完成后直接运行
+
+```powershell
+askdao mcp setup
+```
+
+它会自动从平台取回接入凭证，写好 Claude Code 和 Codex 的配置（含 `ASKDAO_MCP_TOKEN` 环境变量），重开终端即可生效——下面 4.1~4.4 的手工步骤可全部跳过，仅作参考或老版本备用（`askdao mcp setup --print` 可输出手工配置片段）。
+
 ### 4.1 先把 token 设为用户环境变量（一次性）
 
 ```powershell
