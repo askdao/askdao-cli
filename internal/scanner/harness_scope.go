@@ -82,15 +82,14 @@ func appDataDir(home string) string {
 // markerDirs nil — they have no per-project footprint — and instead self-gate on
 // whether the user actually has the app configured (see active).
 //
-// userMCPFiles holds only files our JSON parser (readMCPConfig) understands —
-// the canonical {"mcpServers": {...}} shape. Codex's MCP config is TOML
-// ([mcp_servers.<id>] tables) and is therefore NOT listed yet; wiring it up
-// needs a TOML reader, not just a path (see codexMCPNote).
+// userMCPFiles may mix formats: readMCPConfig dispatches on extension —
+// .toml → Codex [mcp_servers.<id>] tables, everything else → the canonical
+// JSON {"mcpServers": {...}} shape.
 type harnessConvention struct {
 	name          string     // "claude" | "codex" | "cowork"
 	markerDirs    []string   // project-root markers (CLI); nil for GUI apps
 	userSkillDirs []userPath // global skill dirs (SKILL.md form)
-	userMCPFiles  []userPath // global MCP config files (JSON mcpServers shape only)
+	userMCPFiles  []userPath // global MCP config files (JSON or TOML, by extension)
 }
 
 // harnessConventions drives harness-aware user-scope scanning.
@@ -100,8 +99,8 @@ type harnessConvention struct {
 //     skills dir already in SkillDirCandidates, so a project carrying only
 //     .agents/skills still counts as a Codex workspace). Global skills at
 //     ~/.agents/skills (SKILL.md form, official Codex skills path). Global MCP
-//     lives in ~/.codex/config.toml as TOML — intentionally NOT in userMCPFiles
-//     because readMCPConfig only parses JSON; a TOML reader is required (codexMCPNote).
+//     at ~/.codex/config.toml — TOML [mcp_servers.<id>] tables, parsed by
+//     readMCPConfig's extension dispatch.
 //   - cowork (GUI app = Claude Desktop's agentic mode): NO project marker. Global
 //     MCP is claude_desktop_config.json under the per-OS app-data dir (canonical
 //     JSON mcpServers). NB: DXT-packaged extensions (Claude Extensions/) are a
@@ -129,12 +128,9 @@ var harnessConventions = []harnessConvention{
 	},
 	{
 		name:          "codex",
-		markerDirs:    []string{".codex", ".agents"},            // .codex config dir + cross-harness .agents
-		userSkillDirs: []userPath{{baseHome, ".agents/skills"}}, // ~/.agents/skills (official codex skills path)
-		// codexMCPNote: global MCP is ~/.codex/config.toml in TOML
-		// ([mcp_servers.<id>]); readMCPConfig is JSON-only, so we cannot list it
-		// here without a TOML parser. Tracked as a separate work item.
-		userMCPFiles: nil,
+		markerDirs:    []string{".codex", ".agents"},                // .codex config dir + cross-harness .agents
+		userSkillDirs: []userPath{{baseHome, ".agents/skills"}},     // ~/.agents/skills (official codex skills path)
+		userMCPFiles:  []userPath{{baseHome, ".codex/config.toml"}}, // TOML [mcp_servers.<id>]
 	},
 	{
 		name:          "cowork",

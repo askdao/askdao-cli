@@ -164,6 +164,91 @@ func TestDetectMCPConfigs_UserScope(t *testing.T) {
 	}
 }
 
+func TestDetectMCPConfigs_CodexProjectTOML(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, ".codex", "config.toml"), `
+model = "gpt-5.1" # unrelated keys must be ignored
+
+[mcp_servers.askdao-mcp]
+url = "https://mcp.askdao.ai/mcp"
+bearer_token_env_var = "ASKDAO_MCP_TOKEN"
+
+[mcp_servers.local-fs]
+command = "mcp-server-filesystem"
+args = ["--root", "/tmp"]
+`)
+
+	got, err := DetectMCPConfigs(root, ScanScopeOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 source, got %d: %+v", len(got), got)
+	}
+	cfg := got[0]
+	if cfg.Source != ".codex/config.toml" || cfg.Scope != "project" || cfg.Harness != "codex" {
+		t.Errorf("source/scope/harness = %q/%q/%q", cfg.Source, cfg.Scope, cfg.Harness)
+	}
+	if len(cfg.Servers) != 2 {
+		t.Fatalf("want 2 servers, got %+v", cfg.Servers)
+	}
+	// Sorted by name: askdao-mcp before local-fs.
+	remote, local := cfg.Servers[0], cfg.Servers[1]
+	if remote.Name != "askdao-mcp" || remote.Type != "url" || !remote.AnthropicCompatible {
+		t.Errorf("remote: %+v", remote)
+	}
+	if local.Name != "local-fs" || local.Type != "stdio" || local.AnthropicCompatible {
+		t.Errorf("local: %+v", local)
+	}
+	if local.Command != "mcp-server-filesystem --root /tmp" {
+		t.Errorf("args should join into Command, got %q", local.Command)
+	}
+	if local.Warning == "" {
+		t.Errorf("stdio should carry a warning")
+	}
+}
+
+func TestDetectMCPConfigs_CodexUserScope(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	// Project .agents/ marker activates codex user-scope discovery.
+	mustWrite(t, filepath.Join(root, ".agents", "skills", ".keep"), "")
+	mustWrite(t, filepath.Join(home, ".codex", "config.toml"), `
+[mcp_servers.global-codex-mcp]
+url = "https://mcp.askdao.ai/mcp"
+`)
+
+	got, err := DetectMCPConfigs(root, ScanScopeOpts{HomeDir: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, cfg := range got {
+		if cfg.Scope == "user" && cfg.Harness == "codex" {
+			for _, s := range cfg.Servers {
+				if s.Name == "global-codex-mcp" && s.Type == "url" && s.AnthropicCompatible {
+					found = true
+				}
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected user-scope codex MCP 'global-codex-mcp', got %+v", got)
+	}
+}
+
+func TestDetectMCPConfigs_MalformedTOML(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, ".codex", "config.toml"), "not [[ valid toml =")
+	got, err := DetectMCPConfigs(root, ScanScopeOpts{})
+	if err != nil {
+		t.Fatalf("malformed TOML should not error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("malformed TOML should yield no entries, got %+v", got)
+	}
+}
+
 func TestDetectMCPConfigs_CoworkUserScope(t *testing.T) {
 	root := t.TempDir() // Cowork is markerless — no project marker required.
 	home := t.TempDir()
