@@ -1,10 +1,14 @@
 // [INPUT]: 依赖 testing + os + path/filepath + time + runtime
 // [OUTPUT]: TestCredentials* — Save / Load / Delete roundtrip; sentinel error
-//          on missing file; corruption detection; schema-version refuse;
-//          0600 mode invariant (POSIX-only sub-case)
+//
+//	on missing file; corruption detection; schema-version refuse;
+//	0600 mode invariant (POSIX-only sub-case)
+//
 // [POS]: internal/auth/ — unit-test layer for credentials.go; isolates the
-//        config dir via t.Setenv("XDG_CONFIG_HOME", t.TempDir()) so tests
-//        never touch the developer's real $HOME.
+//
+//	config dir via t.Setenv("XDG_CONFIG_HOME", t.TempDir()) so tests
+//	never touch the developer's real $HOME.
+//
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package auth
 

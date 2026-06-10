@@ -1,9 +1,15 @@
 // [INPUT]: 依赖 internal/types 的 AgentSpec schema、testdata 下 fixtures、
-//          标准库 bytes/os/reflect/testing、gopkg.in/yaml.v3
+//
+//	标准库 bytes/os/reflect/testing、gopkg.in/yaml.v3
+//
 // [OUTPUT]: 对外提供 TestAgentSpecRoundTripValid / TestAgentSpecRejectInvalid /
-//          TestAgentSpecAPIVersionStamp 测试
+//
+//	TestAgentSpecAPIVersionStamp 测试
+//
 // [POS]: internal/types 的 agent.yml schema 验证；保证 fixture YAML
-//        marshal→unmarshal→DeepEqual 通，strict 模式拒非法字段
+//
+//	marshal→unmarshal→DeepEqual 通，strict 模式拒非法字段
+//
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package types
 
