@@ -15,7 +15,9 @@ docs/ - 设计文档与调研报告（design.md = Phase 1 静态流水线主稿 
 
 <config>
 go.mod - Go module 定义（github.com/askdao/askdao-cli）
-Makefile - build / install / test / lint / clean 标准目标
+Makefile - build / install / test / lint / clean / snapshot 标准目标
+.goreleaser.yml - GoReleaser v2 发布管线（windows/darwin/linux × amd64/arm64 + checksums；version 经 ldflags -X main.version 注入）
+.github/workflows/release.yml - tag v* 触发：go test → goreleaser release 挂 GitHub Release
 LICENSE - MIT
 .gitignore - Go 标准忽略规则
 </config>
