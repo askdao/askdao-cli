@@ -1,11 +1,11 @@
 # AskDAO 创作者快速上手指南（Windows）
 
-> v0.2 | 2026-06-11 | 面向对象：使用 Windows + Claude Code / Codex 的 KOL/Builder
+> v0.3 | 2026-06-11 | 面向对象：使用 Windows + Claude Code / Codex 的 KOL/Builder
 >
 > 走完本指南，你将完成：安装 askdao 命令行工具 → 让你本地的 Agent 项目接入 askdao-mcp 工具集 → 本地调试确认 → 一条命令部署到 askdao.ai，供你的订阅者使用。
 > 全程约 20 分钟。遇到问题直接联系平台方（Sam）。
 >
-> v0.2 变更：`askdao auth login` 已内置 askdao-mcp 自动配置，不再需要平台方单独交付 MCP token，原手工配置步骤降级为备用方案。
+> v0.3 变更：§1 增补 Release 自助下载命令（gh release download）。v0.2 变更：`askdao auth login` 已内置 askdao-mcp 自动配置，不再需要平台方单独交付 MCP token，原手工配置步骤降级为备用方案。
 
 ---
 
@@ -21,7 +21,20 @@
 
 ## 1. 安装 askdao.exe
 
-把 `askdao.exe` 放到固定目录并加入 PATH（PowerShell 执行）：
+两种获取方式任选其一：
+
+**A. 平台方直发**：拿到 `askdao.exe` 后直接跳到下面的 PATH 设置。
+
+**B. 从 GitHub Release 自助下载**（已被邀请为仓库协作者时；后续升级也走这条）：
+
+```powershell
+winget install GitHub.cli          # 装 gh（已装可跳过）
+gh auth login                      # 浏览器登录 GitHub（一次性）
+gh release download -R askdao/askdao-cli --pattern "*windows_amd64*"
+Expand-Archive askdao_*_windows_amd64.zip -DestinationPath .
+```
+
+然后把 `askdao.exe` 放到固定目录并加入 PATH（PowerShell 执行）：
 
 ```powershell
 New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\askdao\bin" | Out-Null

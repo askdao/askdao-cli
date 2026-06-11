@@ -11,9 +11,18 @@
 ## Quickstart
 
 ```bash
-# 1. Install (Go 1.26+)
-git clone https://github.com/askdao/askdao-cli.git
-cd askdao-cli && make install
+# 1. Install — download the latest release binary (needs `gh auth login` once;
+#    or grab it from the Releases page in your browser)
+#    Windows (PowerShell):
+gh release download -R askdao/askdao-cli --pattern "*windows_amd64*"
+Expand-Archive askdao_*_windows_amd64.zip   # then put askdao.exe on your PATH
+#    macOS / Linux:
+gh release download -R askdao/askdao-cli --pattern "*$(uname -s | tr A-Z a-z)_arm64*"
+tar xzf askdao_*.tar.gz && mv askdao ~/.local/bin/
+
+# Developers building from source instead: Go 1.26+, then `go install ./cmd/askdao`
+# (`make install` is the Unix shortcut — Windows has no make). Release binaries
+# report a real version (`askdao version` → 0.1.0); source builds show 0.0.0-dev.
 
 # 2. Log in (browser-bound, one-time)
 askdao auth login
