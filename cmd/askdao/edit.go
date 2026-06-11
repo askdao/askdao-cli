@@ -278,9 +278,10 @@ func studioDeployError(derr error) error {
 	var kpr *deploy.ErrKolProfileRequired
 	if errors.As(derr, &kpr) {
 		// The 409 gate is kol_join_mode IS NULL — set on the dashboard
-		// subscription page (auto/paid picker), NOT the profile page (which
-		// only writes name/image/bio).
-		return fmt.Errorf("Your Builder profile isn't set up yet — pick a subscription mode at https://askdao.ai/dashboard/subscription, then deploy again")
+		// subscription page (mode picker + activate button), NOT the profile
+		// page (which only writes name/image/bio). URL is server-handed
+		// (detail.setup_url) with a hardcoded fallback for older conductors.
+		return fmt.Errorf("Your Builder profile isn't set up yet — pick a subscription mode at %s, then deploy again", kolProfileSetupURL(kpr))
 	}
 	var bw *deploy.ErrBlockingWarnings
 	if errors.As(derr, &bw) {

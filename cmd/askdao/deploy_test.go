@@ -379,3 +379,34 @@ func captureStderr(t *testing.T) (func() string, func()) {
 	restore := func() { os.Stderr = prev }
 	return get, restore
 }
+
+func TestDeploy_KolProfileRequired_UsesServerSetupURL(t *testing.T) {
+	// M4: conductor 下发 detail.setup_url 时优先渲染服务端地址（权威引导收敛
+	// 到服务端，硬编码仅作老版本 conductor fallback —— 上一个 case 覆盖）。
+	root := withWorkdir(t)
+	writeMinimalAgent(t, root, "test-agent")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusConflict, map[string]interface{}{
+			"detail": map[string]interface{}{
+				"reason":    "kol_profile_required",
+				"fields":    []string{"kol_join_mode"},
+				"setup_url": "https://staging.askdao.ai/dashboard/subscription",
+			},
+		})
+	}))
+	defer srv.Close()
+	t.Setenv("ASKDAO_CONDUCTOR_URL", srv.URL)
+	t.Setenv("ASKDAO_CONDUCTOR_TOKEN", "tok")
+
+	out, restore := captureStdout(t)
+	defer restore()
+	code := runDeploy(context.Background(), []string{"--dir", "test-agent"})
+	got := out()
+	if code != 1 {
+		t.Fatalf("deploy exit = %d, want 1\n--- output ---\n%s", code, got)
+	}
+	if !strings.Contains(got, "https://staging.askdao.ai/dashboard/subscription") {
+		t.Errorf("output should use the server-handed setup_url\n--- output ---\n%s", got)
+	}
+}

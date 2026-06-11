@@ -128,13 +128,15 @@ func runDeploy(ctx context.Context, args []string) int {
 		var kpr *deploy.ErrKolProfileRequired
 		if errors.As(derr, &kpr) {
 			// KOL profile lives in the askdao.ai cloud (not the local CLI). The
-			// 409 gate is specifically kol_join_mode IS NULL, and that field is
-			// set on the dashboard *subscription* page (auto/paid picker) — the
-			// profile page only writes name/image/bio and won't clear the gate.
-			// Mirrors edit.go's studioDeployError so both entry points agree.
+			// 409 gate is specifically kol_join_mode IS NULL, set on the dashboard
+			// subscription page (mode picker + activate button) — the profile page
+			// only writes name/image/bio and won't clear the gate. The URL is
+			// server-authoritative (detail.setup_url, M4); the hardcoded value is
+			// only the fallback for older conductors. Mirrors edit.go's
+			// studioDeployError so both entry points agree.
 			fmt.Println()
 			fmt.Println("⚠  Your Builder profile isn't set up yet.")
-			fmt.Println("   Pick a subscription mode at https://askdao.ai/dashboard/subscription, then deploy again.")
+			fmt.Printf("   Pick a subscription mode at %s, then deploy again.\n", kolProfileSetupURL(kpr))
 			return 1
 		}
 	}
@@ -155,6 +157,16 @@ func runDeploy(ctx context.Context, args []string) int {
 
 	printDeployResult(resp)
 	return 0
+}
+
+// kolProfileSetupURL resolves the page that clears the kol_profile_required
+// gate: server-handed detail.setup_url first, hardcoded fallback for older
+// conductors. Shared by runDeploy and edit.go's studioDeployError.
+func kolProfileSetupURL(kpr *deploy.ErrKolProfileRequired) string {
+	if kpr != nil && kpr.Detail.SetupURL != "" {
+		return kpr.Detail.SetupURL
+	}
+	return "https://askdao.ai/dashboard/subscription"
 }
 
 func printDeployResult(resp *deploy.DeployResponse) {

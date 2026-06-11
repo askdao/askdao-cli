@@ -94,10 +94,14 @@ type KolProfilePatch struct {
 }
 
 // KolProfileRequired is the parsed `detail` of a 409 kol_profile_required.
+// SetupURL is the server-authoritative page that clears the gate (M4) —
+// callers render it when present and fall back to a hardcoded URL only for
+// older conductors, so web route changes never strand the CLI hint again.
 type KolProfileRequired struct {
-	Reason string   `json:"reason"`
-	Fields []string `json:"fields"`
-	Hint   string   `json:"hint"`
+	Reason   string   `json:"reason"`
+	Fields   []string `json:"fields"`
+	Hint     string   `json:"hint"`
+	SetupURL string   `json:"setup_url"`
 }
 
 // ErrKolProfileRequired is returned by Deploy when the conductor needs the
@@ -234,6 +238,7 @@ type conflictDetail struct {
 	Reason            string             `json:"reason"`
 	Fields            []string           `json:"fields"`
 	Hint              string             `json:"hint"`
+	SetupURL          string             `json:"setup_url"`
 	TranslationReport *TranslationReport `json:"translation_report"`
 }
 
@@ -253,7 +258,9 @@ func classifyConflict(body []byte) error {
 	}
 	switch {
 	case d.Reason == "kol_profile_required":
-		return &ErrKolProfileRequired{Detail: KolProfileRequired{Reason: d.Reason, Fields: d.Fields, Hint: d.Hint}}
+		return &ErrKolProfileRequired{Detail: KolProfileRequired{
+			Reason: d.Reason, Fields: d.Fields, Hint: d.Hint, SetupURL: d.SetupURL,
+		}}
 	case d.TranslationReport != nil:
 		return &ErrBlockingWarnings{Report: *d.TranslationReport}
 	default:

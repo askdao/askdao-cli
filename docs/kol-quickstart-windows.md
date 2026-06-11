@@ -36,10 +36,13 @@ askdao --help
 ## 2. 注册 askdao.ai 并补全创作者资料
 
 1. 打开 https://askdao.ai 注册账号（支持 Google/GitHub/邮箱）
-2. 打开 **https://askdao.ai/dashboard/subscription**，选择一次**订阅模式**（选 auto 即可）——这一步是部署的硬前提
+2. 打开 **https://askdao.ai/dashboard/subscription**，选择一档**订阅模式**并点击「激活订阅模式」按钮——这一步是部署的硬前提
+   - **免费**：任何人访问你的主页即可订阅
+   - **访问密码**：订阅者需输入你设置的口令才能加入（口令可随时改）
+   - 付费模式 Phase 2 开放
 3. 打开 **https://askdao.ai/dashboard/profile**，补全展示名、头像、个人简介（订阅者会看到）
 
-> 第 2 步不做的话，后面 `agent deploy` 会报错提示 profile 未设置——注意：只填 profile 页**不够**，必须在 subscription 页选过订阅模式。
+> 第 2 步不做的话，后面 `agent deploy` 会报错并附上激活页链接——注意：只填 profile 页**不够**，必须在 subscription 页激活过订阅模式。
 
 ## 3. 登录命令行
 
