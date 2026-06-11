@@ -35,6 +35,8 @@ func main() {
 		os.Exit(runAgent(ctx, os.Args[2:]))
 	case "auth":
 		os.Exit(runAuth(ctx, os.Args[2:]))
+	case "mcp":
+		os.Exit(runMCP(ctx, os.Args[2:]))
 	default:
 		fmt.Fprintf(os.Stderr, "askdao: unknown command %q\n\n", cmd)
 		printRootHelp(os.Stderr)
@@ -77,6 +79,7 @@ COMMANDS:
     auth login                     Browser-bound login (OAuth 2.0 Device Code Flow)
     auth status                    Show the currently-logged-in identity
     auth logout                    Delete local credentials
+    mcp setup [--print]            Configure the askdao MCP gateway in Claude Code / Codex
     agent edit [--dir path]        Scan + open the web studio to review/edit/deploy an agent
     agent deploy [--harness id]    Push an edited askdao-agent.yml to conductor
     version                        Print version
