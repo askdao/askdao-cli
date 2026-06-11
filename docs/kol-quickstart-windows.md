@@ -82,23 +82,14 @@ bearer_token_env_var = "ASKDAO_MCP_TOKEN"
 
 验证：启动 `codex`，问它"列出 askdao-mcp 可用的工具"。
 
-### 4.4 Codex 开发的项目：额外在项目根放一个 `.mcp.json`
+### 4.4 Codex 项目的扫描发现
 
-askdao 工具目前扫描不到 Codex 的 TOML 配置。在你的 Agent 项目根目录创建 `.mcp.json`（这个文件可以进 git，token 走环境变量展开，不会泄露）：
+askdao 工具能直接读取 Codex 的配置（`%USERPROFILE%\.codex\config.toml` 与项目内 `.codex/config.toml`），4.3 配置完成后 `askdao agent edit` 即可自动发现 askdao-mcp，无需额外步骤。
 
-```json
-{
-  "mcpServers": {
-    "askdao-mcp": {
-      "type": "http",
-      "url": "https://mcp.askdao.ai/mcp",
-      "headers": { "Authorization": "Bearer ${ASKDAO_MCP_TOKEN}" }
-    }
-  }
-}
-```
-
-Claude Code 开发的项目不需要这一步（4.2 的 user 配置就能被发现）。
+> 如果你用的是较老版本的 askdao.exe（v0.9 之前）扫不到 Codex 配置，可在项目根放一个 `.mcp.json` 作为兼容写法（token 走环境变量展开，可安全进 git）：
+> ```json
+> { "mcpServers": { "askdao-mcp": { "type": "http", "url": "https://mcp.askdao.ai/mcp", "headers": { "Authorization": "Bearer ${ASKDAO_MCP_TOKEN}" } } } }
+> ```
 
 ## 5. 本地调试你的 Agent
 
@@ -139,7 +130,7 @@ askdao agent deploy
 | `deploy` 报 409 | 创作者资料未补全，回 askdao.ai 设置页补 `kol_join_mode` + `kol_bio`（见第 2 步） |
 | `ASKDAO_CONDUCTOR_TOKEN is set but ... URL is not` | 你设置过环境变量覆盖，要么成对设置，要么清掉走 `auth login` 凭证 |
 | `/mcp` 显示 askdao-mcp 连接失败 / 401 | token 没设对或终端没重开；`echo $env:ASKDAO_MCP_TOKEN` 确认非空 |
-| `agent edit` 扫不到 askdao-mcp | Codex 项目需要项目根 `.mcp.json`（见 4.4） |
+| `agent edit` 扫不到 askdao-mcp | 确认 4.2/4.3 配置已写入；老版本 askdao.exe 对 Codex 项目需项目根 `.mcp.json`（见 4.4） |
 | 某 MCP 标"stdio 不可部署" | 正常——本机进程型 server 线上不支持，取消勾选即可 |
 | 浏览器始终弹不出来 | 所有需要浏览器的命令都支持手动路径：`auth login --no-browser`；`agent edit --no-ui` |
 
