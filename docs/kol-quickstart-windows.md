@@ -1,9 +1,11 @@
 # AskDAO 创作者快速上手指南（Windows）
 
-> v0.1 | 2026-06-10 | 面向对象：使用 Windows + Claude Code / Codex 的 KOL/Builder
+> v0.2 | 2026-06-11 | 面向对象：使用 Windows + Claude Code / Codex 的 KOL/Builder
 >
 > 走完本指南，你将完成：安装 askdao 命令行工具 → 让你本地的 Agent 项目接入 askdao-mcp 工具集 → 本地调试确认 → 一条命令部署到 askdao.ai，供你的订阅者使用。
-> 全程约 30 分钟。遇到问题直接联系平台方（Sam）。
+> 全程约 20 分钟。遇到问题直接联系平台方（Sam）。
+>
+> v0.2 变更：`askdao auth login` 已内置 askdao-mcp 自动配置，不再需要平台方单独交付 MCP token，原手工配置步骤降级为备用方案。
 
 ---
 
@@ -13,9 +15,9 @@
 
 - [ ] Windows 10/11（PowerShell 可用）
 - [ ] Claude Code 或 Codex 至少装好一个，并且你的 Agent 项目能正常跑
-- [ ] 平台方交付给你的两样东西：
-  - `askdao.exe`（或私有 GitHub Release 下载权限）
-  - **MCP 访问 token**（一串 `mcp_` 或随机字符，下文称 `<MCP_TOKEN>`）
+- [ ] 平台方交付的 `askdao.exe`（或私有 GitHub Release 下载权限）
+
+> MCP 访问凭证**不需要**单独申请——第 3 步登录时平台自动下发并配置。
 
 ## 1. 安装 askdao.exe
 
@@ -33,7 +35,7 @@ Move-Item .\askdao.exe "$env:LOCALAPPDATA\askdao\bin\askdao.exe"
 askdao --help
 ```
 
-## 2. 注册 askdao.ai 并补全创作者资料
+## 2. 注册 askdao.ai 并激活创作者资料
 
 1. 打开 https://askdao.ai 注册账号（支持 Google/GitHub/邮箱）
 2. 打开 **https://askdao.ai/dashboard/subscription**，选择一档**订阅模式**并点击「激活订阅模式」按钮——这一步是部署的硬前提
@@ -44,68 +46,49 @@ askdao --help
 
 > 第 2 步不做的话，后面 `agent deploy` 会报错并附上激活页链接——注意：只填 profile 页**不够**，必须在 subscription 页激活过订阅模式。
 
-## 3. 登录命令行
+## 3. 登录命令行（自动完成 askdao-mcp 配置）
 
 ```powershell
 askdao auth login
 ```
 
-- 浏览器会自动弹出授权页，确认后终端显示登录成功
-- 浏览器没弹出来？用 `askdao auth login --no-browser`，按提示手动打开链接并输入屏幕上的配对码
-- 凭证保存在 `%APPDATA%\askdao\credentials.json`，验证：`askdao auth status`
+浏览器自动弹出授权页，确认后登录完成。**登录成功会自动配置 askdao-mcp**——从平台取回接入凭证，写好 Claude Code 和 Codex 的本机配置（含 `ASKDAO_MCP_TOKEN` 环境变量），终端输出类似：
 
-## 4. 配置 askdao-mcp（关键步骤）
+```
+✓ Logged in as you@example.com. Token saved to ...
+→ Setting up askdao-mcp for your local harnesses …
+✓ Claude Code: askdao-mcp configured in ~/.claude.json
+✓ Codex: askdao-mcp configured in ~/.codex/config.toml
+```
 
-askdao-mcp 是平台的工具网关（播客生成、语音合成、文生图、美股行情、SEC 财报等），地址 `https://mcp.askdao.ai/mcp`。你需要让本地的 Claude Code / Codex 连上它，调试确认后再部署。
+**重开一个终端窗口**让环境变量生效。
 
-**推荐方式（v0.9+ 自动完成）**：第 3 步 `askdao auth login` 成功后会**自动**完成本节配置——从平台取回接入凭证，写好 Claude Code 和 Codex 的配置（含 `ASKDAO_MCP_TOKEN` 环境变量），终端里能看到 `✓ Claude Code: askdao-mcp configured ...` 字样，重开终端即生效。如果当时跳过了或想重跑，随时执行：
+- 浏览器没弹出来？用 `askdao auth login --no-browser`，按提示手动打开链接并输入配对码
+- 登录状态验证：`askdao auth status`（凭证在 `%APPDATA%\askdao\credentials.json`）
+
+## 4. 验证 askdao-mcp 已连上
+
+askdao-mcp 是平台的工具网关——播客生成、语音合成、文生图、美股行情、SEC 财报等 19 个工具，完整清单与用法见 **[askdao-mcp 工具参考](askdao-mcp-reference.md)**。第 3 步已自动配置，这里只需验证：
+
+- **Claude Code**：任意项目里启动 `claude`，输入 `/mcp`，应看到 `askdao-mcp` 已连接，工具列表含 `listenhub_*`、`elevenlabs_*`、`sec_*` 等
+- **Codex**：启动 `codex`，问它"列出 askdao-mcp 可用的工具"
+
+### 自动配置失败 / 想重跑？
 
 ```powershell
-askdao mcp setup
+askdao mcp setup            # 随时重跑自动配置
+askdao mcp setup --print    # 只输出手工配置片段，不写任何文件
 ```
 
-下面 4.1~4.4 的手工步骤可全部跳过，仅作参考或老版本备用（`askdao mcp setup --print` 可输出手工配置片段）。
+`--print` 会给出三段内容：Claude Code 的 `claude mcp add` 一行命令、Codex 的 `config.toml` 片段、`ASKDAO_MCP_TOKEN` 环境变量设置——照贴即可，适用于自动配置不可用的极端情况。
 
-### 4.1 先把 token 设为用户环境变量（一次性）
-
-```powershell
-[Environment]::SetEnvironmentVariable("ASKDAO_MCP_TOKEN", "<MCP_TOKEN>", "User")
-```
-
-设完**重开终端**生效。两个 harness 都引用这个变量，token 不会进任何代码仓库。
-
-### 4.2 Claude Code 用户
-
-```powershell
-claude mcp add --transport http askdao-mcp https://mcp.askdao.ai/mcp --header "Authorization: Bearer ${ASKDAO_MCP_TOKEN}" --scope user
-```
-
-验证：在任意项目里启动 `claude`，输入 `/mcp`，应能看到 `askdao-mcp` 已连接，工具列表含 `listenhub_*`、`elevenlabs_*`、`sec_*` 等。
-
-### 4.3 Codex 用户
-
-编辑 `%USERPROFILE%\.codex\config.toml`，追加：
-
-```toml
-[mcp_servers.askdao-mcp]
-url = "https://mcp.askdao.ai/mcp"
-bearer_token_env_var = "ASKDAO_MCP_TOKEN"
-```
-
-验证：启动 `codex`，问它"列出 askdao-mcp 可用的工具"。
-
-### 4.4 Codex 项目的扫描发现
-
-askdao 工具能直接读取 Codex 的配置（`%USERPROFILE%\.codex\config.toml` 与项目内 `.codex/config.toml`），4.3 配置完成后 `askdao agent edit` 即可自动发现 askdao-mcp，无需额外步骤。
-
-> 如果你用的是较老版本的 askdao.exe（v0.9 之前）扫不到 Codex 配置，可在项目根放一个 `.mcp.json` 作为兼容写法（token 走环境变量展开，可安全进 git）：
-> ```json
-> { "mcpServers": { "askdao-mcp": { "type": "http", "url": "https://mcp.askdao.ai/mcp", "headers": { "Authorization": "Bearer ${ASKDAO_MCP_TOKEN}" } } } }
-> ```
+> Codex 项目补充：askdao 工具能直接读取 Codex 配置（`%USERPROFILE%\.codex\config.toml` 与项目内 `.codex/config.toml`），`agent edit` 可自动发现 askdao-mcp。仅 v0.9 之前的老版本 askdao.exe 需要在项目根放 `.mcp.json` 兼容写法（token 走 `${ASKDAO_MCP_TOKEN}` 环境变量展开，可安全进 git）。
 
 ## 5. 本地调试你的 Agent
 
 用你自己的 harness 正常跑 Agent 项目，确认它能真实调用 askdao-mcp 的工具（比如让它查一只股票行情、生成一段语音）。**调试满意了再进入下一步**——部署后线上跑的就是这套行为。
+
+如果你的 Agent 通过 **Skill** 编排这些工具，编写前请读 [askdao-mcp 工具参考](askdao-mcp-reference.md) 的「Skill 编写注意事项」一节——产物 URL 时效、异步任务模式、配额查询等都有讲究。
 
 > 注意：部署后平台会在服务端自动注入 mcp.askdao.ai 的访问凭证，你本机的 token 只用于本地调试，不会被上传。
 
@@ -139,10 +122,11 @@ askdao agent deploy
 
 | 现象 | 原因与解法 |
 |------|-----------|
-| `deploy` 报 "profile isn't set up" | 去 https://askdao.ai/dashboard/subscription 选一次订阅模式（见第 2 步）；只填 profile 页不解除此限制 |
+| `deploy` 报 "profile isn't set up" | 去 https://askdao.ai/dashboard/subscription 激活一次订阅模式（见第 2 步）；只填 profile 页不解除此限制 |
+| 登录后看到 `! askdao-mcp setup skipped: ...` | 登录本身成功；按提示原因处理后跑 `askdao mcp setup` 重试（如本机未装任何 harness、平台侧暂未配置） |
 | `ASKDAO_CONDUCTOR_TOKEN is set but ... URL is not` | 你设置过环境变量覆盖，要么成对设置，要么清掉走 `auth login` 凭证 |
-| `/mcp` 显示 askdao-mcp 连接失败 / 401 | token 没设对或终端没重开；`echo $env:ASKDAO_MCP_TOKEN` 确认非空 |
-| `agent edit` 扫不到 askdao-mcp | 确认 4.2/4.3 配置已写入；老版本 askdao.exe 对 Codex 项目需项目根 `.mcp.json`（见 4.4） |
+| `/mcp` 显示 askdao-mcp 连接失败 / 401 | 终端没重开（环境变量未生效）或配置被改动；`echo $env:ASKDAO_MCP_TOKEN` 确认非空，再跑 `askdao mcp setup` |
+| `agent edit` 扫不到 askdao-mcp | 跑一次 `askdao mcp setup`；老版本 askdao.exe 对 Codex 项目需项目根 `.mcp.json`（见第 4 节补充） |
 | 某 MCP 标"stdio 不可部署" | 正常——本机进程型 server 线上不支持，取消勾选即可 |
 | 浏览器始终弹不出来 | 所有需要浏览器的命令都支持手动路径：`auth login --no-browser`；`agent edit --no-ui` |
 
@@ -153,7 +137,7 @@ askdao agent deploy
 | CLI 登录凭证 | `%APPDATA%\askdao\credentials.json` |
 | Claude Code 用户级 MCP 配置 | `%USERPROFILE%\.claude.json` |
 | Codex MCP 配置 | `%USERPROFILE%\.codex\config.toml` |
-| MCP token 环境变量 | 用户环境变量 `ASKDAO_MCP_TOKEN` |
+| MCP token 环境变量 | 用户环境变量 `ASKDAO_MCP_TOKEN`（`mcp setup` 自动设置） |
 
 ---
 
