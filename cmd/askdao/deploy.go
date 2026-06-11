@@ -3,7 +3,7 @@
 // [POS]: cmd/askdao 的 deploy 子命令；读 <dir>/askdao-agent.yml 原文 + 经 packageSkills 按 skill.path（project 相对 / 绝对 / ~ / Scope=="user"）
 //
 //	统一解析 + 递归打 zip（harness 中性 invariant）→ 经 internal/deploy.Client 上传 conductor /cli/deploy；处理
-//	kol_profile_required 时引导去 askdao.ai/workspace（KOL profile 归云端）+ blocking-warning gating（仅 REJECTED 阻断，severity 不 gate）+ 结果打印。Token / server URL 解析顺序见 resolveServerAndToken
+//	kol_profile_required 时引导去 askdao.ai/dashboard/subscription（kol_join_mode 在订阅模式页设置，KOL profile 归云端）+ blocking-warning gating（仅 REJECTED 阻断，severity 不 gate）+ 结果打印。Token / server URL 解析顺序见 resolveServerAndToken
 //	(env > credentials.json > error)，对齐 docs/cli-auth-device-flow.md §6.3.
 //
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -127,12 +127,14 @@ func runDeploy(ctx context.Context, args []string) int {
 	if derr != nil {
 		var kpr *deploy.ErrKolProfileRequired
 		if errors.As(derr, &kpr) {
-			// KOL profile lives in the askdao.ai cloud (not the local CLI). Guide
-			// the KOL there to fill it in, then re-run deploy — mirrors edit.go's
-			// studioDeployError so both entry points say the same thing.
+			// KOL profile lives in the askdao.ai cloud (not the local CLI). The
+			// 409 gate is specifically kol_join_mode IS NULL, and that field is
+			// set on the dashboard *subscription* page (auto/paid picker) — the
+			// profile page only writes name/image/bio and won't clear the gate.
+			// Mirrors edit.go's studioDeployError so both entry points agree.
 			fmt.Println()
-			fmt.Println("⚠  Your KOL profile isn't set up yet.")
-			fmt.Println("   Complete it at https://askdao.ai/workspace, then deploy again.")
+			fmt.Println("⚠  Your Builder profile isn't set up yet.")
+			fmt.Println("   Pick a subscription mode at https://askdao.ai/dashboard/subscription, then deploy again.")
 			return 1
 		}
 	}

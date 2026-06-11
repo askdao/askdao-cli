@@ -277,7 +277,10 @@ func writeBaseline(dir string, spec *types.AgentSpec, det *types.Detection) {
 func studioDeployError(derr error) error {
 	var kpr *deploy.ErrKolProfileRequired
 	if errors.As(derr, &kpr) {
-		return fmt.Errorf("your KOL profile isn't set up yet — complete it at https://askdao.ai/workspace, then deploy again")
+		// The 409 gate is kol_join_mode IS NULL — set on the dashboard
+		// subscription page (auto/paid picker), NOT the profile page (which
+		// only writes name/image/bio).
+		return fmt.Errorf("Your Builder profile isn't set up yet — pick a subscription mode at https://askdao.ai/dashboard/subscription, then deploy again")
 	}
 	var bw *deploy.ErrBlockingWarnings
 	if errors.As(derr, &bw) {

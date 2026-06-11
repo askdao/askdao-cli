@@ -154,7 +154,7 @@ func TestDeploy_EndToEnd_UpdateMode(t *testing.T) {
 
 func TestDeploy_KolProfileRequired_GuidesToWeb(t *testing.T) {
 	// D 改造：KOL profile 归 askdao.ai 云端，不再在本地 CLI prompt bio / 自动 PATCH。
-	// 遇 409 kol_profile_required → 引导去 askdao.ai/workspace + exit 1，不 retry，
+	// 遇 409 kol_profile_required → 引导去 askdao.ai/dashboard/subscription + exit 1，不 retry，
 	// 不调 /kol-profile（对齐 edit.go 的 studioDeployError）。
 	root := withWorkdir(t)
 	writeMinimalAgent(t, root, "test-agent")
@@ -194,8 +194,8 @@ func TestDeploy_KolProfileRequired_GuidesToWeb(t *testing.T) {
 	if patchCalls != 0 {
 		t.Errorf("kol-profile PATCH called %d times, want 0 (setup delegated to web)", patchCalls)
 	}
-	if !strings.Contains(got, "askdao.ai/workspace") {
-		t.Errorf("output should guide to askdao.ai/workspace\n--- output ---\n%s", got)
+	if !strings.Contains(got, "askdao.ai/dashboard/subscription") {
+		t.Errorf("output should guide to askdao.ai/dashboard/subscription (the page that sets kol_join_mode)\n--- output ---\n%s", got)
 	}
 }
 
