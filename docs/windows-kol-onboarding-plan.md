@@ -150,11 +150,12 @@ conductor 侧 endpoint（PR conductor#149）+ cli 侧命令均已实现；token 
 
 `internal/scanner` 已接入 Codex TOML MCP 扫描：`readMCPConfig` 按扩展名分派 JSON/TOML，project scope 扫 `.codex/config.toml`、user scope 扫 `~/.codex/config.toml`（`.codex`/`.agents` marker 门控）。M2 的 codex 写入能力随 `askdao mcp setup` 交付。
 
-### M4. KOL onboarding 产品化（按需，约 1~2 天）
+### M4. KOL onboarding 产品化（按需，约 1~2 天）✅ 核心已落地 2026-06-10
 
-- Web 端 KOL onboarding 页：注册后引导补全资料 → 下载 cli → 展示 `auth login` 引导（替代 S3/S6 的文档式引导）
-- deploy 409 的 hint 链接直达资料补全页（现为提示文案）
-- gateway token 发放并入 M2 后，Secrets Manager 手工 entry 仅作平台内部用途保留
+- ✅ 订阅模式三档完整实现（web PR #122 + conductor PR #150）：免费(free) / 访问密码(invitation，含订阅侧密码 gate + alembic 041 口令存储) / 付费(Phase 2 disabled)；NULL 态显式「激活订阅模式」按钮根治 radio 死点击致 409 无法解除的 bug
+- ✅ My Agents 页 `<ActivationNotice>` 激活引导（新用户首落页）
+- ✅ deploy 409 引导链路根治：conductor 下发 `detail.setup_url`，CLI/工作台优先渲染（cli PR #59），硬编码降级为 fallback
+- 未做（保持按需）：独立注册后 onboarding 引导页（下载 cli → auth login 三步 checklist）——现有 EmptyState CLI 引导 + ActivationNotice 已覆盖主动线
 
 ### M5. 开源决策点（非工程，战略）
 

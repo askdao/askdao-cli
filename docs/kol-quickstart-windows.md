@@ -36,9 +36,13 @@ askdao --help
 ## 2. 注册 askdao.ai 并补全创作者资料
 
 1. 打开 https://askdao.ai 注册账号（支持 Google/GitHub/邮箱）
-2. 进入个人设置，补全**创作者资料**：加入方式（`kol_join_mode`：free/invitation/paid）+ 个人简介（`kol_bio`）
+2. 打开 **https://askdao.ai/dashboard/subscription**，选择一档**订阅模式**并点击「激活订阅模式」按钮——这一步是部署的硬前提
+   - **免费**：任何人访问你的主页即可订阅
+   - **访问密码**：订阅者需输入你设置的口令才能加入（口令可随时改）
+   - 付费模式 Phase 2 开放
+3. 打开 **https://askdao.ai/dashboard/profile**，补全展示名、头像、个人简介（订阅者会看到）
 
-> 这一步不做的话，后面 `agent deploy` 会报 409 并提示你回来补全。
+> 第 2 步不做的话，后面 `agent deploy` 会报错并附上激活页链接——注意：只填 profile 页**不够**，必须在 subscription 页激活过订阅模式。
 
 ## 3. 登录命令行
 
@@ -135,7 +139,7 @@ askdao agent deploy
 
 | 现象 | 原因与解法 |
 |------|-----------|
-| `deploy` 报 409 | 创作者资料未补全，回 askdao.ai 设置页补 `kol_join_mode` + `kol_bio`（见第 2 步） |
+| `deploy` 报 "profile isn't set up" | 去 https://askdao.ai/dashboard/subscription 选一次订阅模式（见第 2 步）；只填 profile 页不解除此限制 |
 | `ASKDAO_CONDUCTOR_TOKEN is set but ... URL is not` | 你设置过环境变量覆盖，要么成对设置，要么清掉走 `auth login` 凭证 |
 | `/mcp` 显示 askdao-mcp 连接失败 / 401 | token 没设对或终端没重开；`echo $env:ASKDAO_MCP_TOKEN` 确认非空 |
 | `agent edit` 扫不到 askdao-mcp | 确认 4.2/4.3 配置已写入；老版本 askdao.exe 对 Codex 项目需项目根 `.mcp.json`（见 4.4） |

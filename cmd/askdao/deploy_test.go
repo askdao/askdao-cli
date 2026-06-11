@@ -154,7 +154,7 @@ func TestDeploy_EndToEnd_UpdateMode(t *testing.T) {
 
 func TestDeploy_KolProfileRequired_GuidesToWeb(t *testing.T) {
 	// D 改造：KOL profile 归 askdao.ai 云端，不再在本地 CLI prompt bio / 自动 PATCH。
-	// 遇 409 kol_profile_required → 引导去 askdao.ai/workspace + exit 1，不 retry，
+	// 遇 409 kol_profile_required → 引导去 askdao.ai/dashboard/subscription + exit 1，不 retry，
 	// 不调 /kol-profile（对齐 edit.go 的 studioDeployError）。
 	root := withWorkdir(t)
 	writeMinimalAgent(t, root, "test-agent")
@@ -194,8 +194,8 @@ func TestDeploy_KolProfileRequired_GuidesToWeb(t *testing.T) {
 	if patchCalls != 0 {
 		t.Errorf("kol-profile PATCH called %d times, want 0 (setup delegated to web)", patchCalls)
 	}
-	if !strings.Contains(got, "askdao.ai/workspace") {
-		t.Errorf("output should guide to askdao.ai/workspace\n--- output ---\n%s", got)
+	if !strings.Contains(got, "askdao.ai/dashboard/subscription") {
+		t.Errorf("output should guide to askdao.ai/dashboard/subscription (the page that sets kol_join_mode)\n--- output ---\n%s", got)
 	}
 }
 
@@ -378,4 +378,35 @@ func captureStderr(t *testing.T) (func() string, func()) {
 	}
 	restore := func() { os.Stderr = prev }
 	return get, restore
+}
+
+func TestDeploy_KolProfileRequired_UsesServerSetupURL(t *testing.T) {
+	// M4: conductor 下发 detail.setup_url 时优先渲染服务端地址（权威引导收敛
+	// 到服务端，硬编码仅作老版本 conductor fallback —— 上一个 case 覆盖）。
+	root := withWorkdir(t)
+	writeMinimalAgent(t, root, "test-agent")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusConflict, map[string]interface{}{
+			"detail": map[string]interface{}{
+				"reason":    "kol_profile_required",
+				"fields":    []string{"kol_join_mode"},
+				"setup_url": "https://staging.askdao.ai/dashboard/subscription",
+			},
+		})
+	}))
+	defer srv.Close()
+	t.Setenv("ASKDAO_CONDUCTOR_URL", srv.URL)
+	t.Setenv("ASKDAO_CONDUCTOR_TOKEN", "tok")
+
+	out, restore := captureStdout(t)
+	defer restore()
+	code := runDeploy(context.Background(), []string{"--dir", "test-agent"})
+	got := out()
+	if code != 1 {
+		t.Fatalf("deploy exit = %d, want 1\n--- output ---\n%s", code, got)
+	}
+	if !strings.Contains(got, "https://staging.askdao.ai/dashboard/subscription") {
+		t.Errorf("output should use the server-handed setup_url\n--- output ---\n%s", got)
+	}
 }
