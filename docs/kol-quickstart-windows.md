@@ -1,11 +1,11 @@
 # AskDAO 创作者快速上手指南（Windows）
 
-> v0.3 | 2026-06-11 | 面向对象：使用 Windows + Claude Code / Codex 的 KOL/Builder
+> v0.4 | 2026-06-11 | 面向对象：使用 Windows + Claude Code / Codex 的 KOL/Builder
 >
 > 走完本指南，你将完成：安装 askdao 命令行工具 → 让你本地的 Agent 项目接入 askdao-mcp 工具集 → 本地调试确认 → 一条命令部署到 askdao.ai，供你的订阅者使用。
 > 全程约 20 分钟。遇到问题直接联系平台方（Sam）。
 >
-> v0.3 变更：§1 增补 Release 自助下载命令（gh release download）。v0.2 变更：`askdao auth login` 已内置 askdao-mcp 自动配置，不再需要平台方单独交付 MCP token，原手工配置步骤降级为备用方案。
+> v0.4 变更：§1 补 PowerShell `.\` 前缀说明 + 用户级 PATH 正确写法（真机验证反馈）。v0.3 变更：§1 增补 Release 自助下载命令（gh release download）。v0.2 变更：`askdao auth login` 已内置 askdao-mcp 自动配置，不再需要平台方单独交付 MCP token，原手工配置步骤降级为备用方案。
 
 ---
 
@@ -34,15 +34,23 @@ gh release download -R askdao/askdao-cli --pattern "*windows_amd64*"
 Expand-Archive askdao_*_windows_amd64.zip -DestinationPath .
 ```
 
-然后把 `askdao.exe` 放到固定目录并加入 PATH（PowerShell 执行）：
+解压后先在 exe 所在目录就地验证（**PowerShell 必须加 `.\` 前缀**，直接敲 `askdao` 会报 CommandNotFoundException——这是 PowerShell 的规则，不是安装坏了）：
+
+```powershell
+cd askdao_*_windows_amd64    # Expand-Archive 默认解到同名子目录
+.\askdao.exe --help
+```
+
+然后把 `askdao.exe` 放到固定目录并加入用户 PATH：
 
 ```powershell
 New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\askdao\bin" | Out-Null
-Move-Item .\askdao.exe "$env:LOCALAPPDATA\askdao\bin\askdao.exe"
-[Environment]::SetEnvironmentVariable("Path", $env:Path + ";$env:LOCALAPPDATA\askdao\bin", "User")
+Move-Item .\askdao.exe "$env:LOCALAPPDATA\askdao\bin\askdao.exe" -Force
+[Environment]::SetEnvironmentVariable("Path",
+  [Environment]::GetEnvironmentVariable("Path","User") + ";$env:LOCALAPPDATA\askdao\bin", "User")
 ```
 
-**重开一个终端窗口**，验证：
+**重开一个终端窗口**（PATH 改动只对新终端生效），验证：
 
 ```powershell
 askdao --help
@@ -135,6 +143,7 @@ askdao agent deploy
 
 | 现象 | 原因与解法 |
 |------|-----------|
+| `askdao` 报 CommandNotFoundException | 两种情况：还没做 §1 的 PATH 步骤（在 exe 目录用 `.\askdao.exe` 可先验证）；或 PATH 设置后没重开终端 |
 | `deploy` 报 "profile isn't set up" | 去 https://askdao.ai/dashboard/subscription 激活一次订阅模式（见第 2 步）；只填 profile 页不解除此限制 |
 | 登录后看到 `! askdao-mcp setup skipped: ...` | 登录本身成功；按提示原因处理后跑 `askdao mcp setup` 重试（如本机未装任何 harness、平台侧暂未配置） |
 | `ASKDAO_CONDUCTOR_TOKEN is set but ... URL is not` | 你设置过环境变量覆盖，要么成对设置，要么清掉走 `auth login` 凭证 |
