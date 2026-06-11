@@ -34,7 +34,7 @@ LICENSE - MIT
 ## 命令骨架
 
 ```
-askdao auth login [--server url] [--name device] [--no-browser]  # OAuth 2.0 Device Code Flow（RFC 8628）+ 落 ~/.config/askdao/credentials.json (0600)
+askdao auth login [--server url] [--name device] [--no-browser]  # OAuth 2.0 Device Code Flow（RFC 8628）+ 落 ~/.config/askdao/credentials.json (0600)；成功后自动跑 askdao-mcp setup（fail-soft 不影响 login 结果）
 askdao auth status                         # 显示当前登录身份；未登录 exit 1
 askdao auth logout                         # 删除本地 credentials（不撤销服务端 token，撤销走 web UI v2）
 askdao mcp setup [--print]                 # M2：调 conductor /cli/mcp-credentials 取 gateway URL+token，自动写本机 Claude Code(~/.claude.json upsert) + Codex(~/.codex/config.toml 追加 + ASKDAO_MCP_TOKEN env，Win 走 setx)；--print 只输出 snippet 不落盘

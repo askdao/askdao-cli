@@ -1,7 +1,7 @@
 // [INPUT]: 依赖 context + flag + fmt + os + os/exec + runtime + time + errors;
 //
 //	依赖 internal/auth 的 Credentials / DeviceFlow / 错误 sentinels;
-//	依赖 main.go 暴露的 version 常量。
+//	依赖 main.go 暴露的 version 常量；依赖 mcp.go 的 applyMCPSetup（登录后自动配置）。
 //
 // [OUTPUT]: 对外提供 runAuth(ctx, args) — `askdao auth` 子命令分发器，路由到
 //
@@ -127,6 +127,17 @@ func runAuthLogin(ctx context.Context, args []string) int {
 	}
 	path, _ := auth.Path()
 	fmt.Fprintf(os.Stderr, "✓ Logged in as %s. Token saved to %s.\n", tok.UserEmail, path)
+
+	// Auto-configure the askdao MCP gateway so the happy path skips a manual
+	// `askdao mcp setup`. Strictly advisory: login already succeeded, so any
+	// failure here (gateway not configured server-side, no harness installed)
+	// only prints a hint and never flips the exit code.
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, "→ Setting up askdao-mcp for your local harnesses …")
+	if err := applyMCPSetup(ctx, server, tok.AccessToken); err != nil {
+		fmt.Fprintln(os.Stderr, "! askdao-mcp setup skipped:", err)
+		fmt.Fprintln(os.Stderr, "  You can run `askdao mcp setup` anytime to retry.")
+	}
 	return 0
 }
 

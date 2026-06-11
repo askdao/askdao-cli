@@ -127,10 +127,10 @@ Pre-built binaries will be published once the API stabilizes (v1.0 target).
 
 | Command | Status | Description |
 |---|---|---|
-| `askdao auth login [--server url] [--no-browser]` | ready | Browser-bound OAuth 2.0 Device Code Flow; saves a long-lived token at `~/.config/askdao/credentials.json` (0600) |
+| `askdao auth login [--server url] [--no-browser]` | ready | Browser-bound OAuth 2.0 Device Code Flow; saves a long-lived token at `~/.config/askdao/credentials.json` (0600), then auto-runs the askdao-mcp setup (fail-soft) |
 | `askdao auth status` | ready | Show currently-logged-in identity; exit 1 if not logged in |
 | `askdao auth logout` | ready | Delete local credentials (server-side revoke is via the web UI; coming v2) |
-| `askdao mcp setup [--print]` | ready | Fetch the askdao MCP gateway URL + token from conductor and configure Claude Code (`~/.claude.json`) + Codex (`~/.codex/config.toml` + `ASKDAO_MCP_TOKEN`); `--print` emits snippets for manual setup |
+| `askdao mcp setup [--print]` | ready | Fetch the askdao MCP gateway URL + token from conductor and configure Claude Code (`~/.claude.json`) + Codex (`~/.codex/config.toml` + `ASKDAO_MCP_TOKEN`); runs automatically after `auth login` — this command is the manual retry; `--print` emits snippets |
 | `askdao agent edit [--dir path] [--no-ui] [--force]` | ready | Scan the project (or load an existing `askdao-agent.yml`) and open the local web studio to review / edit / deploy. `--no-ui` writes a draft and exits (CI / headless) |
 | `askdao agent deploy [--dir path] [--harness id] [--force]` | ready | Package custom skills + push `askdao-agent.yml` to Anthropic Managed Agents via Conductor |
 | `askdao agent validate` | planned | Validate `askdao-agent.yml` schema |

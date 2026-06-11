@@ -74,37 +74,49 @@ func runMCPSetup(ctx context.Context, args []string) int {
 		return 3
 	}
 
-	creds, err := fetchMCPCredentials(ctx, server, token)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "✗", err)
-		return 1
-	}
-
 	if *printOnly {
+		creds, err := fetchMCPCredentials(ctx, server, token)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "✗", err)
+			return 1
+		}
 		printMCPSnippets(os.Stdout, creds)
 		return 0
 	}
 
+	if err := applyMCPSetup(ctx, server, token); err != nil {
+		fmt.Fprintln(os.Stderr, "✗", err)
+		return 1
+	}
+	return 0
+}
+
+// applyMCPSetup is the shared body of `askdao mcp setup` and the auto-setup
+// that runs right after `askdao auth login`: fetch gateway credentials from
+// conductor, then configure whichever harnesses exist on this machine.
+// Progress goes to stderr; the caller decides whether a failure is fatal
+// (standalone setup) or merely advisory (post-login auto-run).
+func applyMCPSetup(ctx context.Context, server, bearer string) error {
+	creds, err := fetchMCPCredentials(ctx, server, bearer)
+	if err != nil {
+		return err
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "✗ cannot resolve home dir:", err)
-		return 1
+		return fmt.Errorf("cannot resolve home dir: %w", err)
 	}
 
 	claudePresent := pathIsDir(filepath.Join(home, ".claude")) || pathIsFile(filepath.Join(home, ".claude.json"))
 	codexPresent := pathIsDir(filepath.Join(home, ".codex"))
 	if !claudePresent && !codexPresent {
-		fmt.Fprintln(os.Stderr, "✗ No harness detected (neither ~/.claude nor ~/.codex exists).")
-		fmt.Fprintln(os.Stderr, "  Install Claude Code or Codex first, or run `askdao mcp setup --print`")
-		fmt.Fprintln(os.Stderr, "  to get config snippets for manual setup.")
-		return 1
+		return fmt.Errorf("no harness detected (neither ~/.claude nor ~/.codex exists) — install Claude Code or Codex first, or run `askdao mcp setup --print` for manual snippets")
 	}
 
 	if claudePresent {
 		path := filepath.Join(home, ".claude.json")
 		if err := upsertClaudeMCP(path, creds); err != nil {
-			fmt.Fprintln(os.Stderr, "✗ Claude Code config:", err)
-			return 1
+			return fmt.Errorf("Claude Code config: %w", err)
 		}
 		fmt.Fprintf(os.Stderr, "✓ Claude Code: %s configured in %s\n", mcpServerName, path)
 	}
@@ -113,8 +125,7 @@ func runMCPSetup(ctx context.Context, args []string) int {
 		path := filepath.Join(home, ".codex", "config.toml")
 		changed, err := upsertCodexMCP(path, creds.GatewayURL)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "✗ Codex config:", err)
-			return 1
+			return fmt.Errorf("Codex config: %w", err)
 		}
 		if changed {
 			fmt.Fprintf(os.Stderr, "✓ Codex: %s configured in %s\n", mcpServerName, path)
@@ -125,14 +136,14 @@ func runMCPSetup(ctx context.Context, args []string) int {
 	}
 
 	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Done. Restart your terminal, then verify:")
+	fmt.Fprintln(os.Stderr, "askdao-mcp is set up. Restart your terminal, then verify:")
 	if claudePresent {
 		fmt.Fprintln(os.Stderr, "  claude  → type /mcp and check that askdao-mcp is connected")
 	}
 	if codexPresent {
 		fmt.Fprintln(os.Stderr, "  codex   → ask it to list the askdao-mcp tools")
 	}
-	return 0
+	return nil
 }
 
 // fetchMCPCredentials calls conductor's GET /api/v1/cli/mcp-credentials.
