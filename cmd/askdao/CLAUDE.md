@@ -34,7 +34,7 @@ CLI 入口与用户命令（**auth login/status/logout · agent edit/deploy**）
 ## 已知限制
 
 - syft 不在 PATH 时 packages 列表空（软警告提示安装）。
-- Codex / Cursor 的 user-scope skill/MCP 路径尚未填（harness_scope.go TODO，Phase 2）。
+- Codex user-scope skill（`~/.agents/skills`）与 MCP（`~/.codex/config.toml` TOML）均已接入；Cursor 非目标 harness 已移除。
 - 远端 ID 不写回 `agent.yml` `status:`（P2）。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

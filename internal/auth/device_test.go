@@ -1,9 +1,13 @@
 // [INPUT]: 依赖 testing + net/http/httptest + encoding/json + context + time + errors
 // [OUTPUT]: TestDeviceFlow* — Start happy path; Poll authorization_pending /
-//          expired / consumed / invalid / unknown HTTP error; PollUntilApproved
-//          succeeds after one pending tick; PollUntilApproved respects deadline.
+//
+//	expired / consumed / invalid / unknown HTTP error; PollUntilApproved
+//	succeeds after one pending tick; PollUntilApproved respects deadline.
+//
 // [POS]: internal/auth/ — covers device.go via an in-process httptest.Server
-//        that mirrors conductor's OAuth response shapes. No real network.
+//
+//	that mirrors conductor's OAuth response shapes. No real network.
+//
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package auth
 

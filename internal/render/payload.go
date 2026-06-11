@@ -24,8 +24,8 @@ import (
 //
 // Skill rows in the WILL UPLOAD section carry an inline origin tag:
 //
-//	+ .agents/skills/spelling-homework-generator/  412 KB / 47 files   skill (repo-native)
-//	+ .agents/skills/asr/                            6 KB /  1 files   skill (vendored: marswaveai/skills @ 4f9d213)
+//   - .agents/skills/spelling-homework-generator/  412 KB / 47 files   skill (repo-native)
+//   - .agents/skills/asr/                            6 KB /  1 files   skill (vendored: marswaveai/skills @ 4f9d213)
 //
 // The tag is sourced from `PayloadEntry.Reason` for `Kind=="skill"` entries;
 // non-skill rows render the bare `Kind` only.

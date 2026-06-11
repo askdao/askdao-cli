@@ -1,0 +1,52 @@
+# GoReleaser v2 — askdao-cli release pipeline.
+# Triggered by .github/workflows/release.yml on v* tags; local dry-run:
+#   goreleaser release --snapshot --clean
+version: 2
+
+project_name: askdao
+
+builds:
+  - id: askdao
+    main: ./cmd/askdao
+    binary: askdao
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    goos:
+      - windows
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "askdao_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-dev"
+
+changelog:
+  use: github
+  filters:
+    exclude:
+      - "^docs"
+      - "^chore"
+      - "^test"
+
+release:
+  # Repo is private for now (outside collaborators download via `gh release
+  # download`); flipping the repo public later needs no change here.
+  draft: false
+  prerelease: auto

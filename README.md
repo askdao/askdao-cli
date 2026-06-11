@@ -113,13 +113,29 @@ Hard fields like `skills[]` and `metadata.labels` are filled deterministically f
 
 ## Install
 
+**Pre-built binaries** (windows / darwin / linux × amd64 / arm64) ship with every
+[GitHub Release](https://github.com/askdao/askdao-cli/releases). While the repo is
+private, collaborators download via the `gh` CLI:
+
 ```bash
-# from source (Go 1.26+ required)
+gh release download -R askdao/askdao-cli --pattern '*windows_amd64*'
+```
+
+On Windows, unzip and put `askdao.exe` somewhere on your `PATH`
+(e.g. `%LOCALAPPDATA%\askdao\bin`). See
+[docs/kol-quickstart-windows.md](docs/kol-quickstart-windows.md) for the full
+Windows onboarding walkthrough.
+
+**From source** (Go 1.26+ required):
+
+```bash
 git clone https://github.com/askdao/askdao-cli.git
 cd askdao-cli && make install
 ```
 
-Pre-built binaries will be published once the API stabilizes (v1.0 target).
+Releases are cut by pushing a `v*` tag — GoReleaser builds all six
+platform archives + checksums (`.goreleaser.yml` +
+`.github/workflows/release.yml`); `make snapshot` dry-runs the pipeline locally.
 
 ---
 

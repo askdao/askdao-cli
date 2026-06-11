@@ -1,4 +1,4 @@
-.PHONY: build install test lint clean
+.PHONY: build install test lint clean snapshot
 
 BINARY := askdao
 PKG    := github.com/askdao/askdao-cli/cmd/askdao
@@ -19,6 +19,10 @@ lint:
 clean:
 	rm -f $(BINARY)
 	rm -rf dist/
+
+# Local dry-run of the release pipeline (needs goreleaser installed).
+snapshot:
+	goreleaser release --snapshot --clean
 
 run: build
 	./$(BINARY)

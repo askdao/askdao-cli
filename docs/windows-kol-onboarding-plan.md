@@ -146,9 +146,9 @@ conductor 侧 endpoint（PR conductor#149）+ cli 侧命令均已实现；token 
 - codex → 写 `~/.codex/config.toml` 的 `mcp_servers`（依赖 M3 的 TOML 能力）
 - 幂等：已存在同名 entry 时更新而非重复追加；`--print` 模式只输出配置不落盘（供手工粘贴）
 
-### M3. Codex MCP TOML 支持（约 1 天，已有独立 issue）
+### M3. Codex MCP TOML 支持（约 1 天，已有独立 issue）✅ 扫描侧已落地 2026-06-10
 
-handoff-C 调研时已拆出的 issue：`internal/scanner` 接入 `~/.codex/config.toml` 的 MCP 扫描 + M2 的写入能力。如果第一个 KOL 主用 Codex，此项提级进短期方案。
+`internal/scanner` 已接入 Codex TOML MCP 扫描：`readMCPConfig` 按扩展名分派 JSON/TOML，project scope 扫 `.codex/config.toml`、user scope 扫 `~/.codex/config.toml`（`.codex`/`.agents` marker 门控）。M2 的 codex 写入能力随 `askdao mcp setup` 交付。
 
 ### M4. KOL onboarding 产品化（按需，约 1~2 天）
 

@@ -1,10 +1,10 @@
 // [INPUT]: 依赖 testing + reflect，internal/types
 // [OUTPUT]: TestBuildAgentSpecSkills_* — 覆盖 4 个核心场景：
 //
-//	1) 1 原生 + 2 vendored 全部产 custom_local，path 是目录而非 SKILL.md
-//	2) implied xlsx 进 builtin，且 path 排序稳定
-//	3) duplicate ImpliedAnthropicSkill.SkillID 去重
-//	4) 空 DetectedSkills 返 nil，不 panic
+//  1. 1 原生 + 2 vendored 全部产 custom_local，path 是目录而非 SKILL.md
+//  2. implied xlsx 进 builtin，且 path 排序稳定
+//  3. duplicate ImpliedAnthropicSkill.SkillID 去重
+//  4. 空 DetectedSkills 返 nil，不 panic
 //
 // [POS]: internal/pipeline 的 builder 单测，配 skills_builder.go
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
