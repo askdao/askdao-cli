@@ -13,7 +13,10 @@ import (
 	"os"
 )
 
-const version = "0.1.0-dev"
+// version is stamped by GoReleaser at release time via
+// `-ldflags -X main.version=...`; the literal below only shows up in
+// from-source builds (go build / go install).
+var version = "0.0.0-dev"
 
 func main() {
 	if len(os.Args) < 2 {

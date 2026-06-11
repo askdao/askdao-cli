@@ -102,8 +102,8 @@ func TestServerHandlers(t *testing.T) {
 	var saved, deployed bool
 	done := make(chan error, 1)
 	opts := Options{
-		Data:     &StudioData{Spec: &types.AgentSpec{Metadata: types.Metadata{Name: "x"}}},
-		OnSave:   func(*types.AgentSpec) error { saved = true; return nil },
+		Data:   &StudioData{Spec: &types.AgentSpec{Metadata: types.Metadata{Name: "x"}}},
+		OnSave: func(*types.AgentSpec) error { saved = true; return nil },
 		OnDeploy: func(*types.AgentSpec) (*DeployResult, error) {
 			deployed = true
 			return &DeployResult{Message: "Created agent agt_1", GroupLink: "https://askdao.ai/g/x", AgentID: "agt_1", Created: true}, nil

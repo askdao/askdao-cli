@@ -6,6 +6,7 @@
 // [OUTPUT]: 对外提供
 //   - Credentials{} struct + Load() / Save() / Delete() + Path() helper
 //   - DefaultServerURL 常量
+//
 // [POS]: internal/auth — askdao-cli 的本地身份持久化层；deploy / 其他需要 token
 //
 //	的命令通过 Load 读取。设计稿 docs/cli-auth-device-flow.md §6.1。
