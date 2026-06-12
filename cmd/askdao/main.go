@@ -37,6 +37,8 @@ func main() {
 		os.Exit(runAuth(ctx, os.Args[2:]))
 	case "mcp":
 		os.Exit(runMCP(ctx, os.Args[2:]))
+	case "update":
+		os.Exit(runUpdate(ctx, os.Args[2:]))
 	default:
 		fmt.Fprintf(os.Stderr, "askdao: unknown command %q\n\n", cmd)
 		printRootHelp(os.Stderr)
@@ -82,6 +84,7 @@ COMMANDS:
     mcp setup [--print]            Configure the askdao MCP gateway in Claude Code / Codex
     agent edit [--dir path]        Scan + open the web studio to review/edit/deploy an agent
     agent deploy [--harness id]    Push an edited askdao-agent.yml to conductor
+    update [--force]               Self-update to the latest release
     version                        Print version
     help                           Show this help
 

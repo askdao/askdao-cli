@@ -11,18 +11,18 @@
 ## Quickstart
 
 ```bash
-# 1. Install — download the latest release binary (needs `gh auth login` once;
-#    or grab it from the Releases page in your browser)
+# 1. Install — one command per platform
+#    macOS / Linux / WSL:
+curl -fsSL https://askdao.ai/install.sh | bash
 #    Windows (PowerShell):
-gh release download -R askdao/askdao-cli --pattern "*windows_amd64*"
-Expand-Archive askdao_*_windows_amd64.zip   # then put askdao.exe on your PATH
-#    macOS / Linux:
-gh release download -R askdao/askdao-cli --pattern "*$(uname -s | tr A-Z a-z)_arm64*"
-tar xzf askdao_*.tar.gz && mv askdao ~/.local/bin/
+#      irm https://askdao.ai/install.ps1 | iex
+#    Windows (CMD):
+#      curl -fsSL https://askdao.ai/install.cmd -o install.cmd && install.cmd && del install.cmd
+#    Upgrade later with `askdao update` — no need to re-run the script.
 
-# Developers building from source instead: Go 1.26+, then `go install ./cmd/askdao`
-# (`make install` is the Unix shortcut — Windows has no make). Release binaries
-# report a real version (`askdao version` → 0.1.0); source builds show 0.0.0-dev.
+# Alternatives: download an archive from the Releases page by hand, or build
+# from source (Go 1.26+): `go install ./cmd/askdao` — `make install` is the
+# Unix shortcut, Windows has no make. Source builds report a -dev version.
 
 # 2. Log in (browser-bound, one-time)
 askdao auth login
@@ -122,16 +122,33 @@ Hard fields like `skills[]` and `metadata.labels` are filled deterministically f
 
 ## Install
 
-**Pre-built binaries** (windows / darwin / linux × amd64 / arm64) ship with every
-[GitHub Release](https://github.com/askdao/askdao-cli/releases). While the repo is
-private, collaborators download via the `gh` CLI:
+**One-liner** (recommended) — downloads the latest release binary, verifies its
+checksum, installs it, and handles `PATH`:
 
 ```bash
-gh release download -R askdao/askdao-cli --pattern '*windows_amd64*'
+# macOS / Linux / WSL
+curl -fsSL https://askdao.ai/install.sh | bash
 ```
 
-On Windows, unzip and put `askdao.exe` somewhere on your `PATH`
-(e.g. `%LOCALAPPDATA%\askdao\bin`). See
+```powershell
+# Windows (PowerShell)
+irm https://askdao.ai/install.ps1 | iex
+```
+
+```bat
+:: Windows (CMD)
+curl -fsSL https://askdao.ai/install.cmd -o install.cmd && install.cmd && del install.cmd
+```
+
+The scripts live in [`install/`](install/) in this repo (served via askdao.ai) —
+audit them before piping to your shell. Pin a version with
+`ASKDAO_VERSION=0.1.0`. Upgrade later with **`askdao update`** — no need to
+re-run the script.
+
+**Manual** — pre-built binaries (windows / darwin / linux × amd64 / arm64) ship
+with every [GitHub Release](https://github.com/askdao/askdao-cli/releases);
+download an archive, unpack, and put `askdao` (or `askdao.exe`, e.g. under
+`%LOCALAPPDATA%\askdao\bin`) on your `PATH`. See
 [docs/kol-quickstart-windows.md](docs/kol-quickstart-windows.md) for the full
 Windows onboarding walkthrough.
 
@@ -139,7 +156,7 @@ Windows onboarding walkthrough.
 
 ```bash
 git clone https://github.com/askdao/askdao-cli.git
-cd askdao-cli && make install
+cd askdao-cli && make install     # or: go install ./cmd/askdao (Windows has no make)
 ```
 
 Releases are cut by pushing a `v*` tag — GoReleaser builds all six
@@ -158,6 +175,7 @@ platform archives + checksums (`.goreleaser.yml` +
 | `askdao mcp setup [--print]` | ready | Fetch the askdao MCP gateway URL + token from conductor and configure Claude Code (`~/.claude.json`) + Codex (`~/.codex/config.toml` + `ASKDAO_MCP_TOKEN`); runs automatically after `auth login` — this command is the manual retry; `--print` emits snippets |
 | `askdao agent edit [--dir path] [--no-ui] [--force]` | ready | Scan the project (or load an existing `askdao-agent.yml`) and open the local web studio to review / edit / deploy. `--no-ui` writes a draft and exits (CI / headless) |
 | `askdao agent deploy [--dir path] [--harness id] [--force]` | ready | Package custom skills + push `askdao-agent.yml` to Anthropic Managed Agents via Conductor |
+| `askdao update [--force]` | ready | Self-update to the latest GitHub release (checksum-verified, atomic swap); `--force` reinstalls the same version |
 | `askdao agent validate` | planned | Validate `askdao-agent.yml` schema |
 
 > v0.8 simplified the command surface: the old `detect` / `bundle` / `agent init` / `agent show` (CLI character-menu review) collapsed into the single `agent edit` web studio — their views (scan report, upload manifest, spec card) now live as panels in the studio.
@@ -188,7 +206,9 @@ askdao-cli/
 │   ├── render/             # CLI render helpers (deploy diff, translation warnings)
 │   ├── webstudio/          # local web studio — 127.0.0.1 server + go:embed single-page 4-step wizard
 │   ├── deploy/             # conductor /cli/deploy client + skill-dir zip packaging
+│   ├── selfupdate/         # `askdao update` engine — releases/latest + checksum + atomic swap
 │   └── types/              # detection.json + askdao-agent.yml schemas
+├── install/                # one-liner install scripts (install.sh / .ps1 / .cmd), served via askdao.ai
 ├── docs/
 │   ├── design.md           # original L1-L4 design + decision log (§9)
 │   ├── observe-layer-design.md     # v0.8 direction (corrected — see review below)

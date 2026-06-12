@@ -1,11 +1,11 @@
 # AskDAO 创作者快速上手指南（Windows）
 
-> v0.4 | 2026-06-11 | 面向对象：使用 Windows + Claude Code / Codex 的 KOL/Builder
+> v0.5 | 2026-06-11 | 面向对象：使用 Windows + Claude Code / Codex 的 KOL/Builder
 >
 > 走完本指南，你将完成：安装 askdao 命令行工具 → 让你本地的 Agent 项目接入 askdao-mcp 工具集 → 本地调试确认 → 一条命令部署到 askdao.ai，供你的订阅者使用。
 > 全程约 20 分钟。遇到问题直接联系平台方（Sam）。
 >
-> v0.4 变更：§1 补 PowerShell `.\` 前缀说明 + 用户级 PATH 正确写法（真机验证反馈）。v0.3 变更：§1 增补 Release 自助下载命令（gh release download）。v0.2 变更：`askdao auth login` 已内置 askdao-mcp 自动配置，不再需要平台方单独交付 MCP token，原手工配置步骤降级为备用方案。
+> v0.5 变更：§1 改为一行命令安装（askdao-cli 已开源 + 一键安装脚本上线），原 gh 下载/手动 PATH 流程降级为备用方案；后续升级用 `askdao update`。v0.4 变更：§1 补 PowerShell `.\` 前缀说明 + 用户级 PATH 正确写法（真机验证反馈）。v0.2 变更：`askdao auth login` 已内置 askdao-mcp 自动配置。
 
 ---
 
@@ -15,46 +15,30 @@
 
 - [ ] Windows 10/11（PowerShell 可用）
 - [ ] Claude Code 或 Codex 至少装好一个，并且你的 Agent 项目能正常跑
-- [ ] 平台方交付的 `askdao.exe`（或私有 GitHub Release 下载权限）
 
 > MCP 访问凭证**不需要**单独申请——第 3 步登录时平台自动下发并配置。
 
-## 1. 安装 askdao.exe
+## 1. 安装 askdao（一行命令）
 
-两种获取方式任选其一：
-
-**A. 平台方直发**：拿到 `askdao.exe` 后直接跳到下面的 PATH 设置。
-
-**B. 从 GitHub Release 自助下载**（已被邀请为仓库协作者时；后续升级也走这条）：
+打开 PowerShell，执行：
 
 ```powershell
-winget install GitHub.cli          # 装 gh（已装可跳过）
-gh auth login                      # 浏览器登录 GitHub（一次性）
-gh release download -R askdao/askdao-cli --pattern "*windows_amd64*"
-Expand-Archive askdao_*_windows_amd64.zip -DestinationPath .
+irm https://askdao.ai/install.ps1 | iex
 ```
 
-解压后先在 exe 所在目录就地验证（**PowerShell 必须加 `.\` 前缀**，直接敲 `askdao` 会报 CommandNotFoundException——这是 PowerShell 的规则，不是安装坏了）：
+脚本会自动完成：下载最新版 → 校验完整性 → 装入 `%LOCALAPPDATA%\askdao\bin` → 加入用户 PATH。结束时会打印已安装的版本号。
 
-```powershell
-cd askdao_*_windows_amd64    # Expand-Archive 默认解到同名子目录
-.\askdao.exe --help
-```
-
-然后把 `askdao.exe` 放到固定目录并加入用户 PATH：
-
-```powershell
-New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\askdao\bin" | Out-Null
-Move-Item .\askdao.exe "$env:LOCALAPPDATA\askdao\bin\askdao.exe" -Force
-[Environment]::SetEnvironmentVariable("Path",
-  [Environment]::GetEnvironmentVariable("Path","User") + ";$env:LOCALAPPDATA\askdao\bin", "User")
-```
-
-**重开一个终端窗口**（PATH 改动只对新终端生效），验证：
+验证（**其他已打开的终端窗口需要重开**才能认到 PATH，刚跑安装的这个窗口可直接用）：
 
 ```powershell
 askdao --help
 ```
+
+以后升级只需一句 `askdao update`，不用重跑安装脚本。
+
+> 安装脚本是开源的（[askdao-cli/install/](https://github.com/askdao/askdao-cli/tree/main/install)），可以先审计再执行。
+>
+> **备用方式**（脚本不可用时）：到 [GitHub Releases](https://github.com/askdao/askdao-cli/releases) 手动下载 `askdao_*_windows_amd64.zip`，`Expand-Archive` 解压后把 `askdao.exe` 放进 `%LOCALAPPDATA%\askdao\bin` 并加入用户 PATH。就地验证记得加 `.\` 前缀（`.\askdao.exe --help`）——直接敲 `askdao` 会报 CommandNotFoundException，这是 PowerShell 的规则。
 
 ## 2. 注册 askdao.ai 并激活创作者资料
 
@@ -143,7 +127,8 @@ askdao agent deploy
 
 | 现象 | 原因与解法 |
 |------|-----------|
-| `askdao` 报 CommandNotFoundException | 两种情况：还没做 §1 的 PATH 步骤（在 exe 目录用 `.\askdao.exe` 可先验证）；或 PATH 设置后没重开终端 |
+| `askdao` 报 CommandNotFoundException | 旧终端没重开（安装脚本只对当前窗口和新终端生效）；手动安装的话检查 PATH 步骤是否做了，exe 目录内用 `.\askdao.exe` 可先验证 |
+| 想升级到新版本 | `askdao update` 一句完成；不要重跑安装脚本（也能用，但没必要） |
 | `deploy` 报 "profile isn't set up" | 去 https://askdao.ai/dashboard/subscription 激活一次订阅模式（见第 2 步）；只填 profile 页不解除此限制 |
 | 登录后看到 `! askdao-mcp setup skipped: ...` | 登录本身成功；按提示原因处理后跑 `askdao mcp setup` 重试（如本机未装任何 harness、平台侧暂未配置） |
 | `ASKDAO_CONDUCTOR_TOKEN is set but ... URL is not` | 你设置过环境变量覆盖，要么成对设置，要么清掉走 `auth login` 凭证 |

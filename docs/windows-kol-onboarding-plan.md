@@ -1,6 +1,8 @@
 # Windows KOL Onboarding 计划（短期 + 中期）
 
-> v0.1 | 2026-06-10 | 状态：计划定稿，未开工
+> v0.2 | 2026-06-11 | 状态：M1/M2/M3 已交付，M4 核心已交付，**M5 开源已兑现（2026-06-11）**
+>
+> **2026-06-11 重大更新**：askdao-cli 仓库已转 public（开源前检查：gitleaks 全历史零泄露 + issue/PR 正文评论扫描干净）。一键安装上线——`irm https://askdao.ai/install.ps1 | iex`（Windows）/ `curl -fsSL https://askdao.ai/install.sh | bash`（Unix），脚本 canonical 在 `install/`，经 askdao.ai rewrite 反代分发；新增 `askdao update` 自升级命令。**S1（outside collaborator）随之作废**——仓库公开后无需邀请。
 >
 > 目标：让第一个使用 Windows 的外部 KOL/Builder 完成「安装 askdao-cli → 本地 Agent 项目适配 askdao-mcp → 调试确认 → 部署到 askdao.ai」全链路。
 > 短期方案以**人工运维链路**让单个 KOL 本周跑通；中期方案把人工环节逐项自动化，支撑第 2~N 个 KOL 自助 onboarding。
@@ -30,7 +32,9 @@
 
 原则：**零开发或最小开发，人工链路可接受**。每一步都是运维操作 + 文档，唯一可能的代码改动是无（交叉编译用现有源码）。
 
-### S1. 仓库访问 — Outside Collaborator（半小时）
+### S1. 仓库访问 — Outside Collaborator（半小时）～~已作废 (2026-06-11)~~
+
+> **作废**：仓库已转 public（M5 兑现），任何人可匿名 clone / 下载 Releases，无需邀请协作者。以下保留为历史记录。
 
 不公开仓库，只给这一个 KOL 单仓 Read 权限：
 
@@ -157,13 +161,15 @@ conductor 侧 endpoint（PR conductor#149）+ cli 侧命令均已实现；token 
 - ✅ deploy 409 引导链路根治：conductor 下发 `detail.setup_url`，CLI/工作台优先渲染（cli PR #59），硬编码降级为 fallback
 - 未做（保持按需）：独立注册后 onboarding 引导页（下载 cli → auth login 三步 checklist）——现有 EmptyState CLI 引导 + ActivationNotice 已覆盖主动线
 
-### M5. 开源决策点（非工程，战略）
+### M5. 开源决策点（非工程，战略）— ✅ 已兑现（2026-06-11）
 
-二进制分发 + quickstart 文档稳定、API 达 v1.0 后，评估公开 `askdao/askdao-cli`：
+哥拍板提前兑现（一键安装的硬前提：脚本无法带凭证，二进制必须匿名可达）：
 
-- 开源是 KOL 信任锚点的最终形态（本地安装工具必须可审计）
-- 公开后 M1 的 Release 自动对全网可见，scoop/winget 渠道激活
-- 在此之前 outside collaborator 模式可持续支撑个位数 KOL
+- ✅ 公开前检查：gitleaks 全历史 98 commits 零泄露；全部 issue/PR 正文 + 评论扫描无密钥形态；LICENSE MIT
+- ✅ `gh repo edit --visibility public` 完成，匿名下载 v0.1.0 Release 资产验证通过（issue #48 关闭）
+- ✅ 一键安装上线：`install/` 三脚本（sh/ps1/cmd，checksum 校验 + PATH 处理）+ askdao.ai rewrite 反代（`https://askdao.ai/install.{sh,ps1,cmd}`）
+- ✅ `askdao update` 自升级命令（internal/selfupdate，原子换装 + Windows .old 策略）
+- 未做：scoop/winget/homebrew 包管理器渠道（一键脚本已覆盖主流，按需激活）
 
 ### 中期方案验收标准
 
@@ -190,7 +196,7 @@ conductor 侧 endpoint（PR conductor#149）+ cli 侧命令均已实现；token 
 1. ~~第一个 KOL 的 harness 未确认~~ **已确认（2026-06-10）：Claude Code 和 Codex 都用**。短期靠双轨覆盖：Codex 本地调试走 `config.toml` `bearer_token_env_var`（官方支持远程 HTTP MCP），cli 扫描走项目根 `.mcp.json` env 展开 workaround（quickstart §4.4）。M3（Codex MCP TOML 扫描）优先级提升，但不阻塞短期方案；Codex 远程 MCP 真机连通性纳入 S7 验证项
 2. **Windows 真机从未验证**——代码正确 ≠ 真机走通，S7 是发给 KOL 前的硬门槛
 3. **gateway token 是共享静态凭证**——短期单 KOL 风险可控（专属 entry 可吊销），但泄露即全量 mcp 工具可用；M2 第二步前不给超过个位数 KOL 发放
-4. **私有 Release 下载要求 KOL 安装 gh CLI 并登录**——对非工程 KOL 仍有摩擦，短期直发二进制更顺，升级靠你推送新版
+4. ~~**私有 Release 下载要求 KOL 安装 gh CLI 并登录**~~ **已解除（2026-06-11）**：仓库公开 + 一键安装脚本，安装一行命令、升级 `askdao update`，零 gh 依赖
 
 ---
 

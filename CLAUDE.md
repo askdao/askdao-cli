@@ -9,7 +9,8 @@
 
 <directory>
 cmd/askdao/ - CLI 入口（main.go router + common.go 共享 helper）+ 用户命令（auth login/status/logout · agent edit/deploy）；v0.8 命令精简，审阅入口收敛为 agent edit 本地 Web 工作台
-internal/ - 业务实现（auth/ 凭据 + Device Code Flow 客户端 · types/ 双 schema · scanner/ 确定性扫描 + harness 感知双 scope · providers/ 框架推断 · pipeline/ L1-L4 编排 · recommender/ L4 LLM + /cli/recommend 客户端 · render/ 审阅卡片 · webstudio/ 本地 Web 工作台(127.0.0.1 + go:embed) · observe/ --observe 临时 hook 生命周期(写/合并/清理 settings.local.json，零残留三件套) · deploy/ conductor /cli/deploy 客户端 + skill zip 打包）
+internal/ - 业务实现（auth/ 凭据 + Device Code Flow 客户端 · types/ 双 schema · scanner/ 确定性扫描 + harness 感知双 scope · providers/ 框架推断 · pipeline/ L1-L4 编排 · recommender/ L4 LLM + /cli/recommend 客户端 · render/ 审阅卡片 · webstudio/ 本地 Web 工作台(127.0.0.1 + go:embed) · observe/ --observe 临时 hook 生命周期(写/合并/清理 settings.local.json，零残留三件套) · deploy/ conductor /cli/deploy 客户端 + skill zip 打包 · selfupdate/ askdao update 自升级引擎(GitHub Releases latest + checksum 校验 + 原子换装)）
+install/ - 一键安装脚本（install.sh / install.ps1 / install.cmd），经 askdao.ai rewrite 反向代理分发，canonical 在本仓（开源可审计）
 docs/ - 设计文档与调研报告（design.md = Phase 1 静态流水线主稿 + observe-layer-design.md = v0.8+ Observe 层方向 + cli-auth-device-flow.md（OAuth 2.0 Device Code Flow）+ HANDOFF.md + investigations/ 子目录：2 份实现底座 spike + 3 份 Agent Session 观测报告）
 </directory>
 
@@ -44,6 +45,7 @@ askdao agent edit [--dir path] [--harness id] [--no-ui] [--force] [--observe]
                                            # v0.8 核心命令：扫描(或加载已有 askdao-agent.yml)+ 重扫拿 skill/MCP 候选 → 开本地 Web 工作台审阅/编辑 spec+Agent profile、按 scope 勾选 skill/MCP → Save 或一站式 Deploy。--no-ui 只写草稿退出(CI/headless)；--observe 临时挂 PreToolUse hook 预勾真实 claude session 实际激活的 skill/MCP
 askdao agent deploy [--dir path] [--harness id] [--force]
                                            # 读 <dir>/askdao-agent.yml 原始字节 + 打包 custom_local skill 整目录 + 经 Conductor /cli/deploy 推到 Anthropic Managed Agents（**v0.7.1 起 update-mode**：同 yaml.metadata.name 重 deploy → in-place update Anthropic agent + env，复用 agent_id/group_id；改 name → fork 新 agent）
+askdao update [--force]                    # 自升级到最新 GitHub Release（checksum 校验 + 原子换装；-dev 构建拒绝，--force 越过/同版本重装）；首装走 install/ 一键脚本
 askdao version                             # 打印版本
 askdao help                                # 顶层帮助（子命令用 askdao <cmd> --help 看 flag）
 ```
