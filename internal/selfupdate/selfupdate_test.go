@@ -118,8 +118,8 @@ func fakeGitHub(t *testing.T, version string, asset string, archive []byte) *htt
 	t.Helper()
 	sums := fmt.Sprintf("%s  %s\n", sha(archive), asset)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/repos/askdao/askdao-cli/releases/latest", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, `{"tag_name": "v%s"}`, version)
+	mux.HandleFunc("/askdao/askdao-cli/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/askdao/askdao-cli/releases/tag/v"+version, http.StatusFound)
 	})
 	mux.HandleFunc("/askdao/askdao-cli/releases/download/v"+version+"/"+asset, func(w http.ResponseWriter, r *http.Request) {
 		w.Write(archive)
@@ -133,7 +133,6 @@ func fakeGitHub(t *testing.T, version string, asset string, archive []byte) *htt
 func newTestUpdater(t *testing.T, srv *httptest.Server, exe string) *Updater {
 	t.Helper()
 	return &Updater{
-		APIBase:      srv.URL,
 		DownloadBase: srv.URL,
 		Out:          &bytes.Buffer{},
 		ExePath:      exe,
@@ -196,8 +195,8 @@ func TestRunRejectsBadChecksum(t *testing.T) {
 	asset := "askdao_0.2.0_linux_amd64.tar.gz"
 	archive := targzWith(t, "askdao", []byte("new"))
 	mux := http.NewServeMux()
-	mux.HandleFunc("/repos/askdao/askdao-cli/releases/latest", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"tag_name": "v0.2.0"}`)
+	mux.HandleFunc("/askdao/askdao-cli/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/askdao/askdao-cli/releases/tag/v0.2.0", http.StatusFound)
 	})
 	mux.HandleFunc("/askdao/askdao-cli/releases/download/v0.2.0/"+asset, func(w http.ResponseWriter, r *http.Request) {
 		w.Write(archive)

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# [INPUT]: 依赖 GitHub Releases API (releases/latest) 与 GoReleaser 资产命名
-#          askdao_{ver}_{os}_{arch}.tar.gz + checksums.txt；可选 ASKDAO_VERSION 钉版本
+# [INPUT]: 依赖 GitHub releases/latest 302 重定向解析版本（不碰 api.github.com，避 60/hr 匿名限流）
+#          与 GoReleaser 资产命名 askdao_{ver}_{os}_{arch}.tar.gz + checksums.txt；可选 ASKDAO_VERSION 钉版本
 # [OUTPUT]: 安装 askdao 到 ~/.local/bin/askdao（macOS / Linux / WSL）
 # [POS]: install/ 的 Unix 安装器，被 https://askdao.ai/install.sh 反向代理分发；
 #        与 install.ps1（Windows）逻辑对齐
@@ -30,9 +30,10 @@ esac
 
 version="${ASKDAO_VERSION:-}"
 if [ -z "$version" ]; then
-  version="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-    | grep -m1 '"tag_name"' | sed -E 's/.*"v?([^"]+)".*/\1/')"
-  [ -n "$version" ] || fail "could not determine the latest version (GitHub API unreachable?)"
+  # /releases/latest 302→ /releases/tag/vX.Y.Z；取跟随后最终 URL，绕开受限的 api.github.com（匿名 60/hr/IP）
+  version="$(curl -fsSL -o /dev/null -w '%{url_effective}' \
+    "https://github.com/$REPO/releases/latest" | sed -E 's#.*/tag/v?##' | tr -d '\r\n')"
+  [ -n "$version" ] || fail "could not determine the latest version (set ASKDAO_VERSION to pin)"
 fi
 version="${version#v}"
 
