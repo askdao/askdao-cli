@@ -1,5 +1,5 @@
-# [INPUT]: 依赖 GitHub Releases API (releases/latest) 与 GoReleaser 资产命名
-#          askdao_{ver}_windows_{arch}.zip + checksums.txt；可选 $env:ASKDAO_VERSION 钉版本
+# [INPUT]: 依赖 GitHub releases/latest 302 重定向解析版本（不碰 api.github.com，避 60/hr 匿名限流）
+#          与 GoReleaser 资产命名 askdao_{ver}_windows_{arch}.zip + checksums.txt；可选 $env:ASKDAO_VERSION 钉版本
 # [OUTPUT]: 安装 askdao.exe 到 %LOCALAPPDATA%\askdao\bin 并幂等追加用户 PATH
 # [POS]: install/ 的 Windows 安装器（PowerShell 5.1 兼容），被 https://askdao.ai/install.ps1
 #        反向代理分发；与 install.sh（Unix）逻辑对齐；install.cmd 是其 CMD 包装
@@ -20,8 +20,16 @@ $arch = switch ($env:PROCESSOR_ARCHITECTURE) {
 
 $version = $env:ASKDAO_VERSION
 if (-not $version) {
-  $latest = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest"
-  $version = $latest.tag_name
+  # /releases/latest 302→ /releases/tag/vX.Y.Z；解析 tag，绕开受限的 api.github.com（匿名 60/hr/IP）
+  try {
+    $resp = Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/$Repo/releases/latest" `
+      -MaximumRedirection 0 -ErrorAction Stop
+    $loc = [string]$resp.Headers.Location
+  } catch {
+    $loc = [string]$_.Exception.Response.Headers.Location
+  }
+  if (-not $loc) { throw "could not resolve latest version (set `$env:ASKDAO_VERSION to pin)" }
+  $version = ($loc -split '/tag/v')[-1]
 }
 $version = $version.TrimStart('v')
 

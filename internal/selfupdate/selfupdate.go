@@ -1,9 +1,9 @@
 // Package selfupdate implements `askdao update` — in-place binary upgrade
 // from GitHub Releases.
 //
-// [INPUT]: 依赖 GitHub Releases API (releases/latest) 与 GoReleaser 资产命名
+// [INPUT]: 依赖 GitHub releases/latest 302 重定向解析版本（不碰 api.github.com，避 60/hr 匿名限流）
 //
-//	askdao_{ver}_{os}_{arch}.{tar.gz|zip} + checksums.txt；stdlib only
+//	与 GoReleaser 资产命名 askdao_{ver}_{os}_{arch}.{tar.gz|zip} + checksums.txt；stdlib only
 //	(net/http + archive/{zip,tar} + compress/gzip + crypto/sha256)
 //
 // [OUTPUT]: 对外提供 Updater（New / Run）—— 查 latest、下载校验、原子换装当前可执行文件
@@ -22,12 +22,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -38,11 +38,10 @@ import (
 var ErrUpToDate = errors.New("already up to date")
 
 // Updater drives one self-update cycle. Zero-value fields fall back to the
-// real GitHub endpoints; tests point APIBase/DownloadBase at httptest servers
+// real GitHub endpoints; tests point DownloadBase at an httptest server
 // and ExePath at a scratch file.
 type Updater struct {
 	Repo         string       // owner/name, default "askdao/askdao-cli"
-	APIBase      string       // default "https://api.github.com"
 	DownloadBase string       // default "https://github.com"
 	Client       *http.Client // default http.DefaultClient
 	Out          io.Writer    // progress output, default os.Stdout
@@ -54,7 +53,6 @@ type Updater struct {
 func New() *Updater { return &Updater{} }
 
 func (u *Updater) repo() string { return defaultStr(u.Repo, "askdao/askdao-cli") }
-func (u *Updater) api() string  { return defaultStr(u.APIBase, "https://api.github.com") }
 func (u *Updater) dl() string   { return defaultStr(u.DownloadBase, "https://github.com") }
 func (u *Updater) goos() string { return defaultStr(u.GOOS, runtime.GOOS) }
 func (u *Updater) arch() string { return defaultStr(u.GOARCH, runtime.GOARCH) }
@@ -81,29 +79,33 @@ func defaultStr(v, d string) string {
 }
 
 // Latest returns the newest release version (without the leading "v").
+//
+// It reads the tag from the github.com/<repo>/releases/latest 302 redirect
+// (Location: .../releases/tag/vX.Y.Z) instead of querying api.github.com — the
+// anonymous API is rate-limited to 60/hr/IP (brutal behind shared CGNAT), the
+// github.com redirect is not.
 func (u *Updater) Latest(ctx context.Context) (string, error) {
-	url := fmt.Sprintf("%s/repos/%s/releases/latest", u.api(), u.repo())
+	url := fmt.Sprintf("%s/%s/releases/latest", u.dl(), u.repo())
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
 	}
-	resp, err := u.client().Do(req)
+	// Capture the 302 instead of following it: copy the client so the
+	// no-follow policy doesn't leak into download requests.
+	c := *u.client()
+	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := c.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("query latest release: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("query latest release: %s returned %s", url, resp.Status)
+	loc := resp.Header.Get("Location")
+	if loc == "" {
+		return "", fmt.Errorf("query latest release: %s returned %s (no redirect)", url, resp.Status)
 	}
-	var rel struct {
-		TagName string `json:"tag_name"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
-		return "", fmt.Errorf("parse latest release: %w", err)
-	}
-	v := strings.TrimPrefix(rel.TagName, "v")
-	if v == "" {
-		return "", errors.New("latest release has no tag_name")
+	v := strings.TrimPrefix(path.Base(loc), "v")
+	if v == "" || v == "." || v == "/" {
+		return "", errors.New("could not resolve latest version from redirect")
 	}
 	return v, nil
 }
