@@ -24,8 +24,8 @@ import (
 //
 // Skill rows in the WILL UPLOAD section carry an inline origin tag:
 //
-//   - .agents/skills/spelling-homework-generator/  412 KB / 47 files   skill (repo-native)
-//   - .agents/skills/asr/                            6 KB /  1 files   skill (vendored: marswaveai/skills @ 4f9d213)
+//   - .agents/skills/content-generator/  412 KB / 47 files   skill (repo-native)
+//   - .agents/skills/asr/                            6 KB /  1 files   skill (vendored: some-org/skills @ 4f9d213)
 //
 // The tag is sourced from `PayloadEntry.Reason` for `Kind=="skill"` entries;
 // non-skill rows render the bare `Kind` only.
@@ -92,7 +92,7 @@ func RenderPayload(r *Renderer, root string, p types.DeploymentPayload, a types.
 // formatKind returns the right-column kind label for a payload entry.
 //
 //   - For Kind="skill": "skill (<origin tag>)" — the tag comes from Reason
-//     (e.g. "repo-native", "vendored: marswaveai/skills @ 4f9d213").
+//     (e.g. "repo-native", "vendored: some-org/skills @ 4f9d213").
 //   - For everything else: just the dimmed Kind.
 func formatKind(r *Renderer, e types.PayloadEntry) string {
 	if e.Kind == "skill" {

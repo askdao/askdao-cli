@@ -14,7 +14,7 @@
   5. ScanInfo 装配（root / 时长 / 排除）
   **5b. Deterministic skills builder（v0.7）**：`BuildAgentSpecSkills(det)` 填到 `Result.AgentSkills`，cmd-layer 后用它覆盖 LLM 输出的 spec.Skills
   6. Optional LLM phase：发 RecommendRequest（含 Detection + ProviderSummary + Policy），收 RecommendResponse
-- **skills_builder.go** — `BuildAgentSpecSkills(det) []types.Skill` deterministic 构造 agent.yml.skills 段：每个 DetectedSkill → `{type: custom_local, path: filepath.Dir(s.Source)}`（path 是相对项目根的 skill 目录路径）；每个 ImpliedAnthropicSkill 去重 → `{type: builtin, provider: anthropic, id: skillID}`。稳定排序。**信任边界原则**：LLM 适合软字段（model_class / system_prompt / persona / reasoning_*）；skill 引用是确定性事实字段，由 builder 取代 LLM 自由发挥（design.md §9.13，与 conductor 端 metadata.domain normalizer 同款哲学）。
+- **skills_builder.go** — `BuildAgentSpecSkills(det) []types.Skill` deterministic 构造 agent.yml.skills 段：每个 DetectedSkill → `{type: custom_local, path: filepath.Dir(s.Source)}`（path 是相对项目根的 skill 目录路径）；每个 ImpliedAnthropicSkill 去重 → `{type: builtin, provider: anthropic, id: skillID}`。稳定排序。**信任边界原则**：LLM 适合软字段（model_class / system_prompt / persona / reasoning_*）；skill 引用是确定性事实字段，由 builder 取代 LLM 自由发挥（design.md §9.13，硬字段确定性填充、软字段才交 LLM）。
 - **skills_builder_test.go** — 4 用例覆盖：1 原生 + 2 vendored 全产 custom_local（path 指目录非 SKILL.md）/ implied xlsx 产 builtin / duplicate SkillID 去重 / 空 DetectedSkills 安全返 nil。
 - **pipeline_test.go** — 三个核心测试：
   - `TestPipeline_DetectOnly_NoLLM` — fixture 项目（pyproject.toml + main.py + deploy.yml + .env.example + .mcp.json）跑全管线，断言：FastAPI 框架命中 / pytest 标 dev / deploy.yml 触发 bash 覆盖 / GITHUB_TOKEN 跨链到 github MCP
@@ -32,7 +32,7 @@
 
 ## 后续 issue 挂载点
 
-- conductor `POST /api/v1/cli/recommend` 已上线；cmd 层 `chooseLLMClient()` 通过 `ASKDAO_CONDUCTOR_URL` env 切真实 ConductorClient（否则离线 MockClient）
+- 对外端点 `POST /api/v1/cli/recommend` 已上线；cmd 层 `chooseLLMClient()` 通过 `ASKDAO_CONDUCTOR_URL` env 切真实 ConductorClient（否则离线 MockClient）
 - 长尾框架 / 外部服务规则增量加在 internal/providers，pipeline 不需改
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

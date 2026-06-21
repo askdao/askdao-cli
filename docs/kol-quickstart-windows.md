@@ -3,7 +3,7 @@
 > v0.5 | 2026-06-11 | 面向对象：使用 Windows + Claude Code / Codex 的 KOL/Builder
 >
 > 走完本指南，你将完成：安装 askdao 命令行工具 → 让你本地的 Agent 项目接入 askdao-mcp 工具集 → 本地调试确认 → 一条命令部署到 askdao.ai，供你的订阅者使用。
-> 全程约 20 分钟。遇到问题直接联系平台方（Sam）。
+> 全程约 20 分钟。遇到问题直接联系平台维护者。
 >
 > v0.5 变更：§1 改为一行命令安装（askdao-cli 已开源 + 一键安装脚本上线），原 gh 下载/手动 PATH 流程降级为备用方案；后续升级用 `askdao update`。v0.4 变更：§1 补 PowerShell `.\` 前缀说明 + 用户级 PATH 正确写法（真机验证反馈）。v0.2 变更：`askdao auth login` 已内置 askdao-mcp 自动配置。
 

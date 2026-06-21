@@ -115,7 +115,7 @@ func TestDeploy_EndToEnd_HappyPath(t *testing.T) {
 }
 
 func TestDeploy_EndToEnd_UpdateMode(t *testing.T) {
-	// Update-mode (ADR-P19): conductor signals an in-place agent update via
+	// Update-mode: the server signals an in-place agent update via
 	// `created: false` + previous_managed_version. The cli should print the
 	// "Updated existing agent (vN → vN+1)" banner instead of "Created".
 	root := withWorkdir(t)

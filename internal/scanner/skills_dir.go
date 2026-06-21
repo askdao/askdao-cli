@@ -165,7 +165,7 @@ func scanSkillBase(base, sourcePrefix, scope, harness string, lock map[string]Sk
 // data without going through file I/O.
 type SkillsLockEntry struct {
 	Name       string
-	Source     string // e.g. "marswaveai/skills"
+	Source     string // e.g. "some-org/skills"
 	LockedHash string // computedHash passthrough — used as origin tag short hash
 }
 

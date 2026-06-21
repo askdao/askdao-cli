@@ -9,7 +9,7 @@ import (
 	"github.com/askdao/askdao-cli/internal/types"
 )
 
-// miniPipelineRepo builds a stripped-down homework-spelling layout: one
+// miniPipelineRepo builds a stripped-down content-pipeline layout: one
 // repo-native skill, one vendored skill pinned in skills-lock.json, plus the
 // usual junk/generated/input directories.
 func miniPipelineRepo(t *testing.T) string {
@@ -18,7 +18,7 @@ func miniPipelineRepo(t *testing.T) string {
 	mustWrite(t, filepath.Join(root, "CLAUDE.md"), "# operating manual\n")
 	mustWrite(t, filepath.Join(root, "package.json"), `{"devDependencies":{"playwright":"^1.60.0"}}`)
 	mustWrite(t, filepath.Join(root, "skills-lock.json"),
-		`{"version":1,"skills":{"tts":{"source":"marswaveai/skills","sourceType":"github","skillPath":"tts/SKILL.md","computedHash":"abc123"}}}`)
+		`{"version":1,"skills":{"tts":{"source":"some-org/skills","sourceType":"github","skillPath":"tts/SKILL.md","computedHash":"abc123"}}}`)
 	mustWrite(t, filepath.Join(root, ".agents", "skills", "homework-gen", "SKILL.md"),
 		"---\nname: homework-gen\ndescription: turn a spelling list into an HTML page\n---\n# body\n")
 	mustWrite(t, filepath.Join(root, ".agents", "skills", "homework-gen", "scripts", "render.mjs"), "// render\n")
@@ -76,7 +76,7 @@ func TestDetectDeploymentPayload_AllSkillsShipInline(t *testing.T) {
 	if !hasVendored {
 		t.Errorf("vendored skill should also be in includes (v0.7)")
 	}
-	if !strings.HasPrefix(vendoredEntry.Reason, "vendored: marswaveai/skills") {
+	if !strings.HasPrefix(vendoredEntry.Reason, "vendored: some-org/skills") {
 		t.Errorf("vendored skill origin tag wrong: %q", vendoredEntry.Reason)
 	}
 

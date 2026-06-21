@@ -18,10 +18,10 @@ import (
 	"github.com/askdao/askdao-cli/internal/types"
 )
 
-// DefaultSyftExcludes is applied unless caller overrides — the openviking
-// submodule produced 1159 noisy artifacts in the conductor spike (see
-// docs/investigations/syft-spike-for-askdao-cli.md §3).
-var DefaultSyftExcludes = []string{"./openviking/**"}
+// DefaultSyftExcludes is applied unless the caller overrides. Empty by default —
+// syft already honours .gitignore, and callers pass project-specific excludes
+// (e.g. a large vendored submodule) via SyftOptions.Excludes.
+var DefaultSyftExcludes = []string{}
 
 // SyftRunner abstracts spawning the syft binary so tests can inject canned
 // JSON without requiring syft on PATH.

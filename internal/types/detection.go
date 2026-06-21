@@ -51,9 +51,8 @@ type Detection struct {
 	// (with reasons). As of v0.7 every custom skill (both repo-native and
 	// vendored from skills-lock.json) ships inline; there is no "reinstall from
 	// registry" path, because Anthropic Managed Agents has no public skill
-	// registry (see harness-design/investigations/managed-agents-skill-installation.md).
-	// Vendored-vs-native distinction lives on DetectedSkill metadata for UI
-	// display only.
+	// registry. Vendored-vs-native distinction lives on DetectedSkill metadata
+	// for UI display only.
 	DeploymentPayload DeploymentPayload `json:"deployment_payload"`
 }
 
@@ -276,7 +275,7 @@ type DetectedSkill struct {
 	LockedSource string `json:"locked_source,omitempty"`
 	// LockedHash is the `computedHash` field passed through from skills-lock.json
 	// for the vendored case. Used by bundle UI to render an origin tag like
-	// `skill (vendored: marswaveai/skills @ <short-hash>)`. Empty when not vendored.
+	// `skill (vendored: some-org/skills @ <short-hash>)`. Empty when not vendored.
 	LockedHash string `json:"locked_hash,omitempty"`
 	// IsLocalOriginal == (LockedSource == ""). Materialized for JSON consumers
 	// that would rather read a bool than test emptiness.

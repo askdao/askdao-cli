@@ -2,13 +2,13 @@
 
 > 验证 anchore/syft 是否可作为 askdao-cli L1-L2 包扫描器的底座
 > Date: 2026-05-06
-> Target: askdao-cloud-conductor 仓库
+> Target: 一个大型真实后端仓库（含大体积 vendored submodule）
 
 ## TL;DR
 
 **结论：直接采用 Syft 作为 askdao-cli L1-L2 扫描器，不再自写 manifest parser。**
 
-Syft 1.44.0 在 conductor 仓库实测：核心依赖 100% 识别准确，输出字段完整可直接喂下游推荐器。唯一 gap 是 dev/prod 不区分，askdao-cli 需要做二次过滤层。
+Syft 1.44.0 在一个大型真实后端仓库实测：核心依赖 100% 识别准确，输出字段完整可直接喂下游推荐器。唯一 gap 是 dev/prod 不区分，askdao-cli 需要做二次过滤层。
 
 ---
 
@@ -16,10 +16,10 @@ Syft 1.44.0 在 conductor 仓库实测：核心依赖 100% 识别准确，输出
 
 ```bash
 brew install syft     # 78 MB，一次性
-syft dir:. --exclude './openviking/**' -o json --quiet > sbom.json
+syft dir:. --exclude './vendor/**' -o json --quiet > sbom.json
 ```
 
-性能：扫 conductor + 整个 OpenViking submodule (1.5 GB / 1.2 万文件) 全量 < 5 秒。
+性能：扫一个大型仓库 + 其大体积 vendored submodule (~1.5 GB / 1.2 万文件) 全量 < 5 秒。
 
 ---
 
@@ -27,7 +27,7 @@ syft dir:. --exclude './openviking/**' -o json --quiet > sbom.json
 
 ### ✓ 1. Python uv.lock 完整识别
 
-conductor 用 uv 而非 poetry/pip-tools。Syft `python-package-cataloger` 直接支持 `python-uv-lock-entry` 格式：
+测试仓用 uv 而非 poetry/pip-tools。Syft `python-package-cataloger` 直接支持 `python-uv-lock-entry` 格式：
 
 | 关键依赖 | 识别 | 版本 | Source |
 |---------|------|------|--------|
@@ -41,7 +41,7 @@ conductor 用 uv 而非 poetry/pip-tools。Syft `python-package-cataloger` 直�
 | mypy | ✓ | 1.19.1 | uv.lock | ← dev
 | ruff | ✓ | 0.15.6 | uv.lock | ← dev
 
-→ **conductor 排除 OpenViking submodule 后共 66 个 Python 包，全部命中。**
+→ **排除大体积 vendored submodule 后共 66 个 Python 包，全部命中。**
 
 ### ✓ 2. GitHub Actions 也被识别
 
@@ -55,8 +55,8 @@ conductor 用 uv 而非 poetry/pip-tools。Syft `python-package-cataloger` 直�
 
 ### ✓ 3. Submodule 噪声可控
 
-不加 `--exclude` 时：1229 个 artifact（OpenViking 1159 + conductor 70）。
-加 `--exclude './openviking/**'` 后：70 个 artifact（66 Python + 4 Actions）。
+不加 `--exclude` 时：1229 个 artifact（vendored submodule 1159 + 主仓 70）。
+加 `--exclude './vendor/**'` 后：70 个 artifact（66 Python + 4 Actions）。
 
 → askdao-cli 必须默认尊重 `.gitmodules` / `.gitignore`，submodule 不算"项目主依赖"。
 
@@ -131,7 +131,7 @@ Syft 只识别"包"，不推断"框架"。比如装了 `fastapi` 不代表项目
 import "github.com/anchore/syft/syft"
 
 src, _ := syft.GetSource(ctx, "/path/to/project", &syft.GetSourceConfig{
-    Excludes: []string{"./openviking/**"},
+    Excludes: []string{"./vendor/**"},
 })
 sbom, _ := syft.CreateSBOM(ctx, src, nil)
 for pkg := range sbom.Artifacts.Packages.Enumerate() {

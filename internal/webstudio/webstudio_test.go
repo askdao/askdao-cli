@@ -189,7 +189,7 @@ func TestObserveEndpoint(t *testing.T) {
 	}
 
 	cases := []string{
-		`{"tool_name":"Skill","tool_input":{"skill":"spelling-homework-generator"}}`,
+		`{"tool_name":"Skill","tool_input":{"skill":"content-generator"}}`,
 		`{"tool_name":"mcp__askdao-voice__elevenlabs_text_to_speech","tool_input":{}}`,
 		`{"tool_name":"mcp__askdao-voice__elevenlabs_search_voices","tool_input":{}}`, // same server -> deduped
 		`{"tool_name":"Skill","tool_input":{"name":"browse"}}`,                        // R2: fall back to name
@@ -208,7 +208,7 @@ func TestObserveEndpoint(t *testing.T) {
 	_ = json.NewDecoder(r.Body).Decode(&got)
 	r.Body.Close()
 
-	if want := []string{"browse", "spelling-homework-generator"}; !reflect.DeepEqual(got.Skills, want) {
+	if want := []string{"browse", "content-generator"}; !reflect.DeepEqual(got.Skills, want) {
 		t.Errorf("skills = %v, want %v", got.Skills, want)
 	}
 	if want := []string{"askdao-voice"}; !reflect.DeepEqual(got.MCPServers, want) {

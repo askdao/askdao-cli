@@ -73,7 +73,7 @@ func TestClient_Deploy_HappyPath(t *testing.T) {
 			Skills: []map[string]interface{}{{
 				"type": "custom_local", "path": "my-skill",
 				"anthropic_skill_id": "skill_x", "anthropic_skill_version": "1",
-				"ov_content_uri": "viking://resources/skills/private/usr_1/skill_x/v0.1.0/",
+				"ov_content_uri": "skill-store://private/usr_1/skill_x/v0.1.0/",
 			}},
 			TranslationReport: TranslationReport{Harness: "anthropic_managed_agents"},
 		})

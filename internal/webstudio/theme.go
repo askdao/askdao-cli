@@ -2,7 +2,7 @@
 // [OUTPUT]: 对外提供 ThemeToken / Palette / DefaultThemeForCategory / Categories
 // [POS]: webstudio 的视觉品牌色板真相源 —— theme_color 存 token 名，CLI 默认 + 前端渲染共用此表；
 //
-//	conductor 纯透传 token（不碰 hex）、askdao-ai-web 镜像此表（src/config/style/theme-tokens.ts + theme.css）渲染订阅者 Group 页品牌色；改 token/hex 三端同步
+//	订阅者端按同一 token→hex 契约渲染 Group 页品牌色（服务端透传 token 不碰 hex）；改 token/hex 端到端同步
 //
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package webstudio
@@ -18,10 +18,10 @@ type ThemeToken struct {
 }
 
 // Palette is the ordered preset color palette. metadata.theme_color stores the
-// Token (NOT the hex) so CLI / conductor / askdao-ai-web stay aligned on render.
+// Token (NOT the hex) so the CLI and the subscriber-facing renderer stay aligned.
 // SOURCE OF TRUTH for the token→hex table: any change to a token name or hex
-// here must be mirrored in askdao-ai-web src/config/style/{theme-tokens.ts,
-// theme.css}; conductor only passes the token string through (never hex).
+// here must be mirrored in the subscriber web app's token table (kept in sync via
+// CI diff); the server only passes the token string through (never hex).
 var Palette = []ThemeToken{
 	{"sunset", "#FF6B35", "Sunset"},
 	{"ocean", "#2E86DE", "Ocean"},
@@ -63,7 +63,7 @@ func DefaultThemeForCategory(category string) string {
 
 // categoryDefaultIcon maps a coarse agent category to its default lucide icon
 // name. Mirror of categoryDefault; every value MUST be in AvatarIcons (icons.go)
-// + conductor _AVATAR_ICON_WHITELIST so the frontend can render it.
+// and in the shared avatar icon whitelist so the frontend can render it.
 var categoryDefaultIcon = map[string]string{
 	"education": "graduation-cap",
 	"finance":   "trending-up",

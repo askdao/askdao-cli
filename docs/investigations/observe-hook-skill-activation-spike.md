@@ -18,16 +18,16 @@
 
 唯一边界（非阻塞）：KOL **手打 `/skillname` 斜杠命令**会绕过 `PreToolUse`（这是 prompt 展开路径，不是工具调用路径）。对 askdao 场景影响极小 —— 详见 §3 与 §7。
 
-一手实证（本机 `~/.claude/projects/.../homework-spelling-by-elevenlabs/*.jsonl`，正是 skill_pipeline 真实样例）：
+一手实证（本机 `~/.claude/projects/<project>/*.jsonl`，正是 skill_pipeline 真实样例）：
 
 ```json
-{"type":"tool_use","name":"Skill","input":{"skill":"spelling-homework-generator"}}
+{"type":"tool_use","name":"Skill","input":{"skill":"content-generator"}}
 {"type":"tool_use","name":"Skill","input":{"skill":"browse","args":"Open file://..."}}
 {"type":"tool_use","name":"mcp__askdao-voice__elevenlabs_text_to_speech","input":{"text":...,"voice_id":...}}
 {"type":"tool_use","name":"mcp__askdao-voice__elevenlabs_search_voices","input":{}}
 ```
 
-即：`spelling-homework-generator`（KOL 自定义 skill）、`browse`（内置 skill）、`askdao-voice`（MCP server）三类全部以结构化、可识别的形态出现在工具调用流里。这正是 webstudio 要预勾的全部对象类型。
+即：`content-generator`（KOL 自定义 skill）、`browse`（内置 skill）、`askdao-voice`（MCP server）三类全部以结构化、可识别的形态出现在工具调用流里。这正是 webstudio 要预勾的全部对象类型。
 
 ---
 
@@ -76,7 +76,7 @@ skill 激活在机器相就是一次工具调用：Claude 决定用某 skill →
 webstudio 收到的 payload 里取 `tool_input.skill` 即 skill 名，与 §1 实证一致：
 
 ```
-PreToolUse → tool_name="Skill", tool_input={"skill":"spelling-homework-generator"}
+PreToolUse → tool_name="Skill", tool_input={"skill":"content-generator"}
 ```
 
 > 实证字段名以本机真实 transcript 为准：**`tool_input.skill`**（不是 `skill_name`）。官方 hooks doc 未公布 Skill 工具的 input schema，但 transcript 的 tool_use block 与 hook 的 `tool_input` 同源，字段一致。实现时仍应做防御：`skill` 缺失则回落读 `name`/首个字符串值。
@@ -215,7 +215,7 @@ hook 把事件 JSON 作为 POST body（`Content-Type: application/json`）发到
 
 - 官方 Hooks reference：https://code.claude.com/docs/en/hooks （事件清单、`Skill` 工具、`mcp__<server>__<tool>` 形态、HTTP hook config、SessionEnd 无 decision control、stdin payload）
 - 官方 Hooks guide：https://code.claude.com/docs/en/hooks-guide （MCP matcher 正则）
-- 本机一手实证 transcript：`~/.claude/projects/-Users-sunmu-WorkSpace-homework-spelling-by-elevenlabs/a14151d4-...jsonl`（真实 `Skill` + `mcp__askdao-voice__*` tool_use payload）
+- 本机一手实证 transcript：`~/.claude/projects/<project>/<session>.jsonl`（真实 `Skill` + `mcp__askdao-voice__*` tool_use payload）
 - 既有调研报告 A：`docs/investigations/Runtime Observability and Session Hooking for AI Coding Agents_ ...md`（hook 工程层 + HTTP hook + 非阻塞语义）
 - 既有调研报告 C：`docs/investigations/面向 Claude Code 与 Codex 的 Agent Session 审计与观测研究报告.md`（公共字段、tool boundary 边界、transcript 非稳定契约）
 - plan §M4c：`~/.claude/plans/anthropic-managed-pure-pixel.md`（预设 observe 预勾机制）

@@ -171,10 +171,10 @@ func kolProfileSetupURL(kpr *deploy.ErrKolProfileRequired) string {
 
 func printDeployResult(resp *deploy.DeployResponse) {
 	fmt.Println()
-	// Update-mode (ADR-P19): conductor's response.created tells us whether this
-	// deploy created a fresh agent or updated the existing one in place. When
-	// updating we also print the version bump (e.g. "v1 → v2") so the KOL can
-	// confirm the change landed without diving into the Anthropic dashboard.
+	// Update-mode: the server's response.created tells us whether this deploy
+	// created a fresh agent or updated the existing one in place. When updating
+	// we also print the version bump (e.g. "v1 → v2") so the KOL can confirm the
+	// change landed without diving into the Anthropic dashboard.
 	if resp.Created {
 		fmt.Println("✓ Created new agent.")
 	} else if resp.PreviousManagedVersion != nil {
