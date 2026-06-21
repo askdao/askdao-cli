@@ -39,7 +39,7 @@ func TestSaveLoadRoundtrip(t *testing.T) {
 	c := &Credentials{
 		Server:      "https://api.test",
 		UserID:      "usr_abc",
-		UserEmail:   "sam@askdao.ai",
+		UserEmail:   "kol@example.com",
 		AccessToken: "cli_xxxxxx",
 	}
 	if err := Save(c); err != nil {

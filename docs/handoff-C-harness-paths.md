@@ -10,13 +10,13 @@
 
 **立足点（已锁定）**：场景 = Skills Pipeline；第一期 = Anthropic Managed Agents MVP。
 
-**当前代码状态**：仓库 `/Users/sunmu/WorkSpace/askdao-cloud/askdao-cli`，分支 `main`，第一步（`agent edit` Web 工作台）已 merge（#32 #33）。架构：`internal/{types,scanner,...}` + `cmd/askdao`。
+**当前代码状态**：分支 `main`，第一步（`agent edit` Web 工作台）已 merge（#32 #33）。架构：`internal/{types,scanner,...}` + `cmd/askdao`。
 
 **工作纪律（GEB 分形文档协议）**：改代码必须同步文档——L3 文件头 INPUT/OUTPUT/POS、L2 目录 CLAUDE.md，固定带 `[PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md`。**改代码不同步文档 = 未完成。**
 
 **验证习惯**：`cd askdao-cli && go test ./... && make build`。
 
-**沟通**：中文沟通，英文代码，简洁直接，每次以"哥"开头。
+**沟通**：中文沟通，英文代码，简洁直接。
 
 ---
 
@@ -206,7 +206,7 @@ func hasPathPrefix(p, prefix string) bool {
 ## 4. 注意点 / 决策
 
 1. **Codex MCP TOML 解析是独立工作量**（不是填路径）：要扫 `~/.codex/config.toml` + `.codex/config.toml`，需新增 TOML 解析（项目已依赖 `github.com/BurntSushi/toml` 可复用），把 `[mcp_servers.<id>]`（含 `url`/`command`/`args`/`bearer_token_env_var`）映射到 `MCPServerConfig`，并在 conventions 表区分 JSON/TOML 两类（或 `readMCPConfig` 按扩展名分派）。**建议拆独立 issue，本 PR 先接 Codex skill + Cursor MCP（JSON/目录可直达的）。**
-2. **Codex marker 取 `.codex`**（保守）：`.agents/skills` 已被 `SkillDirCandidates` 在 project scope 覆盖，marker 用 `.codex` 已足够触发 user scope。若想"项目里有 `.agents/skills` 也算 Codex workspace"，可把 `markerDirs` 设 `{".codex", ".agents"}`——和哥确认。
+2. **Codex marker 取 `.codex`**（保守）：`.agents/skills` 已被 `SkillDirCandidates` 在 project scope 覆盖，marker 用 `.codex` 已足够触发 user scope。若想"项目里有 `.agents/skills` 也算 Codex workspace"，可把 `markerDirs` 设 `{".codex", ".agents"}`——按需确认。
 3. **建议补 `harness_scope_test.go`**（当前不存在）：覆盖 `.codex/` marker → `~/.agents/skills` user skill 命中、`.cursor/` marker → `~/.cursor/mcp.json` user MCP 命中两条新路径。
 
 ## 5. 验证 / 分支 / 起步
@@ -221,6 +221,6 @@ func hasPathPrefix(p, prefix string) bool {
 ## 开窗 opening line（复制即用）
 
 ```
-哥，我做 Codex/Cursor harness 路径补全这条线（v0.8 第二步 C）。
+做 Codex/Cursor harness 路径补全这条线（v0.8 第二步 C）。
 先读 askdao-cli/docs/handoff-C-harness-paths.md（含调研结论 + 完整 patch），然后 review 落地。
 ```

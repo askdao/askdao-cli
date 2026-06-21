@@ -1,7 +1,7 @@
 # askdao-cli — KOL 本地 Agent 引导工具
 
 > Go 单二进制 CLI。在 KOL 项目目录下扫描技术栈、推断框架、生成 Anthropic Managed Agents 配置草稿。
-> AskDAO 体系内**唯一对外开源的子项目**（其他子仓全私有）—— 信任锚点。
+> askdao-cli 是 AskDAO 在你本机运行的开源部分 —— 信任锚点。
 
 技术栈：Go 1.26 + anchore/syft + go-enry/enry + moby/buildkit (dockerfile parser) + anthropic-sdk-go
 
@@ -59,20 +59,20 @@ askdao help                                # 顶层帮助（子命令用 askdao 
 
 deploy 的 token 解析顺序：`ASKDAO_CONDUCTOR_TOKEN + ASKDAO_CONDUCTOR_URL` 同时设置 → 用 env（CI / 一次性覆盖）；否则读 `credentials.json`（`askdao auth login` 的产物）；都没有 → 报错并提示登录。两个 env 必须成对，单设一个明确报错（防止误配置静默降级）。设计稿 [`docs/cli-auth-device-flow.md`](docs/cli-auth-device-flow.md) §6.3。
 
-**Skill 上传分类规则**（v0.7 起所有 custom skill 一律上传，Anthropic Managed Agents 无公共 registry —— 详见 `../harness-design/investigations/managed-agents-skill-installation.md`）：所有 `<skillDir>/<name>/` 目录递归打包（含 SKILL.md + scripts/ + assets/ + references/ 等所有子文件 + 二进制透传）。`<root>/.agents/skills/` / `<root>/.claude/skills/` / 自定义 path 的上级在 ZipDir 时被 `filepath.Rel` 切掉 —— **harness 中性 invariant**：Anthropic 端只看到 `<skillName>/SKILL.md` 形态（design.md §9.14）。vendored 与原生只是 bundle UI 的 inline origin tag（`skill (repo-native)` / `skill (vendored: <source> @ <hash>)`），不改变上传行为。**打包 ignore 过滤（`ZipDir`）**：默认排除普遍安全/无关项 —— 目录 `node_modules` / `.git` / `.svn` / `.hg` / `__pycache__` / `.venv` / `venv`（整棵 `filepath.SkipDir`），文件 `.DS_Store` / `Thumbs.db` / `desktop.ini` / 编辑器 swap & backup（`*.swp` / `*.swo` / `*~`）+ **安全关键的 dotenv（`.env` / `.env.*`）**（skill 是 prompt 包几乎不需 .env，默认排除杜绝密钥误传，确需的模板用 `.askdaoignore` 的 `!` 反向纳入）；`SKILL.md` 永远保留；`CLAUDE.md` / `skills-lock.json` / manifest 默认随包。项目特有的构建输出目录（`output*` / `input` 等）由 **`.askdaoignore`**（syntax 同 gitignore，`#` 注释 / 尾 `/` 目录模式 / `!` 反向纳入；放 skill 目录根）兜底排除 —— 用精确名而非前缀通配做默认排除，避免误伤合法命名的 skill 子目录（如 `output_templates`）。该过滤同时保护落 S3 的真源 blob 与上传 Anthropic 的文件列表（二者同源于这份 zip）。
+**Skill 上传分类规则**（v0.7 起所有 custom skill 一律上传，Anthropic Managed Agents 无公共 skill registry，custom skill 必须随包上传）：所有 `<skillDir>/<name>/` 目录递归打包（含 SKILL.md + scripts/ + assets/ + references/ 等所有子文件 + 二进制透传）。`<root>/.agents/skills/` / `<root>/.claude/skills/` / 自定义 path 的上级在 ZipDir 时被 `filepath.Rel` 切掉 —— **harness 中性 invariant**：Anthropic 端只看到 `<skillName>/SKILL.md` 形态（design.md §9.14）。vendored 与原生只是 bundle UI 的 inline origin tag（`skill (repo-native)` / `skill (vendored: <source> @ <hash>)`），不改变上传行为。**打包 ignore 过滤（`ZipDir`）**：默认排除普遍安全/无关项 —— 目录 `node_modules` / `.git` / `.svn` / `.hg` / `__pycache__` / `.venv` / `venv`（整棵 `filepath.SkipDir`），文件 `.DS_Store` / `Thumbs.db` / `desktop.ini` / 编辑器 swap & backup（`*.swp` / `*.swo` / `*~`）+ **安全关键的 dotenv（`.env` / `.env.*`）**（skill 是 prompt 包几乎不需 .env，默认排除杜绝密钥误传，确需的模板用 `.askdaoignore` 的 `!` 反向纳入）；`SKILL.md` 永远保留；`CLAUDE.md` / `skills-lock.json` / manifest 默认随包。项目特有的构建输出目录（`output*` / `input` 等）由 **`.askdaoignore`**（syntax 同 gitignore，`#` 注释 / 尾 `/` 目录模式 / `!` 反向纳入；放 skill 目录根）兜底排除 —— 用精确名而非前缀通配做默认排除，避免误伤合法命名的 skill 子目录（如 `output_templates`）。该过滤同时保护落 S3 的真源 blob 与上传 Anthropic 的文件列表（二者同源于这份 zip）。
 
 ---
 
 ## 与 askdao-cloud 的关系
 
-- **独立仓库 + 独立发版**（按 memory `feedback_kol_local_tool_must_be_oss.md`：KOL 本地工具必须独立 repo + 开源 = 信任锚点）
-- 与 `askdao-cloud-conductor` 共享 `AgentSpec` schema（CI diff 校验对齐，避免双写漂移）
+- **独立仓库 + 独立发版**（KOL 本地工具必须独立 repo + 开源 = 信任锚点）
+- 与服务端共享 `AgentSpec` schema 契约（CI diff 校验对齐，避免双写漂移）
 - 设计文档：[`docs/design.md`](docs/design.md)（含两份 spike 报告：[`docs/investigations/syft-spike-for-askdao-cli.md`](docs/investigations/syft-spike-for-askdao-cli.md) + [`docs/investigations/nixpacks-provider-pattern.md`](docs/investigations/nixpacks-provider-pattern.md)）
 
 ---
 
 ## 状态
 
-Phase 1（detect / agent init / show / deploy 骨架 + L1-L4 流水线 + render UX）已交付（issue #1-8）；后续加了 `bundle` 命令 + detection 的 archetype / 部署清单（lockfile-pinned skill 走引用重装、其余随包上传，零 LLM；issue #19）。M4 补完 `agent deploy` —— 接 conductor `POST /api/v1/cli/deploy`（`multipart/form-data` + custom skill zip 上传 + `409 kol_profile_required` 隐式补全 + blocking-warning gating，仅 `TranslationAction.REJECTED` 阻断、severity 不再 gate；fail-soft adapter 从不 REJECTED → 翻译警告不阻断部署）。**v0.7.1 (2026-05-19) deploy update-mode** —— ADR-P19 从 P2 升 P0 落地：conductor 端按 `(owner_id, yaml.metadata.name)` 去重（alembic 029 partial unique），同 name 重 deploy → `environments.update` + `agents.update`（乐观锁 retry once）in-place 而非堆同名 Anthropic agent；cli 端 `DeployResponse` 加 `Created` / `PreviousManagedVersion`，终端区分 `Created new agent.` vs `Updated existing agent (vN → vN+1).`。详 [`docs/update-mode-handoff.md`](docs/update-mode-handoff.md)。**v0.8 observe（feature/observe-hook-preselect）** —— `agent edit --observe` 用 Claude Code PreToolUse hook 观测真实 session 实际激活的 skill/MCP（spike R3 实测确认子代理工具调用冒泡到主 PreToolUse），工作台叠加证据高亮 + 一键收窄；新增 `internal/observe`（临时 settings.local.json 零残留生命周期：defer cleanup + 启动 SweepStale 自检 + 整文件备份还原）+ webstudio `/api/observe` 端点 + `OnReady(port)` 回调。其他设计真相源：[`docs/design.md`](docs/design.md) + [`docs/HANDOFF.md`](docs/HANDOFF.md)。
+Phase 1（detect / agent init / show / deploy 骨架 + L1-L4 流水线 + render UX）已交付（issue #1-8）；后续加了 `bundle` 命令 + detection 的 archetype / 部署清单（lockfile-pinned skill 走引用重装、其余随包上传，零 LLM；issue #19）。M4 补完 `agent deploy` —— 接对外端点 `POST /api/v1/cli/deploy`（`multipart/form-data` + custom skill zip 上传 + `409 kol_profile_required` 隐式补全 + blocking-warning gating，仅 `action=rejected` 阻断、severity 不再 gate）。**v0.7.1 deploy update-mode** —— 服务端按 `(owner, yaml.metadata.name)` 去重，同 name 重 deploy → in-place update（复用既有 agent/env）而非堆同名 agent；cli 端 `DeployResponse` 加 `Created` / `PreviousManagedVersion`，终端区分 `Created new agent.` vs `Updated existing agent (vN → vN+1).`。**v0.8 observe** —— `agent edit --observe` 用 Claude Code PreToolUse hook 观测真实 session 实际激活的 skill/MCP（spike 实测确认子代理工具调用冒泡到主 PreToolUse），工作台叠加证据高亮 + 一键收窄；新增 `internal/observe`（临时 settings.local.json 零残留生命周期：defer cleanup + 启动 SweepStale 自检 + 整文件备份还原）+ webstudio `/api/observe` 端点 + `OnReady(port)` 回调。其他设计真相源：[`docs/design.md`](docs/design.md) + [`docs/HANDOFF.md`](docs/HANDOFF.md)。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

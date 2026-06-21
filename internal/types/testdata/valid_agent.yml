@@ -16,7 +16,7 @@ metadata:
   group_name: "My Agent Group"
   persona_file: persona.md
   labels:
-    askdao.kol_id: kol_sam
+    askdao.kol_id: kol_example
     askdao.pricing_tier: paid
 
 persona:
@@ -92,7 +92,7 @@ harness_specific:
   anthropic:
     fast_mode: false
     metadata:
-      askdao.kol_id: kol_sam
+      askdao.kol_id: kol_example
   openai:
     sandbox_provider: docker
     compaction:

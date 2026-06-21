@@ -9,8 +9,8 @@
 //
 // [POS]: internal/auth — askdao-cli 侧的 OAuth 2.0 Device Code Flow 客户端
 //
-//	(RFC 8628)；只懂 conductor 这一个对端，HTTP shape 与 conductor
-//	app/api/cli_auth.py 严格镜像。命令层 cmd/askdao/auth.go 编排：
+//	(RFC 8628)；只懂服务端这一个对端，HTTP shape 与服务端鉴权端点契约对齐。
+//	命令层 cmd/askdao/auth.go 编排：
 //	Start → 打印 user_code + 打开浏览器 → PollUntilApproved → Save.
 //	不持久化任何状态（credentials.go 才负责落盘）；purely a stateless
 //	HTTP client + 错误码翻译器。

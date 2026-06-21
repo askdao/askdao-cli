@@ -48,11 +48,11 @@ func newGoldenDetection(finalStage string, uid int) Detection {
 		GeneratedAt:      time.Date(2026, 5, 6, 14, 23, 11, 0, time.UTC),
 		GeneratorVersion: "askdao-cli/0.1.0",
 		Scan: ScanInfo{
-			Root:           "/Users/sunmu/WorkSpace/my-fastapi-project",
+			Root:           "/home/kol/workspace/my-fastapi-project",
 			IsGitRepo:      true,
-			GitRemote:      "github.com/sunmu/my-fastapi-project",
+			GitRemote:      "github.com/example/my-fastapi-project",
 			TotalFiles:     1247,
-			ExcludedPaths:  []string{"./openviking/**", "node_modules/**", ".git/**"},
+			ExcludedPaths:  []string{"node_modules/**", ".git/**"},
 			ScanDurationMS: 1832,
 		},
 		DetectedLanguages: []DetectedLanguage{

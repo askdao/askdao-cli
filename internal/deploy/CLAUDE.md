@@ -1,30 +1,30 @@
 # internal/deploy/
 > L2 | 父级: ../../CLAUDE.md
 
-`askdao agent deploy` 的 conductor 客户端层 —— 把 KOL 编辑好的 `agent.yml`（+ 可选 `detection.json` + 每个 `custom_local` skill 的目录 zip）以 `multipart/form-data` POST 到 conductor `POST /api/v1/cli/deploy`，并在需要时 PATCH KOL 资料。本目录只做「HTTP 客户端 + skill 目录打包」两件事；命令行编排（flag 解析 / 交互 prompt / 输出渲染）在 `cmd/askdao/deploy.go`。
+`askdao agent deploy` 的服务端客户端层 —— 把 KOL 编辑好的 `agent.yml`（+ 可选 `detection.json` + 每个 `custom_local` skill 的目录 zip）以 `multipart/form-data` POST 到对外端点 `POST /api/v1/cli/deploy`，并在需要时 PATCH KOL 资料。本目录只做「HTTP 客户端 + skill 目录打包」两件事；命令行编排（flag 解析 / 交互 prompt / 输出渲染）在 `cmd/askdao/deploy.go`。
 
 ## 成员清单
 
 - **client.go** — `Client{BaseURL, HTTPClient, AuthToken}` + 两个方法：
   - `Deploy(ctx, DeployInput) (*DeployResponse, error)`：构 `multipart/form-data`（text field `agent_yaml`（必填，原始字节不 re-marshal）+ 可选 `detection`/`harness_id`/`force` + 每个 skill 一个 **file part**，field 名 = `DeployInput.SkillZips` 的 key = `custom_local` skill `path` 的 basename），带 `Authorization: Bearer`，POST `DefaultDeployPath`。409 经 `classifyConflict` 解析 FastAPI `{"detail":{...}}`：`reason=="kol_profile_required"` → `*ErrKolProfileRequired`；带 `translation_report` → `*ErrBlockingWarnings`；其它（含 `detail` 是 str）→ 退化成通用错误带 body。其它非 2xx → 通用错误带 status + 截断 body。
   - `SetupKol(ctx, KolProfilePatch) error`：PATCH `DefaultKolProfilePath`（JSON body），带 Bearer；非 2xx → 错误带 body。
-  - 类型：`DeployInput`（`AgentYAML []byte` / `Detection []byte` / `HarnessID` / `Force` / `SkillZips map[string][]byte`）、`DeployResponse`（镜像 conductor `app.api.cli.DeployResponse`：`agent_id` / `anthropic_agent_id` / `anthropic_environment_id` / `group_id` / `group_link` / `skills []map[string]interface{}` / `translation_report` / **`created bool`** / **`previous_managed_version *int`**（ADR-P19 update-mode：conductor 命中 `find_active_by_owner_name` 走 in-place update → `Created=false` + `PreviousManagedVersion` = 旧 Anthropic agent version；新建则 `Created=true` + `PreviousManagedVersion=nil`））、`TranslationReport` / `TranslationWarning`（镜像 `app.agents.adapters.TranslationReport`；`severity`/`action` 是**小写** enum value —— conductor `use_enum_values=True`）、`KolProfilePatch`（CLI 只发 `kol_join_mode` + 可选 `kol_bio` / `name` / `image`）、`KolProfileRequired`（409 `detail` 的 `reason`/`fields`/`hint`）。
+  - 类型：`DeployInput`（`AgentYAML []byte` / `Detection []byte` / `HarnessID` / `Force` / `SkillZips map[string][]byte`）、`DeployResponse`（对齐服务端 deploy 响应契约：`agent_id` / `anthropic_agent_id` / `anthropic_environment_id` / `group_id` / `group_link` / `skills []map[string]interface{}` / `translation_report` / **`created bool`** / **`previous_managed_version *int`**（update-mode：服务端按 (owner, name) 命中既有 agent 走 in-place update → `Created=false` + `PreviousManagedVersion` = 旧 Anthropic agent version；新建则 `Created=true` + `PreviousManagedVersion=nil`））、`TranslationReport` / `TranslationWarning`（对齐服务端翻译报告契约；`severity`/`action` 是**小写** enum value）、`KolProfilePatch`（CLI 只发 `kol_join_mode` + 可选 `kol_bio` / `name` / `image`）、`KolProfileRequired`（409 `detail` 的 `reason`/`fields`/`hint`）。
   - 错误：`ErrKolProfileRequired{Detail KolProfileRequired}` / `ErrBlockingWarnings{Report TranslationReport}` —— 调用方用 `errors.As` 判别（指针 receiver 的 `Error()`）。
   - 常量：`DefaultDeployPath = "/api/v1/cli/deploy"`、`DefaultKolProfilePath = "/api/v1/users/me/kol-profile"`、`DefaultTimeout = 180 * time.Second`（skill sync + Anthropic environment/agent.create 都在一个同步请求里，比 recommend 的 90s 更宽）。
-- **zip.go** — `ZipDir(srcDir, rootName string) ([]byte, error)`：`archive/zip` + `filepath.WalkDir` 递归打包 `srcDir`，每个文件 entry 名 = `rootName + "/" + ToSlash(rel)`（zip 内顶层目录 = `rootName/`，目录 entry 隐式由文件路径派生）。**ignore 过滤**：`excludedDirs`（node_modules/.git/.svn/.hg/__pycache__/.venv/venv 整棵 `SkipDir`）+ `isExcludedFile`（.DS_Store/Thumbs.db/desktop.ini/.askdaoignore/`*~`/`*.swp`/`*.swo` + 安全关键 `.env` & `.env.*`）+ 可选 `.askdaoignore`（`loadAskdaoIgnore`/`askdaoIgnored`：gitignore 风格，`#` 注释 / `!` 反向纳入 / 段匹配 + `filepath.Match` + 目录前缀）；根 `SKILL.md` 硬保留。形态对齐 conductor `app/skills/sync.py:_zip_files_for_managed` 期望的「单一顶层目录 + 内含 `SKILL.md`」。该过滤同时护住落 S3 真源 blob + 上传 Anthropic 的文件列表（同源 zip）。
+- **zip.go** — `ZipDir(srcDir, rootName string) ([]byte, error)`：`archive/zip` + `filepath.WalkDir` 递归打包 `srcDir`，每个文件 entry 名 = `rootName + "/" + ToSlash(rel)`（zip 内顶层目录 = `rootName/`，目录 entry 隐式由文件路径派生）。**ignore 过滤**：`excludedDirs`（node_modules/.git/.svn/.hg/__pycache__/.venv/venv 整棵 `SkipDir`）+ `isExcludedFile`（.DS_Store/Thumbs.db/desktop.ini/.askdaoignore/`*~`/`*.swp`/`*.swo` + 安全关键 `.env` & `.env.*`）+ 可选 `.askdaoignore`（`loadAskdaoIgnore`/`askdaoIgnored`：gitignore 风格，`#` 注释 / `!` 反向纳入 / 段匹配 + `filepath.Match` + 目录前缀）；根 `SKILL.md` 硬保留。形态对齐服务端期望的「单一顶层目录 + 内含 `SKILL.md`」。该过滤同时护住服务端落库的真源 blob + 上传 Anthropic 的文件列表（同源 zip）。
 - **\*\_test.go** — `client_test.go`：`Deploy` happy（`httptest.NewServer` 解析 multipart 验 `agent_yaml`/`harness_id`/`force` text field + `my-skill` file part 是合法 zip 含 `my-skill/SKILL.md`，回 `DeployResponse`）+ 409 两种 `detail`（kol_profile_required / blocking-warnings）经 `errors.As` 判别 + 409 str-detail 退化通用 + 非 2xx 带 body + 空 BaseURL + `SetupKol`（PATCH path + JSON body + Bearer）+ `SetupKol` 非 2xx。`zip_test.go`：`ZipDir` 打临时目录 → `archive/zip` 读回，断言 entry 名带 `rootName/` 前缀、内容一致、`.DS_Store` 被跳；缺目录报错；`TestZipDir_IgnoreFilter` 守护安全过滤（`.env`/`.env.*`/`node_modules`/`.git`/`*.swp` 默认排除 + `.askdaoignore` 兜底排除 & `!` 反向纳入；`SKILL.md` 与合法文件保留）。
 
 ## 设计约束
 
 - **stdlib only**：`net/http` / `mime/multipart` / `encoding/json` / `archive/zip` / `errors` 等，不引第三方 HTTP / zip 库；与 `internal/recommender`（决策 9.1：HTTP 客户端域）依赖纪律一致，连 `internal/types` 都不 import —— 只收发 `[]byte`（`agent_yaml`）+ 通用 `DeployResponse`/map，yaml 解析与「转 `render.TranslationWarning`」由 `cmd` 层做。
-- **`agent_yaml` 发原始字节**：`DeployInput.AgentYAML` 是 KOL 编辑后的 `agent.yml` 原文 bytes，**不**经 `yaml.Marshal` 往返 —— 保留注释 / 字段顺序，避免 Go struct 不认识的新字段被丢（conductor `spec.py` `extra="ignore"` forward-compat）。
-- **skill file part 用 file field（带 filename）**：`mw.CreateFormFile(name, name+".zip")`（含 `Content-Disposition: ...; filename=...`）—— conductor 端 `request.form().get(skill_name)` 必须拿到 starlette `UploadFile`（有 `.read()`），text field 会被它判 `isinstance(str)` 报 400。
-- **409 双义**：conductor `/cli/deploy` 对「KOL 资料未填」和「translation_report 有 blocking（`TranslationAction.REJECTED`）warning」都返 409，靠 `detail.reason` 区分（severity 不 gate，仅 REJECTED 阻断）；`classifyConflict` 解析失败（`detail` 是 str 或其它形态）→ 返 nil 让 `Deploy` 退化成通用错误（body 原样带出）。FastAPI 标准 body 形态 `{"detail": ...}`。
-- **timeout 180s**：deploy 是「sync skill 到 OV+Managed Skills + 建 Anthropic environment + agent」三步串行的同步请求；recommend 是单次 LLM 调用 90s 够，deploy 留 180s。
+- **`agent_yaml` 发原始字节**：`DeployInput.AgentYAML` 是 KOL 编辑后的 `agent.yml` 原文 bytes，**不**经 `yaml.Marshal` 往返 —— 保留注释 / 字段顺序，避免 Go struct 不认识的新字段被丢（服务端忽略未知字段做 forward-compat）。
+- **skill file part 用 file field（带 filename）**：`mw.CreateFormFile(name, name+".zip")`（含 `Content-Disposition: ...; filename=...`）—— 服务端按 multipart file part 读取（需 filename 才被识别为文件而非文本字段），缺 filename 会被判为字符串报 400。
+- **409 双义**：`/cli/deploy` 对「KOL 资料未填」和「translation_report 有 blocking（action=rejected）warning」都返 409，靠 `detail.reason` 区分（severity 不 gate，仅 rejected 阻断）；`classifyConflict` 解析失败（`detail` 是 str 或其它形态）→ 返 nil 让 `Deploy` 退化成通用错误（body 原样带出）。标准 body 形态 `{"detail": ...}`。
+- **timeout 180s**：deploy 服务端串行「同步 skill 真源 + 建 Anthropic environment + agent」三步，单个同步请求；recommend 是单次 LLM 调用 90s 够，deploy 留 180s。
 
 ## 依赖
 
-仅标准库 + （间接）conductor `/api/v1/cli/deploy` + `/api/v1/users/me/kol-profile` 的契约（镜像 conductor `app/api/cli.py:DeployResponse` / 409 `detail` 形态 + `app/agents/adapters/translation_report.py`）。无新增三方依赖。
+仅标准库 + （间接）对外端点 `/api/v1/cli/deploy` + `/api/v1/users/me/kol-profile` 的契约（DeployResponse / 409 `detail` 形态 / translation report，均靠 CI diff 校验对齐服务端）。无新增三方依赖。
 
 ## 字段输出对应
 
@@ -35,12 +35,14 @@
 | `custom_local` skill 上传内容 | `ZipDir` | `<dir>/<skill.path>/` → zip（顶层目录 = `filepath.Base(skill.path)`）。**harness 中性 invariant**：KOL 项目里 skill 实际存放的上级路径（`.claude/skills/` / `.agents/skills/` 等）被 ZipDir 内的 `filepath.Rel(srcDir, path)` 切掉，Anthropic 端只看到 `<skillName>/SKILL.md` 形态。design.md §9.14 |
 | 部署结果（`agent_id` / `group_link` / `skills` / `translation_report` / `created` / `previous_managed_version`） | `DeployResponse` | `cmd` 层渲染到终端；`translation_report` 转 `render.TranslationWarning` 走 `RenderTranslationWarnings`；`created` + `previous_managed_version` 决定首行打印 `Created new agent` 还是 `Updated existing agent (v1 → v2)` |
 
-## 与 conductor 的对齐点
+## 与服务端契约的对齐点
 
-- `DeployResponse` ↔ conductor `app/api/cli.py:DeployResponse`（同名字段一一对应）
-- `TranslationReport` / `TranslationWarning` ↔ conductor `app/agents/adapters/translation_report.py`（`severity`/`action` 小写 enum value）
-- 409 `kol_profile_required` `detail` ↔ conductor `cli.py:deploy_agent_spec` 第 ① 步
-- 409 blocking-warnings `detail.translation_report` ↔ conductor `cli.py` `output.translation_report.has_blocking() and not force` 分支（`has_blocking` keys on `TranslationAction.REJECTED`，非 severity）
-- skill zip 格式 ↔ conductor `app/core/skill_format.py:validate_skill_zip`（zip 内有 `SKILL.md` + frontmatter `name:`）+ `app/skills/sync.py:_zip_files_for_managed`（单一顶层目录原样保留）
+> 只引公开契约（端点路径 + 字段名 + 响应形态）；服务端内部实现归私有仓。靠 CI diff 校验防漂移。
+
+- `DeployResponse` ↔ 服务端 `/api/v1/cli/deploy` 响应体（同名字段一一对应）
+- `TranslationReport` / `TranslationWarning` ↔ 服务端翻译报告契约（`severity`/`action` 小写 enum value）
+- 409 `kol_profile_required` `detail` ↔ 服务端「KOL 资料未填」分支
+- 409 blocking-warnings `detail.translation_report` ↔ 服务端「翻译报告含 blocking（action=rejected）且未 `--force`」分支（仅 rejected 阻断，非 severity）
+- skill zip 格式 ↔ 服务端 skill 校验契约（zip 内有 `SKILL.md` + frontmatter `name:`，单一顶层目录原样保留）
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

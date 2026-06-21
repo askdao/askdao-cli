@@ -24,9 +24,9 @@ func TestBuildAgentSpecSkills_NativeAndVendoredAllCustomLocal(t *testing.T) {
 	// indistinguishable from the deploy upload perspective (PR v0.7 contract).
 	det := &types.Detection{
 		DetectedSkills: []types.DetectedSkill{
-			{Source: ".agents/skills/spelling-homework-generator/SKILL.md", SkillName: "spelling-homework-generator", Kind: "custom_local", IsLocalOriginal: true},
-			{Source: ".agents/skills/asr/SKILL.md", SkillName: "asr", Kind: "custom_local", IsLocalOriginal: false, LockedSource: "marswaveai/skills", LockedHash: "4f9d213abc"},
-			{Source: ".agents/skills/tts/SKILL.md", SkillName: "tts", Kind: "custom_local", IsLocalOriginal: false, LockedSource: "marswaveai/skills", LockedHash: "be3f838615"},
+			{Source: ".agents/skills/content-generator/SKILL.md", SkillName: "content-generator", Kind: "custom_local", IsLocalOriginal: true},
+			{Source: ".agents/skills/asr/SKILL.md", SkillName: "asr", Kind: "custom_local", IsLocalOriginal: false, LockedSource: "some-org/skills", LockedHash: "4f9d213abc"},
+			{Source: ".agents/skills/tts/SKILL.md", SkillName: "tts", Kind: "custom_local", IsLocalOriginal: false, LockedSource: "some-org/skills", LockedHash: "be3f838615"},
 		},
 	}
 
@@ -34,7 +34,7 @@ func TestBuildAgentSpecSkills_NativeAndVendoredAllCustomLocal(t *testing.T) {
 
 	want := []types.Skill{
 		{Type: "custom_local", Path: ".agents/skills/asr"},
-		{Type: "custom_local", Path: ".agents/skills/spelling-homework-generator"},
+		{Type: "custom_local", Path: ".agents/skills/content-generator"},
 		{Type: "custom_local", Path: ".agents/skills/tts"},
 	}
 	if !reflect.DeepEqual(got, want) {

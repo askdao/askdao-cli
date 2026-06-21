@@ -1,6 +1,6 @@
 // [INPUT]: 标准库 net/http / mime/multipart / encoding/json / context / io / time / bytes / errors / fmt
 // [OUTPUT]: Client（Deploy / SetupKol）+ DeployInput / DeployResponse / TranslationReport / TranslationWarning / KolProfilePatch / KolProfileRequired + ErrKolProfileRequired / ErrBlockingWarnings + DefaultDeployPath / DefaultKolProfilePath / DefaultTimeout
-// [POS]: internal/deploy 的 conductor HTTP 客户端 —— `askdao agent deploy` 调 POST /api/v1/cli/deploy（multipart/form-data）+ PATCH /api/v1/users/me/kol-profile；cmd/askdao/deploy.go 消费；镜像 conductor app/api/cli.py 的 DeployResponse 与 409 契约
+// [POS]: internal/deploy 的服务端 HTTP 客户端 —— `askdao agent deploy` 调 POST /api/v1/cli/deploy（multipart/form-data）+ PATCH /api/v1/users/me/kol-profile；cmd/askdao/deploy.go 消费；DeployResponse 与 409 形态对齐服务端契约（CI diff 校验）
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package deploy
 
@@ -22,20 +22,20 @@ const (
 	// DefaultKolProfilePath is the conductor REST path for the KOL profile PATCH.
 	DefaultKolProfilePath = "/api/v1/users/me/kol-profile"
 	// DefaultTimeout caps a single deploy call. Generous because a deploy syncs
-	// custom skills to OV + Managed Skills and creates an Anthropic environment +
-	// agent — all behind one synchronous request.
+	// custom skills server-side and creates an Anthropic environment + agent —
+	// all behind one synchronous request.
 	DefaultTimeout = 180 * time.Second
 )
 
 // DeployInput is the multipart/form-data payload for POST /api/v1/cli/deploy.
 type DeployInput struct {
 	// AgentYAML is the raw agent.yml bytes — sent verbatim, NOT re-marshaled, so
-	// KOL comments / field order / unknown-to-CLI fields survive (conductor's
-	// spec model uses extra="ignore" for forward compat).
+	// KOL comments / field order / unknown-to-CLI fields survive (the server's
+	// spec model ignores unknown fields for forward compat).
 	AgentYAML []byte
 	// Detection is the raw detection.json bytes; optional (nil/empty → omitted).
 	Detection []byte
-	// HarnessID overrides the harness; optional (conductor defaults to
+	// HarnessID overrides the harness; optional (server defaults to
 	// anthropic_managed_agents).
 	HarnessID string
 	// Force deploys even if the translation report has blocking (REJECTED /
@@ -46,11 +46,11 @@ type DeployInput struct {
 	SkillZips map[string][]byte
 }
 
-// DeployResponse mirrors conductor's app.api.cli.DeployResponse.
+// DeployResponse mirrors the server's deploy response contract.
 //
-// Update-mode (ADR-P19 / docs/update-mode-handoff.md):
+// Update-mode:
 //   - Created=true  → first deploy under this (owner, yaml.metadata.name).
-//   - Created=false → in-place update of an existing AgentSpec; AgentID and
+//   - Created=false → in-place update of an existing agent; AgentID and
 //     GroupID are reused, PreviousManagedVersion records the pre-bump
 //     Anthropic agent version (e.g. 1 → 2).
 type DeployResponse struct {

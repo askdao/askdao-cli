@@ -167,7 +167,7 @@ func TestPollSuccess(t *testing.T) {
 			AccessToken: "cli_secret",
 			TokenType:   "Bearer",
 			UserID:      "usr_abc",
-			UserEmail:   "sam@askdao.ai",
+			UserEmail:   "kol@example.com",
 		})
 	}
 	df := NewDeviceFlow(fc.URL, "askdao-cli/test")
@@ -175,7 +175,7 @@ func TestPollSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Poll: %v", err)
 	}
-	if tok.AccessToken != "cli_secret" || tok.UserEmail != "sam@askdao.ai" {
+	if tok.AccessToken != "cli_secret" || tok.UserEmail != "kol@example.com" {
 		t.Fatalf("unexpected token: %+v", tok)
 	}
 }

@@ -73,9 +73,9 @@ type Metadata struct {
 	// subscriber-facing Group page. Free-form, but the studio offers a preset list.
 	Category string `json:"category,omitempty" yaml:"category,omitempty"`
 	// ThemeColor is a preset palette TOKEN (e.g. "sunset"), NOT a raw hex value.
-	// CLI / conductor / askdao-ai-web share one token→color table so the
-	// subscriber Group page (/k/{kol}/g/{group}) renders the brand color. The KOL
-	// picks it in the web studio; it defaults from Category.
+	// The CLI, the server, and the subscriber web app share one token→color table
+	// (kept in sync via CI diff) so the subscriber Group page (/k/{kol}/g/{group})
+	// renders the brand color. The KOL picks it in the web studio; it defaults from Category.
 	ThemeColor string `json:"theme_color,omitempty" yaml:"theme_color,omitempty"`
 	// DisplayName / Avatar: 订阅者身份层（agent-bound 纯展示）。DisplayName 中文展示名，
 	// 与 Name（运行时标识 + dedup key）解耦，改它不动 dedup；Avatar 单 string 前缀
@@ -157,8 +157,7 @@ type CustomTool struct {
 //     docs/design.md §9.14).
 //   - Type=git_repo: harness-agnostic concept (a skill fetched from GitHub at
 //     runtime). NOT supported by Anthropic Managed Agents (no public skill
-//     registry; see harness-design/investigations/managed-agents-skill-installation.md).
-//     Kept in the schema for future runtimes (E2B sandbox + Claude Agent SDK
+//     registry). Kept in the schema for future runtimes (E2B sandbox + Claude Agent SDK
 //     etc.) that may consume this shape. The Anthropic adapter emits a HIGH
 //     translation warning and skips the entry.
 type Skill struct {

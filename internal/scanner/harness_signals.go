@@ -77,7 +77,7 @@ func probeGemini(home string) types.HarnessProbe {
 	return types.HarnessProbe{Installed: false, Evidence: []string{}}
 }
 
-// recommendHarness applies the priority order from review-v0.3 §6:
+// recommendHarness applies the documented harness priority order:
 //
 //	claude_code installed → anthropic_managed_agents (current Phase 1 path)
 //	codex installed       → openai_agents_sdk (Phase 2 — recorded but deploy

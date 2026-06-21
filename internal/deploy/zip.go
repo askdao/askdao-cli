@@ -5,8 +5,8 @@
 //
 // [POS]: internal/deploy 的 skill 目录打包器；cmd/askdao/deploy.go packageSkills 上传 custom_local skill 前调用；
 //
-//	产出形态对齐 conductor app/skills/sync.py 期望的「单一顶层目录 + 内含 SKILL.md」。
-//	ignore 过滤同时保护两个下游：① 落 S3 真源 blob ② 上传 Anthropic Managed Skills 的文件列表——
+//	产出形态对齐服务端期望的「单一顶层目录 + 内含 SKILL.md」。
+//	ignore 过滤同时保护两个下游：① 服务端落库的真源 blob ② 上传 Anthropic Managed Skills 的文件列表——
 //	二者都从这同一份 zip 派生，故在打包处一刀过滤即全覆盖，杜绝 .env/密钥/node_modules 误传。
 //
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

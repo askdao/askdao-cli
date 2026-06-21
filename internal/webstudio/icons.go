@@ -3,7 +3,7 @@
 // [POS]: webstudio 的 avatar icon 真相数据。由 scripts gen-icons.mjs 从 lucide-react
 //
 //	提取 inner-SVG（24x24 viewBox，前端包 <svg stroke=currentColor> 染色）。name
-//	集镜像 conductor _AVATAR_ICON_WHITELIST + askdao-ai-web avatar-icons.ts，三端同步。
+//	集与服务端/订阅者端的 avatar icon whitelist 保持同一契约（端到端同步）。
 //
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package webstudio

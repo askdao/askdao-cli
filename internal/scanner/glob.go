@@ -28,7 +28,7 @@ func compileGlobs(patterns []string) ([]globMatcher, error) {
 }
 
 // matchAny tests rel against each pattern. We support the syft-style
-// `./openviking/**` convention by splitting on "**" and treating it as a
+// `./vendor/**` convention by splitting on "**" and treating it as a
 // recursive prefix match.
 func matchAny(matchers []globMatcher, rel string) bool {
 	rel = filepath.ToSlash(rel)

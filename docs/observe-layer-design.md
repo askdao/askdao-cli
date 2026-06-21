@@ -1,6 +1,6 @@
 # askdao-cli Observe 层：运行时观测驱动的 Agent 环境规格生成
 
-> ⚠️ **2026-05-21 立足点纠正（务必先读）**：本稿在不了解代码 + 误判场景为通用 Code App 下提出。评审后锁定真实立足点 = **Skills Pipeline + Anthropic Managed Agents MVP**。**四条观测路径（import 解析 / snapshot / tracer 注入 / 包安装命令解析）+ §6 重造 schema 均作废**；实际吸收的只有「本地 Web 工作台 + 字段级 provenance + skill 相关性筛选」，且 observe 从"推断包依赖"重定向为"观测实际激活的 skill/MCP"。纠正详情 + v0.8 落地见 [`review-observe-pivot-2026-05-21.md`](./review-observe-pivot-2026-05-21.md)。下文 §三~§六的包推断设计**仅作历史参考**。
+> ⚠️ **立足点纠正（务必先读）**：本稿在不了解代码 + 误判场景为通用 Code App 下提出。经内部评审纠正后锁定真实立足点 = **Skills Pipeline + Anthropic Managed Agents MVP**。**四条观测路径（import 解析 / snapshot / tracer 注入 / 包安装命令解析）+ §6 重造 schema 均作废**；实际吸收的只有「本地 Web 工作台 + 字段级 provenance + skill 相关性筛选」，且 observe 从"推断包依赖"重定向为"观测实际激活的 skill/MCP"。下文 §三~§六的包推断设计**仅作历史参考**。
 
 > **文档性质**：多轮讨论汇总 + 技术方案 + 实施计划
 > **快照时间**：2026-05-20
@@ -9,8 +9,8 @@
 > - 深度研报 A [`investigations/Runtime Observability and Session Hooking for AI Coding Agents_ An Engineering Assessment for askdao-cli.md`](./investigations/Runtime Observability and Session Hooking for AI Coding Agents_ An Engineering Assessment for askdao-cli.md)
 > - 调研报告 B [`investigations/Open Source and Native Instrumentation for Agent Session Observability.md`](./investigations/Open Source and Native Instrumentation for Agent Session Observability.md)
 > - 调研报告 C《面向 Claude Code 与 Codex 的 Agent Session 审计与观测研究报告》[`investigations/面向 Claude Code 与 Codex 的 Agent Session 审计与观测研究报告.md`](./investigations/面向 Claude Code 与 Codex 的 Agent Session 审计与观测研究报告.md)
-> - Anthropic Managed Agents API 文档（harness-design/claude-managed-agents-docs/docs 目录下的 agent-setup.md / environments.md / cloud-containers.md / mcp-connector.md）
-> - OpenAI Agents SDK 文档（harness-design/openai-agents-sdk-docs目录下的 zh-CN-full.md，覆盖 01-12 章）
+> - Anthropic Managed Agents API 官方文档（agent-setup / environments / cloud-containers / mcp-connector）
+> - OpenAI Agents SDK 官方文档
 
 ---
 
@@ -650,7 +650,7 @@ openBrowser(fmt.Sprintf("http://127.0.0.1:%d/review", port))
 ```
 ┌──────────────────────────────────────────────────────┐
 │  askdao · Agent Spec Review                          │
-│  Project: homework-spelling · Session: sess_abc      │
+│  Project: content-pipeline · Session: sess_abc      │
 ├──────────────────────────────────────────────────────┤
 │                                                      │
 │  Environment                                         │
@@ -704,7 +704,7 @@ askdao observe ./myapp --agent claude --no-ui
 apiVersion: askdao.ai/v1
 kind: AgentSpec
 metadata:
-  name: homework-spelling
+  name: content-pipeline
   generated_by: askdao-cli/0.8.0
   observe_session_id: "sess_abc123"
 
@@ -796,56 +796,13 @@ _provenance:
 
 ### 6.1 Adapter 翻译示例
 
-**AnthropicAdapter** 拿到此 YAML 后拆成两个 API 调用：
+中间格式只描述语义意图，**下游 Adapter 负责把这份 YAML 翻译到具体 harness 的 API**。两个 harness 的形态差异巨大（见 §2.4），翻译策略也因此不同：
 
-```
-POST /v1/agents
-  name:        metadata.name
-  model:       identity.model
-  system:      identity.persona
-  description: identity.description
-  tools:       tools + mcp_toolset entries
-  mcp_servers: mcp_servers
-  skills:      skills
+**Anthropic 形态**：把同一份 YAML 拆成两类资源 —— Agent 资源（消费 `metadata.name` / `identity.model` / `identity.persona` / `tools` / `mcp_servers` / `skills`）+ Environment 资源（消费 `runtime.system_packages` → apt、`runtime.language_packages.pip/npm` → pip/npm、`runtime.networking`），env_vars 走 Vault 凭证占位。`runtime.base_image` / `runtime.exposed_ports` 在 Anthropic 侧无对应，忽略。
 
-POST /v1/environments
-  name:     metadata.name + "-env"
-  config:
-    type: cloud
-    packages:
-      apt: runtime.system_packages
-      pip: runtime.language_packages.pip
-      npm: runtime.language_packages.npm
-    networking: runtime.networking
+**OpenAI 形态**（Phase 2）：合并为一体化的 SandboxAgent —— `identity.persona` → instructions、`identity.model` 映射到 OpenAI 模型名、`runtime.base_image` → Docker image / E2B template、env_vars → `Manifest.environment`、system_packages + language_packages 转换为运行时安装脚本（`apt-get install ...` + `pip install ...`）。
 
-POST /v1/vaults
-  为 runtime.env_vars 中的每个变量创建凭证占位
-
-忽略：runtime.base_image, runtime.exposed_ports
-```
-
-**OpenAIAdapter**（Phase 2）拿到此 YAML 后合并为一个 SandboxAgent：
-
-```
-SandboxAgent(
-  name:         metadata.name
-  model:        identity.model  →  映射到 OpenAI 模型名
-  instructions: identity.persona
-  tools:        tools + mcp_servers 映射
-  capabilities: [Shell(), Filesystem()]
-  default_manifest: Manifest(
-    entries: { "setup.sh": File(content=生成的安装脚本) }
-    environment: { var: "<placeholder>" for var in runtime.env_vars }
-  )
-)
-
-DockerSandboxClient(image=runtime.base_image)
-或 E2BSandboxClient(template=...)
-
-setup.sh 内容：
-  apt-get update && apt-get install -y libpq-dev ffmpeg
-  pip install flask==3.0.2 psycopg2==2.9.9 ...
-```
+> 同一份 `askdao-agent.yml`，Anthropic 形态拆成两个资源，OpenAI 形态合并进一个 SandboxAgent。中间格式不感知任何一方的具体 API 调用。
 
 ### 6.2 Provenance 的设计原则
 

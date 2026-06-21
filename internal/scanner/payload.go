@@ -4,8 +4,8 @@
 //
 // [OUTPUT]: 对外提供 DetectDeploymentPayload —— 把项目目录分类成上传清单 / 排除清单，返回 payload + 软警告。
 //
-//	v0.7 起所有 custom skill（含 vendored 的 lockfile-pinned）一律打包上传（Anthropic Managed Agents 无公共 registry，
-//	详见 harness-design/investigations/managed-agents-skill-installation.md）；vendored 仅作 metadata 标签由 bundle UI 渲染。
+//	v0.7 起所有 custom skill（含 vendored 的 lockfile-pinned）一律打包上传（Anthropic Managed Agents 无公共 skill registry，
+//	custom skill 必须随包上传）；vendored 仅作 metadata 标签由 bundle UI 渲染。
 //
 // [POS]: internal/scanner 的部署清单生成器；pipeline 在 skills + archetype 就绪后调；产物给 `askdao bundle` / `askdao detect` 渲染
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

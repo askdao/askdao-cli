@@ -1,64 +1,47 @@
 # askdao-cli Agent Bootstrap (`askdao agent init --auto`)
 
-> **Scope**: plan/06-deploy-cli.md §4.2 `askdao agent init` 命令的智能化补强 ——
+> **Scope**: `askdao agent init` 命令的智能化补强 ——
 > 让 KOL 在自己项目目录下跑一行命令，自动产出 **harness-neutral 中间格式** 的 agent spec 草稿，
-> conductor 端按 KOL 偏好的 runtime（Anthropic Managed Agents / OpenAI Agents SDK / ...）转换为对应 API 调用。
+> 服务端按 KOL 偏好的 runtime（Anthropic Managed Agents / OpenAI Agents SDK / ...）转换为对应 API 调用。
 >
 > **Version**: v0.5 (2026-05-06)
 > **Status**: Design draft — pending review
-> **Owner**: Sam
-> **Aligns with**: memory `project_askdao_cli_design_pivot_2026_05_05.md`（Go + 借鉴 Oz Environment 一等抽象）；archived `harness-selection-analysis.md`（多 harness 路径）
+> **Owner**: maintainer
 
 ---
 
 ## ChangeLog
 
-### v0.5 · 2026-05-06 — KOL 审阅 UX 中等详情卡片
+### v0.5 — KOL 审阅 UX 中等详情卡片
 
-哥指出 v0.4 yaml 字段非常丰富（230+ 行）让 KOL 直接确认心智负担过大；第一版纯摘要（35 行）又被批评"过于摘要、模糊"丢失关键文件路径 / skill / dep 等具体内容。详细分析见 [`review-v0.5-2026-05-06.md`](./review-v0.5-2026-05-06.md)：
+- `init --auto` 改为交互式**中等详情卡片**（mid-density，7 块顶层结构 / ~80-90 行）+ inline reasoning（`↳ Why:` 引导符）+ 入口扩展（[A/E/R/S/D/F/M/W/P/Q] 子命令查看更多细节）。
+- 7 块结构：PERSONA / SKILLS / MCP SERVERS / CAPABILITIES / RUNTIME / SUBSCRIBER ONBOARDING / TRANSLATION WARNINGS。
+- `deploy` 加 diff preview（KOL 改了 yaml 后显示与推荐版本的差异）；新增 `askdao agent show <name> [--full|--reasoning|--warnings]`。
 
-- **核心决策**：采用**中等详情卡片**（mid-density，7 块顶层结构 / ~80-90 行屏幕空间）+ inline reasoning（`↳ Why:` 引导符）+ 入口扩展（D/F/M/W/P 子命令查看更多细节）
-- **7 块结构**：PERSONA / SKILLS / MCP SERVERS / CAPABILITIES / RUNTIME / SUBSCRIBER ONBOARDING / TRANSLATION WARNINGS
-- **字段三档分类**：必列具体（Skills / MCP / Vault credentials / 关键文件路径 / Tool overrides / apt libs）；列计数+入口（28 个 Python deps 列前 8；dev deps 计数）；展开 reasoning（Model 选择 / Tool override / Skill 推荐 / Translation warning）
-- **§3 命令骨架修订**：`init --auto` 改交互式 [A/E/R/S/D/F/M/W/P/Q]；`deploy` 加 diff preview（KOL 改了 yaml 后显示与推荐版本的差异）；新增 `askdao agent show <name> [--full|--reasoning|--warnings]`
-- **§6.1 askdao-cli 加 7 个 render 模块**：~870 行 Go（summary / reasoning / diff / warnings / lists / show 命令 / init+deploy 改造）
-- **§9 决策记录加 9.9**（中等详情 UX 选定）
+### v0.4 — Dockerfile 兼容性补强
 
-### v0.4 · 2026-05-06 — Dockerfile 兼容性补强（选项 B）
+- `detected_dockerfile` 字段扩展为 Dockerfile **完整 AST**（stages / RUN / USER / WORKDIR / ENV / EXPOSE / CMD / ENTRYPOINT / ARG）+ 提取产物（extracted_apt/pip/setup_commands）。
+- yaml `workspace` 块加 5 个新字段：`base_image` / `setup_commands` / `users` / `workdir` / `exposed_ports`。Anthropic adapter 视为不支持并输出警告；OpenAI adapter（Phase 2）真正消费。
+- 新增 §5.5 Translation Report 子章节（`translation_warnings: [{field, action, reason, severity, fallback_attempted}]`）。
+- 不做 GPU 资源声明（聚焦 KOL 知识/服务场景）。
 
-哥追问"v0.3 是否考虑了 Dockerfile 常用内容和写法的兼容？"。承认 v0.3 在这点上覆盖不够（仅识别 + 抽 base_image，丢失多阶段构建、自定义镜像、复杂 RUN 链、USER 切换、EXPOSE 端口等常见模式）。详细分析见 [`review-v0.4-2026-05-06.md`](./review-v0.4-2026-05-06.md)：
+### v0.3 — Harness-neutral 中间格式重构
 
-- **§4 detection.json `detected_dockerfile` 字段扩展**：新增 `stages` / `run_commands` / `users` / `workdir` / `env_vars` / `cmd` / `entrypoint` / `build_args` / `extracted_apt_packages` / `extracted_pip_packages` / `extracted_setup_commands`，Dockerfile 完整 AST + 提取产物
-- **§5 yaml `workspace` 块加 5 个新字段**：`base_image` / `setup_commands` / `users` / `workdir` / `exposed_ports`。Anthropic adapter 视为不支持并输出警告；OpenAI adapter（Phase 2）真正消费
-- **§5 加 5.5 Translation Report 子章节**：定义 adapter 输出格式（`translation_warnings: [{field, action, reason, severity, fallback_attempted}]`）
-- **§6.1 askdao-cli 端 `dockerfile.go` 行数 80 → 200 行**（用 `moby/buildkit` parser 完整解析）
-- **§6.2 conductor 端加 ~100 行**：AnthropicAdapter 加 translation_report 输出 + `extracted_*` 字段兜底合并到 packages
-- **§9 决策记录加 9.7**（Dockerfile 选项 B）+ **9.8**（不做 GPU 声明 —— 哥确认 AskDAO 不跑 ML 类任务）
-- **未做的字段（哥确认）**：`resources.gpu` / `dockerfile.path` 直挂 / `build_args` build-time secrets / `volumes` / `healthcheck` / `labels`
+askdao-cli 是开源项目；yaml 字段直接绑定 Anthropic SDK 字段名会让对外叙事坍缩为"只为 Anthropic 服务"。
 
-### v0.3 · 2026-05-06 — Harness-neutral 中间格式重构
+- yaml 完全重写为 harness-neutral 中间格式：顶层 8 个 harness-neutral 块（metadata / persona / capabilities / mcp_servers / custom_tools / skills / workspace / vault_hints）+ `apiVersion: askdao.ai/v1` + `kind: AgentSpec` + harness 独有特性进 `harness_specific:` escape hatch。
+- 系统架构加服务端 adapter 层：L4 LLM 输出中间格式，服务端 adapter 转译到具体 harness API。
+- detection.json 加 `detected_harness_signals`：探查用户机器是否已装 Claude Code / Codex / Cursor，影响 harness 推荐。
+- Phase 1 中间格式 + 单 adapter / Phase 2 多 harness / Phase 3 更多 harness。
 
-哥指出 askdao-cli 是开源项目，yaml 字段直接绑定 Anthropic SDK 字段名（即使三块布局正确）也会让对外叙事坍缩为"我们只为 Anthropic 服务"。重审两套 harness（Anthropic Managed Agents + OpenAI Agents SDK）后做以下修订（细节见 [`review-v0.3-2026-05-06.md`](./review-v0.3-2026-05-06.md)）：
+### v0.2 — Anthropic 三资源模型重构
 
-- **§5 yaml 完全重写为 harness-neutral 中间格式**：顶层 8 个 harness-neutral 块（metadata / persona / capabilities / mcp_servers / custom_tools / skills / workspace / vault_hints）+ `apiVersion: askdao.ai/v1` + `kind: AgentSpec` + harness 独有特性进 `harness_specific:` escape hatch
-- **§2 系统架构加 conductor adapter 层**：L4 LLM 输出中间格式，conductor 端 AnthropicAdapter / OpenAIAdapter 转译到具体 harness API
-- **§4 detection.json 加 `detected_harness_signals`**：探查用户机器是否已装 Claude Code / Codex / Cursor，影响 harness 推荐
-- **§6 工程量分两侧**：askdao-cli 端 ~3000 行 Go（v0.2 + 字段重命名）；conductor 端 Phase 1 AnthropicAdapter ~1 周；Phase 2 OpenAIAdapter ~2000 行 Python / 4-6 周
-- **§7 三阶段路线图**：Phase 1 中间格式 + 单 adapter（不阻塞 askdao-cli MVP）/ Phase 2 OpenAIAdapter（开源前必做）/ Phase 3 更多 harness
-- **§9 决策记录加 9.5**（中间格式选择）+ **9.6**（分阶段切分）
+- agent.yml schema 重写为三块布局：`agent` + `environment` + `vault_hints`，1:1 对应 Anthropic Agent / Environment / Vault 三资源。
+- detection.json 增加 4 个探查字段：`detected_mcp_configs` / `detected_skills` / `detected_required_secrets` / `detected_tool_risk_hints`。
 
-### v0.2 · 2026-05-06 — Anthropic 三资源模型重构
+### v0.1 — 初稿
 
-哥指出 v0.1 在 Anthropic Managed Agents 抽象层有结构性偏差。重读官方文档后做以下修订（细节见 [`review-2026-05-06.md`](./review-2026-05-06.md)）：
-
-- **§5 agent.yml schema 重写为三块布局**：`agent` (Anthropic Agent 资源) + `environment` (Anthropic Environment 资源) + `vault_hints` (订阅者 onboarding 引导)。v0.1 把所有字段塞 `environment` 块的设计被推翻 —— Agent 才是富资源，Environment 只是容器配置
-- **§4 detection.json 增加 4 个探查字段**：`detected_mcp_configs` / `detected_skills` / `detected_required_secrets` / `detected_tool_risk_hints`
-- **§6 工程量估算调整为 ~2950 行 Go**（+550）：4 个新 scanner 模块（mcp_config / skills_dir / secrets_hint / policy 推断）
-- **§9 决策回填**：决策 9.1（LLM 走 Conductor）、9.2（syft 走 CLI 进程）哥已确认；决策 9.3 拆为 3a (yaml 三块布局) + 3b (conductor PG agent_spec 加 2 列：`managed_agent_version` + `vault_hints_json`)
-
-### v0.1 · 2026-05-05 — 初稿
-
-四层流水线（syft → dev-filter → providers → LLM）+ detection.json + agent.yml 双 schema + 工程量估算。原存放于 `harness-design/designs/`。
+四层流水线（syft → dev-filter → providers → LLM）+ detection.json + agent.yml 双 schema。
 
 ---
 
@@ -66,7 +49,7 @@
 
 ### 1.1 为什么需要
 
-plan/06 §4.2 当前定义 `askdao agent init <name>` 的产物是**空目录骨架**：
+`askdao agent init <name>` 的基础形态产物是**空目录骨架**：
 
 ```
 my-agent/
@@ -94,15 +77,15 @@ askdao-cli **是开源项目**（face 工程师社区）。这意味着：
 
 如果 yaml 字段直接对齐 Anthropic SDK（即使三块布局正确），开源出去就是在告诉社区"我们只为 Anthropic 服务"。
 
-**v0.3 的根本决策**：askdao-cli 输出的是 **harness-neutral 中间格式**（`apiVersion: askdao.ai/v1` + `kind: AgentSpec`），由 conductor 端 adapter 翻译成具体 harness API：
+**v0.3 的根本决策**：askdao-cli 输出的是 **harness-neutral 中间格式**（`apiVersion: askdao.ai/v1` + `kind: AgentSpec`），由服务端 adapter 翻译成具体 harness API：
 
 ```
-askdao-cli                        conductor
+askdao-cli                        服务端
 ─────────                         ─────────
 detection.json                    AnthropicAdapter
-   ↓                              → POST /v1/agents (Anthropic API)
-LLM 推荐                          → POST /v1/environments
-   ↓                              → ...
+   ↓                              → 创建 Anthropic Agent / Environment
+LLM 推荐                          → ...
+   ↓
 中间格式 yaml         ────►       OpenAIAdapter           (Phase 2)
 (harness-neutral)                 → SandboxAgent + Manifest + Runner.run()
                                   → ...
@@ -111,26 +94,26 @@ LLM 推荐                          → POST /v1/environments
                                   → LangGraph / Vercel OA / ...
 ```
 
-**Phase 1**（即将做）：中间格式 + 仅 AnthropicAdapter（保持当前 conductor M0-M2 路径）  
-**Phase 2**（开源前必做）：加 OpenAIAdapter，conductor 端支持双 runtime  
+**Phase 1**（即将做）：中间格式 + 仅 AnthropicAdapter  
+**Phase 2**：加 OpenAIAdapter，服务端支持双 runtime  
 **Phase 3**（中长期）：加更多 harness
 
 详细路线图见 §7。
 
-### 1.4 与 plan/06 现有方向的衔接
+### 1.4 与现有命令的衔接
 
-本设计**不替代** plan/06 §4.2-§4.4，是它的**前置增强**：
+本设计**不替代** `agent init` / `validate` / `deploy`，是它们的**前置增强**：
 
 ```
 [新增] askdao agent init --auto <name>     # 扫描当前目录 → 生成 agent.yml 草稿
        └─ KOL 修订 agent.yml + persona.md
-[已有] askdao agent validate                # plan/06 §4.3
-[已有] askdao agent deploy                  # plan/06 §4.4
+[已有] askdao agent validate
+[已有] askdao agent deploy
 ```
 
 ---
 
-## 2. 系统架构（askdao-cli 四层流水线 + conductor adapter 层）
+## 2. 系统架构（askdao-cli 四层流水线 + 服务端 adapter 层）
 
 ### 2.1 askdao-cli 端（用户本地，离线为主）
 
@@ -161,7 +144,7 @@ LLM 推荐                          → POST /v1/environments
                │
                ▼
 ┌──────────────────────────────────────────────────────────┐
-│  L4 · LLM 推荐器（调 conductor 后端）                      │  模糊推断
+│  L4 · LLM 推荐器（调服务端后端）                          │  模糊推断
 │  把 detection.json 喂 LLM 生成中间格式 yaml + reasoning    │
 │  • metadata + persona + capabilities + mcp_servers         │
 │  • custom_tools + skills + workspace + vault_hints         │
@@ -176,14 +159,14 @@ LLM 推荐                          → POST /v1/environments
 **层间分离原则**：L1-L3 全确定性，离线可跑，零成本；L4 才调 LLM。  
 **输出**：harness-neutral 中间格式，与具体 SDK 字段解耦。
 
-### 2.2 conductor 端（云端 deploy 流程）
+### 2.2 服务端（云端 deploy 流程）
 
 ```
 agent.yml (中间格式)
        │
        ▼
 ┌─────────────────────────────────────────────┐
-│  conductor: AgentSpec 验证 + adapter 路由     │
+│  服务端: AgentSpec 验证 + adapter 路由        │
 │  根据 yaml.preferred_harness 选择 adapter    │
 └──────┬───────────────────────┬──────────────┘
        │                       │
@@ -195,18 +178,18 @@ agent.yml (中间格式)
      │                      │
      ▼                      ▼
 ┌──────────────────┐    ┌──────────────────────────────┐
-│ POST /v1/agents  │    │ SandboxAgent + Manifest      │
-│ POST /v1/        │    │ + Capabilities + Runner.run()│
-│   environments   │    │ (in-process Python loop)     │
+│ Anthropic Agent  │    │ SandboxAgent + Manifest      │
+│ + Environment    │    │ + Capabilities + Runner.run()│
+│   API            │    │                              │
 └──────────────────┘    └──────────────────────────────┘
 ```
 
-**层间分离原则**：askdao-cli 不知道也不应知道 yaml 最终落到哪个 SDK；conductor 端 adapter 是唯一的"翻译边界"。  
+**层间分离原则**：askdao-cli 不知道也不应知道 yaml 最终落到哪个 SDK；服务端 adapter 是唯一的"翻译边界"。  
 **Phase 切分**：Phase 1 仅 AnthropicAdapter；Phase 2 加 OpenAIAdapter；Phase 3 更多 harness。
 
 ---
 
-## 3. 命令骨架（plan/06 §4.2 增量）
+## 3. 命令骨架（`agent init` 增量）
 
 ### 3.1 `askdao agent init <name> [--auto] [--from <path>] [--harness <id>]`
 
@@ -215,7 +198,7 @@ agent.yml (中间格式)
 加 `--auto`：触发扫描流水线 + LLM 推荐 + **交互式中等详情卡片审阅**（v0.5）：
 
 ```bash
-$ cd ~/WorkSpace/my-fastapi-project
+$ cd ~/workspace/my-fastapi-project
 $ askdao agent init my-agent --auto
 
 → Scanning ./ ...
@@ -226,7 +209,7 @@ $ askdao agent init my-agent --auto
 → Detected 2 required secrets from .env.example
 → Detected production deploy signal → shell permission=ask_for_dangerous
 → Detected harness signals: claude-code ✓ codex ✗
-→ Calling LLM (via conductor) for system_prompt + reasoning ...
+→ Calling LLM (via backend) for system_prompt + reasoning ...
 
 ✓ Generated draft for "my-agent"
 
@@ -397,10 +380,10 @@ KOL 项目演进后想刷新 yaml 推荐。读 `.askdao/detection.json` 做 diff
 
 ### 3.5 `askdao agent deploy [--harness <id>]`
 
-按 yaml 的 `preferred_harness`（或命令行 `--harness` 覆盖）选择 conductor 端 adapter：
+按 yaml 的 `preferred_harness`（或命令行 `--harness` 覆盖）选择服务端 adapter：
 
-- **AnthropicAdapter**（Phase 1 + 之后）：environment.create → agent.create → 写回 conductor PG
-- **OpenAIAdapter**（Phase 2 启用）：上传 manifest 到 conductor → conductor 内存实例化 SandboxAgent → 写回 conductor PG
+- **AnthropicAdapter**（Phase 1 + 之后）：environment.create → agent.create → 写回服务端记录
+- **OpenAIAdapter**（Phase 2 启用）：上传 manifest 到服务端 → 服务端内存实例化 SandboxAgent → 写回服务端记录
 
 **v0.5 加 diff preview**：KOL 改了 yaml 后，deploy 时显示与原推荐版本的差异：
 
@@ -427,7 +410,7 @@ $ askdao agent deploy
 ```
 
 deploy 失败的常见情形：
-- `preferred_harness=openai_agents_sdk` 但 conductor 部署版本 < Phase 2 → 报错并提示切换
+- `preferred_harness=openai_agents_sdk` 但服务端部署版本 < Phase 2 → 报错并提示切换
 - 中间格式里有某 harness 不支持的字段（如 OpenAI 不支持 Anthropic `fast_mode`）→ adapter 输出 translation report，KOL 决定继续或修改
 
 ---
@@ -443,11 +426,11 @@ deploy 失败的常见情形：
   "generator_version": "askdao-cli/0.1.0",
   
   "scan": {
-    "root": "/Users/sunmu/WorkSpace/my-fastapi-project",
+    "root": "/path/to/my-fastapi-project",
     "is_git_repo": true,
-    "git_remote": "github.com/sunmu/my-fastapi-project",
+    "git_remote": "github.com/acme/my-fastapi-project",
     "total_files": 1247,
-    "excluded_paths": ["./openviking/**", "node_modules/**", ".git/**"],
+    "excluded_paths": ["./vendor/**", "node_modules/**", ".git/**"],
     "scan_duration_ms": 1832
   },
 
@@ -674,7 +657,7 @@ deploy 失败的常见情形：
 
 ## 5. agent.yml schema（v0.3 中间格式 · harness-neutral）
 
-`init --auto` 最终落盘的 yaml 是 **askdao 自定义中间格式**（`apiVersion: askdao.ai/v1` + `kind: AgentSpec`），不直接对齐任何 harness SDK 的字段命名。conductor 端的 adapter 负责翻译到具体 harness API。
+`init --auto` 最终落盘的 yaml 是 **askdao 自定义中间格式**（`apiVersion: askdao.ai/v1` + `kind: AgentSpec`），不直接对齐任何 harness SDK 的字段命名。服务端的 adapter 负责翻译到具体 harness API。
 
 ### 5.1 顶层结构（harness-neutral 8 块）
 
@@ -693,7 +676,7 @@ agent.yml (apiVersion: askdao.ai/v1)
 └── harness_specific   # escape hatch: { anthropic: {...}, openai: {...} }
 ```
 
-**与 Anthropic / OpenAI SDK 的映射**（conductor 端 adapter 完成）：
+**与 Anthropic / OpenAI SDK 的映射**（服务端 adapter 完成）：
 
 ```
 askdao agent.yml                  AnthropicAdapter        OpenAIAdapter
@@ -728,14 +711,14 @@ metadata:
   name: my-agent
   description: "..."                 # KOL 给订阅者看的介绍
   version: 0.1.0
-  visibility: private                # private | shared | public（spec/02 §1.2 line 48；askdao-cli#28）
+  visibility: private                # private | shared | public
   expertise_level: pro
   domain:
     - backend-engineering            # LLM 从 frameworks 反推
   group_name: "My Agent Group"
-  persona_file: persona.md           # 长篇 persona（plan/06 已有概念）
+  persona_file: persona.md           # 长篇 persona（可选）
   labels:
-    askdao.kol_id: "kol_sam"
+    askdao.kol_id: "kol_example"
     askdao.pricing_tier: "paid"
 
 # ============================================================
@@ -884,11 +867,10 @@ vault_hints:
       from: .env.example
       required: true
     - name: ANTHROPIC_API_KEY
-      purpose: "LLM 调用（若 KOL 走 BYOK 而非 platform 代收）"
+      purpose: "LLM 调用"
       used_by: { agent: true }
       from: .env.example
       required: false
-      note: "If subscribers use platform-managed billing, this is auto-injected"
   
   optional_credentials: []
 
@@ -910,7 +892,7 @@ harness_specific:
     fast_mode: false                 # speed=fast 走 premium pricing
     callable_agents: []              # multi-agent 编排（research preview）
     metadata:                        # Anthropic Agent.metadata 直传
-      askdao.kol_id: "kol_sam"
+      askdao.kol_id: "kol_example"
   
   openai:
     sandbox_provider: docker         # docker / e2b / modal / unix_local / daytona / vercel
@@ -919,7 +901,7 @@ harness_specific:
       trigger_at_tokens: 100000
 
 # ============================================================
-# memory / guardrails · conductor 业务字段（不上送任何 harness）
+# memory / guardrails · 服务端业务字段（不上送任何 harness）
 # ============================================================
 memory:
   fact_extraction: enabled
@@ -972,38 +954,32 @@ status:
   drift_detected: false
 ```
 
-### 5.3 与 plan/06 §5 的兼容性
+### 5.3 中间格式的结构性约定
 
-- 旧字段（visibility / expertise_level / group_name / persona_file / memory / guardrails）保留，移入 `metadata` / 顶层
+- 业务字段（visibility / expertise_level / group_name / persona_file / memory / guardrails）保留，移入 `metadata` / 顶层
 - **结构性变更**：旧的扁平字段全部进 `persona` / `capabilities` / `workspace` 等中间格式块
-- conductor 端 pydantic AgentSpec 模型需重写为中间格式 schema（不再直接对应 Anthropic SDK 字段）
-- plan/06 §5 整段示例 yaml 需要重写
+- 服务端 AgentSpec 模型按中间格式 schema 校验（不再直接对应 Anthropic SDK 字段）
 
-### 5.4 与 conductor 的衔接（Phase 1 / Phase 2）
+### 5.4 与服务端的衔接（Phase 1 / Phase 2）
 
 **Phase 1**（仅 AnthropicAdapter）：
-- `askdao agent deploy` → conductor 收 yaml → AnthropicAdapter 翻译：
-  - 调 `POST /v1/environments`（来自 `workspace`）
-  - 调 `POST /v1/agents`（来自 `persona` + `capabilities` + `mcp_servers` + `custom_tools` + `skills` + `harness_specific.anthropic`）
-  - 写回 `agent_spec` 表
-- conductor PG `agent_spec` 表需 alembic 017 加列：
-  - `managed_agent_version: int NOT NULL DEFAULT 1`
-  - `vault_hints_json: jsonb`
-  - `runtime_id: text NOT NULL DEFAULT 'anthropic_managed_agents'`（Phase 2 用）
+- `askdao agent deploy` → 服务端收 yaml → AnthropicAdapter 翻译：
+  - 创建 Environment（来自 `workspace`）
+  - 创建 Agent（来自 `persona` + `capabilities` + `mcp_servers` + `custom_tools` + `skills` + `harness_specific.anthropic`）
+  - 写回服务端记录
 - vault 不在 deploy 时创建，KOL onboarding 订阅者时引导填
 
 **Phase 2**（加 OpenAIAdapter）：
-- `askdao agent deploy --harness openai_agents_sdk` → conductor 收 yaml → OpenAIAdapter 翻译：
+- `askdao agent deploy --harness openai_agents_sdk` → 服务端收 yaml → OpenAIAdapter 翻译：
   - 解析 `persona` → SandboxAgent.instructions / model_preferences[0..n]
   - 解析 `capabilities` → Capabilities 列表
   - 解析 `workspace` → Manifest（packages 转 setup commands；mounts 直接转 GitRepo/S3Mount；users / workdir / exposed_ports / setup_commands 直传）
   - 解析 `harness_specific.openai.sandbox_provider` → 选 SandboxClient
-  - 写回 `agent_spec` 表（`runtime_id='openai_agents_sdk'`）
-- chat.py 三岔路径（managed_agents / openai_sdk / sandbox_template）
+  - 写回服务端记录（runtime 标记为 openai_agents_sdk）
 
 ### 5.5 Translation Report（v0.4 新增）
 
-每次 `askdao agent deploy` 时，conductor 端 adapter 把无法承载的字段输出为 translation report，KOL 在 deploy 输出 + status 文件中可见。
+每次 `askdao agent deploy` 时，服务端 adapter 把无法承载的字段输出为 translation report，KOL 在 deploy 输出 + status 文件中可见。
 
 ```json
 {
@@ -1057,7 +1033,7 @@ status:
 
 ---
 
-## 6. 工程量估算（分 askdao-cli + conductor 两侧）
+## 6. 工程量估算（askdao-cli 端）
 
 ### 6.1 askdao-cli 端（Go）
 
@@ -1079,12 +1055,12 @@ status:
 | `internal/providers/rust.go` | 移植 | 150 行 |
 | `internal/providers/apt_map.go` | 反向映射表（数据为主） | 100 行 |
 | `internal/recommender/policy.go` | tool permission_policy 启发式 | 100 行 |
-| `internal/recommender/llm.go` | 调 conductor LLM endpoint 生成中间格式 yaml | 280 行（v0.2: 250，+30 因 model_preferences 等多源选择） |
+| `internal/recommender/llm.go` | 调服务端 LLM endpoint 生成中间格式 yaml | 280 行（v0.2: 250，+30 因 model_preferences 等多源选择） |
 | `internal/types/detection.go` | detection.json schema（含 5 个新字段） | 220 行（v0.2: 200, +20 加 harness_signals） |
 | **🆕 `internal/types/agent_spec.go`** | 中间格式 yaml schema（apiVersion + 8 块 + escape hatch） | 400 行（v0.2 agent_yml.go: 350，**重写**为中间格式） |
 | `cmd/askdao/init_auto.go` | 命令实现（带 `--harness` + **v0.5 交互式 [A/E/R/S/D/F/M/W/P/Q]**） | 230 行（v0.4: 180, +50） |
 | `cmd/askdao/detect.go` | 命令实现 | 80 行 |
-| `cmd/askdao/deploy.go` | 命令实现（带 `--harness`，调 conductor adapter + **v0.5 diff preview**） | 200 行（v0.4: 150, +50） |
+| `cmd/askdao/deploy.go` | 命令实现（带 `--harness`，调服务端 adapter + **v0.5 diff preview**） | 200 行（v0.4: 150, +50） |
 | **🆕 `cmd/askdao/show.go`** | show 命令（subcmd D/F/M/W/P 分发） | 120 行 |
 | **🆕 `internal/render/summary.go`** | 中等详情卡片渲染器（7 块 + box drawing + 截断策略） | 320 行 |
 | **🆕 `internal/render/reasoning.go`** | inline reasoning（`↳ Why:` 引导符 + confidence 颜色） | 100 行 |
@@ -1097,44 +1073,7 @@ vs v0.4（~3410 行）：增量 ~870 行（5 个 render 模块 + show 命令 + i
 vs v0.3（~3290 行）：累计增量 ~990 行。
 vs v0.2（~2950 行）：累计增量 ~1330 行。
 
-**askdao-cli 端 Phase 1 工期估算**：仍在 3-4 周区间（render 模块都是数据驱动 + Go 模板字符串，比 scanner / provider 移植轻）。
-
-### 6.2 conductor 端 · Phase 1（AnthropicAdapter）
-
-| 模块 | 内容 | 估算 |
-|-----|------|------|
-| `app/agents/spec.py` | AgentSpec pydantic 模型（中间格式） | 400 行（含 validation） |
-| `app/agents/adapters/anthropic_adapter.py` | 中间格式 → Anthropic Agent + Environment + skill upload + **v0.4: extracted_* 字段兜底合并到 packages + translation_report 输出** | 500 行（v0.3: 400, +100 因 v0.4 加合并 + report） |
-| `app/agents/adapters/translation_report.py` | adapter 共用：lossy translation 警告格式 | 100 行 |
-| `app/api/cli.py` | `POST /api/v1/cli/recommend` + `POST /api/v1/cli/deploy` | 200 行 |
-| 测试 | | 200 行 |
-| alembic 017 | 加 `managed_agent_version` + `vault_hints_json` + `runtime_id` 列 | 50 行 |
-| conductor 端 Phase 1 总计 | | **~1450 行 Python**（v0.3: 1350, +100 因 v0.4 anthropic_adapter 合并 + report） |
-
-**conductor 端 Phase 1 工期估算**：~1-2 周（adapter 是核心，其他都是 boilerplate）。
-
-### 6.3 conductor 端 · Phase 2（OpenAIAdapter）
-
-| 模块 | 内容 | 估算 |
-|-----|------|------|
-| `app/agents/adapters/openai_adapter.py` | 中间格式 → SandboxAgent + Manifest + Capabilities | 500 行 |
-| `app/openai_sdk/client.py` | wrap `Runner.run_streamed()`，对齐现有 SSE 输出 | 400 行 |
-| `app/openai_sdk/session.py` | 实现 `Session` Protocol 对接 OpenViking MemoryProvider | 200 行 |
-| `app/openai_sdk/sandbox_router.py` | 把 Manifest 落到 E2B / Docker / UnixLocal 选择 | 300 行 |
-| `app/api/chat_openai.py` | OpenAI 路径的流式 endpoint（chat.py 三岔之一） | 400 行 |
-| `app/artifacts/sweeper_openai.py` | 文件系统型 artifact 回收（不是 Files API） | 300 行 |
-| 测试 + 集成 | | ~400 行 |
-| conductor 端 Phase 2 总计 | | **~2500 行 Python** |
-
-**conductor 端 Phase 2 工期估算**：4-6 周（含与现有 chat.py 的三岔重构 + 测试）。
-
-### 6.4 总览
-
-| 阶段 | 范围 | 工期 |
-|-----|------|------|
-| Phase 1 | askdao-cli ~4280 行 Go + conductor ~1450 行 Python | 5-6 周（两条流水线并行；v0.4 + v0.5 增量都在区间内消化） |
-| Phase 2 | conductor ~2500 行 Python（OpenAIAdapter） | 4-6 周 |
-| Phase 3 | 更多 harness（按需） | 不在当前估算 |
+**askdao-cli 端 Phase 1 工期估算**：3-4 周区间（render 模块都是数据驱动 + Go 模板字符串，比 scanner / provider 移植轻）。服务端 adapter 的工程量不在本文档范围。
 
 ---
 
@@ -1146,7 +1085,7 @@ vs v0.2（~2950 行）：累计增量 ~1330 行。
 - ✅ L1：syft 调 CLI 进程模式
 - ✅ L2：Python (uv/poetry/pip-tools) + Node (npm/pnpm/yarn) dev/prod 过滤
 - ✅ L3：nixpacks 移植 4 provider（python/node/go/rust）+ apt 反向映射
-- ✅ L4：调 conductor LLM endpoint 生成中间格式 yaml
+- ✅ L4：调服务端 LLM endpoint 生成中间格式 yaml
 - ✅ 四个命令：`init --auto` / `detect` / `deploy` / `show`（v0.5 加 show）
 - ✅ 5 个 scanner 含 `harness_signals.go`
 - ✅ Dockerfile 完整 AST 解析（v0.4 升级；含 stages / RUN / USER / WORKDIR / EXPOSE / extracted_*）
@@ -1154,32 +1093,18 @@ vs v0.2（~2950 行）：累计增量 ~1330 行。
 - ✅ `preferred_harness` 仅 `anthropic_managed_agents`
 - ✅ **v0.5 中等详情卡片 UX**：7 块顶层（Persona / Skills / MCP / Capabilities / Runtime / Onboarding / Warnings）+ inline reasoning（`↳ Why:`）+ 入口扩展（[A/E/R/S/D/F/M/W/P/Q]）
 - ✅ **v0.5 deploy diff preview**：KOL 改 yaml 后显示与原推荐的差异 + 对 translation_report 的影响
-- ✅ **v0.7.1 deploy update-mode**（2026-05-19，ADR-P19 从 P2 升 P0 落地）：conductor `/cli/deploy` 加 lookup-then-create-or-update 分支。Dedup key = `(owner_id, yaml.metadata.name)`，KOL scope。命中既有 row → `environments.update` + `agents.update`（乐观锁 retry once）in-place，复用 agent_id/group_id/created_at；不命中走原 create。alembic 029 partial unique index 同时防并发 deploy race。cli `DeployResponse` 加 `created` / `previous_managed_version`，终端区分 `Created new agent.` vs `Updated existing agent (vN → vN+1).`。详 `docs/update-mode-handoff.md`
+- ✅ **v0.7.1 deploy update-mode**：deploy 加 lookup-then-create-or-update 分支。去重 key = `(owner, yaml.metadata.name)`，KOL scope。命中既有 agent → in-place update（复用 agent_id/group_id），不命中走 create；并发 deploy race 由服务端唯一约束防护。cli `DeployResponse` 加 `created` / `previous_managed_version`，终端区分 `Created new agent.` vs `Updated existing agent (vN → vN+1).`
 
-**conductor 端**：
-- ✅ AgentSpec pydantic 模型（中间格式 + workspace 5 字段）
-- ✅ AnthropicAdapter（中间格式 → Anthropic 三资源 API）
-- ✅ AnthropicAdapter 加 translation_report 输出（Dockerfile 字段忽略警告）+ extracted_apt/pip 兜底合并
-- ✅ alembic 017 加 3 列（`managed_agent_version` + `vault_hints_json` + `runtime_id`）
-- ✅ `POST /api/v1/cli/recommend` + `POST /api/v1/cli/deploy`（含 translation_report 返回）
+**服务端（不在本文档范围）**：AgentSpec 校验、AnthropicAdapter（中间格式 → Anthropic 三资源 API）、translation_report 输出 + extracted_apt/pip 兜底合并、`/cli/recommend` + `/cli/deploy` endpoint。
 
-**Phase 1 总工期**：5-6 周（两条流水线并行；v0.4 + v0.5 增量都在区间内消化）
+### Phase 2 · 加 OpenAIAdapter
 
-### Phase 2 · 加 OpenAIAdapter（开源前必做）
-
-**conductor 端**：
-- ⏳ OpenAIAdapter（中间格式 → SandboxAgent + Manifest）
-- ⏳ OpenAI adapter 真正消费 v0.4 加的 5 个 workspace 字段（base_image → DockerSandboxClient image / setup_commands → Manifest setup phase / users → Manifest.users / workdir → Manifest workdir / exposed_ports → exposed ports capability）
-- ⏳ `app/openai_sdk/` 全新建（client / session / sandbox_router / chat_handler / artifact_sweeper）
-- ⏳ chat.py 三岔（managed_agents / openai_sdk / sandbox_template）
-- ⏳ 多 sandbox provider 支持（Phase 2.1: docker / unix_local；Phase 2.2: e2b / modal）
+**服务端（不在本文档范围）**：OpenAIAdapter（中间格式 → SandboxAgent + Manifest）真正消费 v0.4 加的 5 个 workspace 字段（base_image → image / setup_commands → setup phase / users / workdir / exposed_ports）；多 sandbox provider 支持。
 
 **askdao-cli 端**：
 - ⏳ yaml `preferred_harness` 加 `openai_agents_sdk` 选项
 - ⏳ deploy 命令 `--harness openai_agents_sdk` 实测打通
 - ⏳ Translation report 渲染（adapter 返 lossy 警告时友好显示）
-
-**Phase 2 总工期**：4-6 周（conductor 端是大头）
 
 ### Phase 3 · 演化（中长期）
 
@@ -1194,22 +1119,7 @@ vs v0.2（~2950 行）：累计增量 ~1330 行。
   - **多阶段构建 target_stage 选择**
   - **build_args / build-time secrets**
   - **volumes / healthcheck / labels** 字段（按 KOL 反馈）
-- ⏳ conductor 端：
-  - 加更多 harness（LangGraph / Vercel OA / 本地 Ollama）
-  - 中间格式演化到 v2（`apiVersion: askdao.ai/v2`）
-
----
-
-## 8. 与 plan/06 已有 ADR 的关系
-
-| plan/06 ADR | 本设计的关系 |
-|------------|------------|
-| §4.2 `agent init` 空骨架 | **扩展**：加 `--auto` 模式，骨架基础上自动填中间格式 yaml |
-| §4.3 `agent validate` | **扩展**：validator 校验中间格式 schema（apiVersion + 8 块） |
-| §4.4 `agent deploy` 事务三件套 | **重构**：deploy 通过 conductor adapter 路由到具体 harness API；旧 plan/06 §4.4 步骤需要重写 |
-| §5 AgentSpec yaml schema | **完全重写为中间格式**：8 块顶层 + harness_specific escape hatch；plan/06 §5 yaml 示例需替换 |
-| §6.1 CLI 框架（Typer） | **冲突**：本设计假设 askdao-cli 用 Go（按 memory pivot）。Python 没有 syft/enry/nixpacks 同等成熟生态 |
-| plan/03 multi-runtime ADR | **明确为 Phase 2**：alembic `agent_spec.runtime_id` 列 + chat.py 三岔；本设计的 Phase 2 即对应这条 ADR |
+- ⏳ 服务端：加更多 harness（LangGraph / Vercel OA / 本地 Ollama）；中间格式演化到 v2（`apiVersion: askdao.ai/v2`）。
 
 ---
 
@@ -1218,9 +1128,9 @@ vs v0.2（~2950 行）：累计增量 ~1330 行。
 ### 9.1 L4 LLM 调用走哪条路？✅ 已定（v0.2）
 
 - **(A) BYOK**：askdao-cli 直连 Anthropic，KOL 用自己 key
-- **(B) Conductor 中转**：askdao-cli → conductor 后端 → Anthropic ← **选定**
-- 理由：Phase 1 KOL 大概率还没 Anthropic key；conductor 已有 ManagedAgentsClient 可复用，零额外工程量
-- 实现要点：conductor 加一个 endpoint `POST /api/v1/cli/recommend`（或类似），把 detection.json 转发给 Anthropic + 返回 yaml 草稿
+- **(B) 服务端中转**：askdao-cli → 服务端后端 → Anthropic ← **选定**
+- 理由：Phase 1 KOL 大概率还没 Anthropic key；服务端已有 Managed Agents 客户端可复用，零额外工程量
+- 实现要点：服务端加一个 endpoint `POST /api/v1/cli/recommend`（或类似），把 detection.json 转发给 Anthropic + 返回 yaml 草稿
 
 ### 9.2 syft 的接入方式？✅ 已定（v0.2）
 
@@ -1236,19 +1146,16 @@ vs v0.2（~2950 行）：累计增量 ~1330 行。
 - 理由：清晰映射 API 调用边界；避免抽象层混淆；KOL 一眼看清三件套
 - 实现要点：见 §5 重写后的 schema
 
-### 9.3b conductor PG `agent_spec` 表新增 2 列 ✅ 已定（v0.2）
+### 9.3b 服务端记录需 pin Agent 版本 + 存 vault_hints ✅ 已定（v0.2）
 
-- 新增 **`managed_agent_version: int NOT NULL DEFAULT 1`** —— Agent 是 versioned 资源，必须 pin
-- 新增 **`vault_hints_json: jsonb`** —— 存 yaml 的 vault_hints block，订阅者 onboarding 时引导填 vault
-- 实现：alembic 017（命名建议 `017_managed_agent_version_and_vault_hints.py`），M3 阶段配套 askdao-cli MVP 一起上
+- 服务端 agent 记录需 pin **managed_agent_version** —— Anthropic Agent 是 versioned 资源，必须固定版本
+- 需存 **vault_hints** —— yaml 的 vault_hints block，订阅者 onboarding 时引导填 vault
 
-### 9.4 后续待讨论项（v0.2 review 中浮现）
-
-详见 [`review-2026-05-06.md`](./review-2026-05-06.md) §8：
+### 9.4 后续待讨论项（v0.2 浮现）
 
 1. Vault hints 是否拆出独立 `vault_hints.yml`？（当前选择：内嵌同 yaml）
 2. Tool permission_policy 启发式具体规则？（当前选择：生产信号 + 工具危险等级二维矩阵，待细化）
-3. Custom skills 探查到后是直传 Anthropic 还是先存 OpenViking？（涉及 conductor skill 上传管线）
+3. Custom skills 探查到后的上传管线归属（服务端处理）
 4. 探查到 stdio MCP 怎么处理？（当前选择：标记 `anthropic_compatible: false` 并提醒 KOL）
 
 ### 9.5 yaml 输出格式：harness-neutral 中间格式 ✅ 已定（v0.3）
@@ -1256,22 +1163,21 @@ vs v0.2（~2950 行）：累计增量 ~1330 行。
 - v0.2 仍 1:1 对齐 Anthropic SDK 字段命名（即使三块布局正确）；askdao-cli 是开源项目，对外暴露这种 yaml 等于宣告"只服务 Anthropic"
 - v0.3 决定：yaml **顶层 8 块全 harness-neutral**（`metadata / persona / capabilities / mcp_servers / custom_tools / skills / workspace / vault_hints`）+ `apiVersion: askdao.ai/v1` + `kind: AgentSpec` + harness 独有特性进 `harness_specific:` escape hatch
 - 理由：yaml 字段不应暗示单一 harness；当前 Phase 1 只支持 Anthropic 是实施权宜，Phase 2 起支持 OpenAI Codex / 更多
-- 实现要点：见 §5 重写后的 schema；conductor 端 AgentSpec pydantic 模型完全重写为中间格式
+- 实现要点：见 §5 重写后的 schema；服务端 AgentSpec 模型按中间格式校验
 
 ### 9.6 多 harness 支持分三阶段 ✅ 已定（v0.3）
 
 - **Phase 1**（即将做）：中间格式 + AnthropicAdapter，单 harness 选项
-- **Phase 2**（开源前必做）：OpenAIAdapter + chat.py 三岔 + alembic 加 `runtime_id` 列
+- **Phase 2**：OpenAIAdapter + 服务端多 runtime 路由
 - **Phase 3**（中长期）：更多 harness（LangGraph / Vercel OA / Ollama）
-- 理由：Phase 1 不阻塞 askdao-cli MVP；Phase 2 给开源前留足时间；Phase 3 是演化空间
-- 实现要点：详见 §6.2 / §6.3 工程量分项；conductor 端 plan/03 配套修订（M3+ 新增 OpenAI runtime 章节）
+- 理由：Phase 1 不阻塞 askdao-cli MVP；Phase 2 给后续留足时间；Phase 3 是演化空间
 
 ### 9.7 Dockerfile 兼容采用选项 B（5 字段中等修订）✅ 已定（v0.4）
 
 - v0.3 仅识别 + 抽 base_image，丢失多阶段、自定义镜像、复杂 RUN 链、USER 切换、EXPOSE 端口等模式
 - v0.4 决定：workspace 加 5 字段（`base_image` / `setup_commands` / `users` / `workdir` / `exposed_ports`），Anthropic adapter 输出 translation_report，OpenAI adapter Phase 2 真正消费
 - 理由：Anthropic 故意做得很薄注定承载不全，但中间格式应按 OpenAI 上限留位；选项 C 直挂 Dockerfile 心智复杂度太高，留 Phase 3
-- 实现要点：详见 §4 detection.json 升级 + §5.5 Translation Report 子章节 + §6.1 dockerfile.go 升级（80 → 200 行）+ §6.2 anthropic_adapter 加合并 + report（+100 行）
+- 实现要点：详见 §4 detection.json 升级 + §5.5 Translation Report 子章节 + §6.1 dockerfile.go 升级（80 → 200 行）；服务端 adapter 加 extracted_* 兜底合并 + report
 
 ### 9.8 不做 GPU 资源声明 ✅ 已定（v0.4）
 
@@ -1297,9 +1203,9 @@ vs v0.2（~2950 行）：累计增量 ~1330 行。
 
 ### 9.10 部署 Payload 清单 + 项目原型识别（确定性，零 LLM）✅ 已定（v0.7 修正）
 
-> **v0.7 修正**（2026-05-14）：v0.6 的 lockfile-driven 分类规则建立在错误假设之上——以为 Anthropic Managed Agents 有"从 lockfile 重装"的能力。调研 `../../harness-design/investigations/managed-agents-skill-installation.md` §4.1 反映**不存在公共 skill registry**，所有 custom skill 必须 `POST /v1/skills` 上传到调用方组织。本节相应改写。
+> **v0.7 修正**：v0.6 的 lockfile-driven 分类规则建立在错误假设之上——以为 Anthropic Managed Agents 有"从 lockfile 重装"的能力。实际上**不存在公共 skill registry**，所有 custom skill 必须上传到调用方组织。本节相应改写。
 
-**动机**：以 `homework-spelling`（一个 skill-centric 内容流水线：input PDF → output HTML）为标尺，发现 askdao-cli 答不出 KOL 上云时最实际的问题——「这个目录部署到云端，到底该打包上传哪些文件？」`.agents/skills/` 下有 14 个外部 skill + 1 个本地原创 skill，该剔除的（`node_modules`/`output`/`input`/`.DS_Store`）和该纳入的（每一个 skill 整目录 / `CLAUDE.md` / `skills-lock.json`）混在一起。
+**动机**：以 `content-pipeline`（一个 skill-centric 内容流水线：input PDF → output HTML）为标尺，发现 askdao-cli 答不出 KOL 上云时最实际的问题——「这个目录部署到云端，到底该打包上传哪些文件？」`.agents/skills/` 下有 14 个外部 skill + 1 个本地原创 skill，该剔除的（`node_modules`/`output`/`input`/`.DS_Store`）和该纳入的（每一个 skill 整目录 / `CLAUDE.md` / `skills-lock.json`）混在一起。
 
 **两层确定性能力**（都跑在 `askdao detect` / `askdao bundle` 里，`LLM=nil`）：
 
@@ -1320,7 +1226,7 @@ vs v0.2（~2950 行）：累计增量 ~1330 行。
 
 **不做（划界）**：`askdao bundle` 只预览不打包/不上传（真上传走 `agent deploy`）；不实现 `.gitignore` 全套语义。
 
-**实现量（含 v0.7 修正）**：`internal/scanner/{payload,archetype}.go` + `skills_dir.go` 扩展 + `internal/render/payload.go` + `cmd/askdao/bundle.go` + types 新字段 + 测试，约 ~1000 行 Go。Phase 切分：归 Phase 1。已交付：PR #19（v0.6 初版）+ PR _TBD_（v0.7 修正）。
+**实现量（含 v0.7 修正）**：`internal/scanner/{payload,archetype}.go` + `skills_dir.go` 扩展 + `internal/render/payload.go` + `cmd/askdao/bundle.go` + types 新字段 + 测试，约 ~1000 行 Go。Phase 切分：归 Phase 1。
 
 ---
 
@@ -1337,15 +1243,15 @@ vs v0.2（~2950 行）：累计增量 ~1330 行。
 | 版本 | `plugin.json.version` 显式，否则 git commit SHA | `plugin.json.version` |
 | 脚手架 | `plugin-dev` 插件 | 内置 `$plugin-creator` skill |
 
-**关键洞察**：askdao-cli 的本职——「扫 KOL 项目目录 → 推断出可部署的 agent → 打包」——和这套 plugin 格式在结构上高度重叠。`homework-spelling` 那种 `.agents/skills/` + `skills-lock.json` + `CLAUDE.md` 的目录，离一个 Claude Code plugin 只差一个 `.claude-plugin/plugin.json`。领域收敛出了事实标准，askdao-cli 在它正中央。
+**关键洞察**：askdao-cli 的本职——「扫 KOL 项目目录 → 推断出可部署的 agent → 打包」——和这套 plugin 格式在结构上高度重叠。`content-pipeline` 那种 `.agents/skills/` + `skills-lock.json` + `CLAUDE.md` 的目录，离一个 Claude Code plugin 只差一个 `.claude-plugin/plugin.json`。领域收敛出了事实标准，askdao-cli 在它正中央。
 
 **三个层面的影响**：
 
 1. **入口侧（检测）—— plugin manifest 是「权威来源」，胜过启发式。** 项目里有 `.claude-plugin/plugin.json` / `.codex-plugin/plugin.json` → 这个项目本身就是一个 plugin，manifest 直接给出 name/version/bundle 了哪些 skills·agents·hooks·MCP/声明了哪些依赖，不用猜；有 `.claude-plugin/marketplace.json` / `.agents/plugins/marketplace.json` → 这是一个 marketplace（plugin 仓库），N 个子目录各是一个 plugin；plugin manifest 声明的**依赖** = §9.10「在 lockfile 里 = 引用、不在 = 打包」规则的泛化。影响面：scanner 加 `LoadPluginManifest`（`skills_dir.go` 旁）、archetype 加 `plugin_package` / `plugin_marketplace`（置信度近 1.0）、`payload.go` 在 plugin archetype 下直接用 manifest 定义清单、`detection.go` 加 `DetectedPluginManifest` sub-type。**这一档是 §9.10 工作的自然延伸——纯增量、低风险、确定性、零 LLM。**
 
-2. **出口侧 —— askdao-cli 可以生成 plugin，而不只是 `askdao.ai/v1` AgentSpec。** 设想新命令 `askdao plugin export [--target claude-code|codex|both]`：把 detection / AgentSpec 转成标准 plugin 目录（`.claude-plugin/plugin.json` + `skills/<name>/SKILL.md` + `.mcp.json` + `agents/` + `hooks/hooks.json` + Claude 可加 `bin/`·`settings.json`）。AgentSpec → plugin 的字段映射几乎逐项对得上（`metadata`→manifest 头、`skills`→`skills/`、`mcp_servers`→`.mcp.json`、`persona.system_prompt`→ 一个根 skill 或 instruction、Codex `interface{...}`→ `metadata.labels`+`domain`+ 新展示块）。战略价值：让 KOL 的 agent 能装进任何人的 Claude Code/Codex，而不只是 AskDAO 云——和「askdao-cli = AskDAO 体系唯一对外开源子项目 = 信任锚点」的定位高度一致。分发模型也跟着多一条：除「部署到 AskDAO 云」外，还有「push 这个 plugin 到一个 git-repo marketplace，Claude Code/Codex 用户 `/plugin install` 就能装」；AskDAO 可以自己托管一个 marketplace。改动面中等：新命令 + 一个文件发射器（`internal/export` 或扩 `internal/render`）+ AgentSpec↔plugin 映射表（进 §5）。不碰 conductor。
+2. **出口侧 —— askdao-cli 可以生成 plugin，而不只是 `askdao.ai/v1` AgentSpec。** 设想新命令 `askdao plugin export [--target claude-code|codex|both]`：把 detection / AgentSpec 转成标准 plugin 目录（`.claude-plugin/plugin.json` + `skills/<name>/SKILL.md` + `.mcp.json` + `agents/` + `hooks/hooks.json` + Claude 可加 `bin/`·`settings.json`）。AgentSpec → plugin 的字段映射几乎逐项对得上（`metadata`→manifest 头、`skills`→`skills/`、`mcp_servers`→`.mcp.json`、`persona.system_prompt`→ 一个根 skill 或 instruction、Codex `interface{...}`→ `metadata.labels`+`domain`+ 新展示块）。改动面中等：新命令 + 一个文件发射器（`internal/export` 或扩 `internal/render`）+ AgentSpec↔plugin 映射表（进 §5）。
 
-3. **架构层 —— `AgentSpec` 目标矩阵多两列；askdao-cloud 发行模型要重想。** §5.1 的映射现在该再加 `ClaudeCodePluginEmitter` / `CodexPluginEmitter` 两列（文件发射器，不是 API 调用器）。要点：**Plugin ≠ Managed Agent**——前者扩展本地 CLI，后者是云端自治 agent，是两种 runtime；但 plugin 可以 bundle `agents/`（subagent 定义），所以一个 KOL 的「agent」可呈现为 (a) 云端 Managed Agent（现在的目标）、(b) subscriber 本地装的 Claude Code plugin、(c) Codex plugin——`AgentSpec` 作为 harness-neutral 中间格式正好横跨这几种。`workspace.*` / `vault_hints` 在 plugin 目标下大多无处安放（plugin 不管 runtime、没有 per-user vault），用 v0.4 已有的 translation_report 机制报告「这些字段被忽略」即可。**不建议让 plugin 格式取代 `askdao.ai/v1`**——后者的价值恰恰在于 harness-neutral，能同时映射云端 agent 和本地 plugin 两类目标，plugin 只覆盖后者。askdao-cloud 侧的开放问题（需上层拍板）：① AskDAO 要不要自己托管 plugin marketplace？② conductor 要不要能反向 ingest 一个 plugin → 起一个 Managed Agent（plugin 作为 agent 的另一种输入源）？③ KOL onboarding 主路径是「装 askdao-cli → `agent init` → deploy 到云」还是「`plugin export` → push 到 marketplace」，还是并存？
+3. **架构层 —— `AgentSpec` 目标矩阵多两列（plugin emitter）。** §5.1 的映射现在该再加 `ClaudeCodePluginEmitter` / `CodexPluginEmitter` 两列（文件发射器，不是 API 调用器）。要点：**Plugin ≠ Managed Agent**——前者扩展本地 CLI，后者是云端自治 agent，是两种 runtime；但 plugin 可以 bundle `agents/`（subagent 定义），所以一个 KOL 的「agent」可呈现为 (a) 云端 Managed Agent（现在的目标）、(b) subscriber 本地装的 Claude Code plugin、(c) Codex plugin——`AgentSpec` 作为 harness-neutral 中间格式正好横跨这几种。`workspace.*` / `vault_hints` 在 plugin 目标下大多无处安放（plugin 不管 runtime、没有 per-user vault），用 v0.4 已有的 translation_report 机制报告「这些字段被忽略」即可。**不建议让 plugin 格式取代 `askdao.ai/v1`**——后者的价值恰恰在于 harness-neutral，能同时映射云端 agent 和本地 plugin 两类目标，plugin 只覆盖后者。
 
 **推荐路线（分阶段）**：
 
@@ -1353,15 +1259,15 @@ vs v0.2（~2950 行）：累计增量 ~1330 行。
 |---|---|---|---|
 | 0 | 本节（落档，待决策）| 无 | 已做 |
 | 1 | scanner 加 plugin-manifest 检测（影响①）：`LoadPluginManifest` / archetype `plugin_package`·`plugin_marketplace` / payload 用 manifest 直接定义 / `DetectedPluginManifest`。确定性、零 LLM，§9.10 的延伸。 | 低 | 确认方向后可作为下一个 PR |
-| 2 | `askdao plugin export`（影响②）：detection/AgentSpec → Claude Code plugin 目录（+ Codex）。先定 AgentSpec↔plugin 映射表（进 §5）。 | 中 | 阶段 1 之后；先在 askdao-cloud 起 design issue 讨论分发模型 |
-| 3 | 架构层（影响③）：AgentSpec 目标矩阵 +2 列、askdao-cloud 发行模型决策、conductor 要不要 PluginAdapter / plugin-ingest。跨 askdao-cli + askdao-cloud + conductor。 | 高（战略）| 阶段 2 落地、跑过几个真实 KOL plugin 之后 |
+| 2 | `askdao plugin export`（影响②）：detection/AgentSpec → Claude Code plugin 目录（+ Codex）。先定 AgentSpec↔plugin 映射表（进 §5）。 | 中 | 阶段 1 之后 |
+| 3 | 架构层（影响③）：AgentSpec 目标矩阵 +2 列（plugin emitter）。 | 高 | 阶段 2 落地、跑过几个真实 KOL plugin 之后 |
 
 #### 野生案例验证：guige-skills（2026-06，详见 `WxArticle-Project-To-Claude-Plugin.md`）
 
 一个真实个人 skill 集（13 skill）从 install.sh/symlink 迁移到 plugin 体系的公开实录，是本节判断的第一个野外样本。带来的增量输入：
 
-1. **开放问题①有了低成本答案**：「repo 即 marketplace」（`.claude-plugin/marketplace.json` 的 `source.repo` 指向自身）= 零基础设施分发，两行命令安装。AskDAO MVP 不需要自建 marketplace，git repo 本身就是。
-2. **开放问题③的输入**：plugin 公开分发无准入，做不了 paid 订阅 → plugin export 定位为**免费获客渠道**，云端部署是**变现渠道**，并存而非二选一。文章「坑一：换机器依赖缺失」也佐证 plugin 不管 runtime——askdao 的差异化恰在 managed runtime + 环境 + 订阅。
+1. **「repo 即 marketplace」**（`.claude-plugin/marketplace.json` 的 `source.repo` 指向自身）= 零基础设施分发，两行命令安装。git repo 本身就是 marketplace，无需额外基础设施。
+2. **plugin 不管 runtime**：文章「坑一：换机器依赖缺失」佐证 plugin 只扩展本地 CLI，不负责运行环境——这正是 §9.11 影响③ `workspace.*` / `vault_hints` 在 plugin 目标下无处安放的现实印证。
 3. **影响①新信号**：野生 plugin 的 skill 内嵌 `agents/*.yaml`（skill 级子 agent）。本表「组件目录」已列 plugin 根的 `agents/`，但 skill 内嵌这一层级 detection schema 未覆盖，plugin archetype 落地时需纳入。
 4. **影响②硬不变量实证**：name/version 跨多套 manifest 不一致 → 客户端加载报错且极难定位。emitter 必须保证一致性 + CI 校验（文章 `scripts/validate.py` 模式：manifest name/version 一致 + 每 skill 有 SKILL.md + frontmatter 含 name/description + name 唯一）。
 5. **不等 plugin 化即可用**：「description 是给 AI 看的触发指令——列触发场景 > 写功能描述，含反触发条件，80-150 字」。askdao-cli 上传 skill 到 Managed Agents 同样靠 description 做语义匹配 → 已落地为 deploy 前置校验（frontmatter name/description 必填，见 §9.14 packageSkills），工作台 description 质量提示进 backlog。
@@ -1371,7 +1277,7 @@ vs v0.2（~2950 行）：累计增量 ~1330 行。
 
 ### 9.12 Agent 项目布局：单文件宣言 + `.askdao/` 工具空间 ✅ 已定（v0.7）
 
-**动机**：v0.6 设计中 `askdao agent init <name>` 在 KOL 项目内创建 `<name>/` 子目录，所有 CLI 产物（agent.yml / persona.md / .askdao/recommendation.yml / detection.json）都在那个子目录里。哥实测时撞到 `~/WorkSpace/homework-spelling/homework-spelling/` 自指路径迷惑，且 `agent.yml` 隐藏在子目录里，KOL 不易直观感知"这是我项目的 agent 声明"。
+**动机**：v0.6 设计中 `askdao agent init <name>` 在 KOL 项目内创建 `<name>/` 子目录，所有 CLI 产物（agent.yml / persona.md / .askdao/recommendation.yml / detection.json）都在那个子目录里。哥实测时撞到 `~/workspace/content-pipeline/content-pipeline/` 自指路径迷惑，且 `agent.yml` 隐藏在子目录里，KOL 不易直观感知"这是我项目的 agent 声明"。
 
 **决策（v0.7）**：扁平化产物布局 + 命名区分"我的"vs"工具的"。
 
@@ -1405,7 +1311,7 @@ KOL 项目根/
 
 **动机**：冒烟测试中两次撞到"LLM 越界进入确定性字段"的同款问题：
 
-1. **`metadata.domain` 标量当 list** —— LLM 写 `domain: "education"`，pydantic 严格拒绝。修法：conductor 端引入 `normalize_llm_agent_spec` 在 `model_validate` 之前吸收常见 LLM 错位（标量↔list、enum 大小写等）。
+1. **`metadata.domain` 标量当 list** —— LLM 写 `domain: "education"`，schema 严格拒绝。修法：服务端引入 normalizer 在校验之前吸收常见 LLM 错位（标量↔list、enum 大小写等）。
 2. **`skills` 段乱写** —— LLM 看到 `detected_skills` 把 14 个 lockfile-pinned 都误抄成 `custom_local` 内联，且 `path` 指 SKILL.md 文件而非目录。修法：deterministic builder 取代 LLM 的 skills 段输出。
 
 **根因**：把**确定性事实**（"哪些 skill 在 lockfile 里"、"domain 字段必须是 list"）丢给**概率系统**（LLM）去决定，是架构错位。
@@ -1417,54 +1323,23 @@ KOL 项目根/
 | **软字段**（设计决策、风格、解释）| `persona.system_prompt` / `provenance.reasoning_*` / `metadata.description` / `model_class` / `expertise_level` | — |
 | **硬字段**（schema 强约束、ground truth、确定性事实）| — | `skills[]` / `metadata.domain` 类型 / `metadata.version` 格式 / `capabilities.*.permission` enum / `mcp_servers[].type` enum |
 
-**实现模式**：硬字段一律由 askdao-cli / conductor 后处理填充或规整：
+**实现模式**（belt + suspenders + 最终防线，三层兜底）：
 1. **LLM 端 prompt 加约束**（belt）：明确告诉模型"omit this field" / "must be JSON array" / "lowercase enum"
-2. **server 端 normalizer**（suspenders）：`normalize_llm_agent_spec` + `data.pop("skills", None)` 兜底剥
-3. **CLI 端 deterministic builder**（最终防线）：`BuildAgentSpecSkills(det)` 强覆盖 LLM 输出
+2. **服务端 normalizer**（suspenders）：校验前吸收常见 LLM 错位（标量↔list / list↔dict / enum 大小写）+ 对硬字段（如 skills）直接剥除 LLM 输出
+3. **CLI 端 deterministic builder**（最终防线）：`internal/pipeline/skills_builder.go` 的 `BuildAgentSpecSkills(det)` 由确定性扫描结果强覆盖 LLM 的 skills 段
 
-**Phase 1 实例**：
-- `app/agents/llm_normalizer.py`（conductor，PR #44）—— 处理 `metadata.domain` 等
-- `internal/pipeline/skills_builder.go`（askdao-cli，PR _TBD_）—— deterministic 构造 skills 段
-
-**未来扩展**：当 LLM 在 `version` / `permission` / `domain` 三个字段又自由发挥时（迟早），把它们纳入同款 normalizer 而不是改 prompt 求模型服从。
-
-#### Normalizer 规则集 audit checklist（v0.7.1 补，prod 撞到第三次后立的 process gate）
-
-normalizer 历史上演化是被动反应式的：每撞一次新错位就加一类规则。这意味着每次 AgentSpec 加新字段时，**必须**对照下面这张四类形态表过一遍，确认 normalizer 是否需要新规则——而不是等 prod 502 再补。
-
-| Schema 类型 | 已知 LLM 错位形态 | normalizer 规则 / tuple |
-|---|---|---|
-| `list[str]` | scalar string（"education" 而非 ["education"]）| `_SINGLETON_STRING_LISTS` → `_wrap_str_to_list` |
-| `list[<model>]` | single dict（{...} 而非 [{...}]） | `_SINGLETON_OBJECT_LISTS` → `_wrap_object_to_list` |
-| `dict[str, str]` | list of strings（["a","b"] 而非 {"a":"","b":""}）| `_LIST_TO_DICT_KEYS` → `_list_to_dict_with_empty_values`（v0.7.1） |
-| Enum string | 大小写错（"Private" / "ALWAYS_ALLOW"）| `_LOWERCASE_STRINGS` → `_lowercase_string` |
-| `bool` | "true"/"false" 字符串 | （pydantic 默认接受，暂不需 normalizer） |
-| 嵌套结构（`Optional[X]`、union） | （未撞过，留观察）| — |
-
-**新加字段时的 process gate**（写进 conductor `app/agents/spec.py` L3 头部的镜像约束）：
-1. 字段类型属于上表前 4 类之一？ → 加进对应 tuple，并补单元测试
-2. 字段是 dict[str, str]？ → **加进 `_LIST_TO_DICT_KEYS`**
-3. 字段是 enum string（注释里 ∈ {...}）？ → 加进 `_LOWERCASE_STRINGS` + prompt 加约束
-4. `tests/test_llm_normalizer.py::test_rule_paths_resolve_against_spec_or_known_extensions` 跑一遍守护漂移
-
-撞墙记录（每条都该是教训而不是事后补丁）：
-
-| 时间 | 字段 | 形态 | 修复 PR |
-|---|---|---|---|
-| 2026-05-13 | `metadata.domain` | scalar → list | conductor #44 |
-| 2026-05-14 | `skills[]` | LLM 自由发挥（dict, dict, dict...） | askdao-cli #25 deterministic builder + conductor #50 prompt OMIT |
-| 2026-05-14 | `metadata.labels` | list → dict | conductor #55（本节由此触发补的 checklist） |
+**未来扩展**：当 LLM 在 `version` / `permission` / `domain` 等硬字段又自由发挥时（迟早），把它们纳入同款 normalizer 规则，而不是改 prompt 求模型服从。新增 AgentSpec 字段时应对照"硬字段不交 LLM"原则过一遍，确认 normalizer 是否需要新规则——而不是等线上故障再补。
 
 ---
 
 ### 9.14 Skill 上传分层协议 + harness 中性 invariant ✅ 已定（v0.7）
 
-**动机**：`harness-design/investigations/managed-agents-skill-installation.md` §1.2.1/1.2.2 反映 Anthropic `/v1/skills` 接受 multipart 多文件原生上传（不接受 zip）。最初考虑把这条协议传染到全链路（CLI 直接 multipart 给 conductor），但这是反向复杂化 —— CLI 要写大量 walk + multipart 代码，conductor 要重写接收逻辑，OpenViking 备份要折腾。
+**动机**：Anthropic skill 上传接受 multipart 多文件原生上传（不接受 zip）。最初考虑把这条协议传染到全链路（CLI 直接 multipart 给服务端），但这是反向复杂化 —— CLI 要写大量 walk + multipart 代码，服务端要重写接收逻辑。
 
-**决策**：**分层协议** —— Conductor 作 anti-corruption layer，把 Anthropic 协议怪癖封装在内部。
+**决策**：**分层协议** —— 服务端作 anti-corruption layer，把 Anthropic 协议怪癖封装在内部。
 
 ```
-askdao-cli                    Conductor                    Anthropic
+askdao-cli                    服务端                       Anthropic
 ─────────                     ─────────                    ─────────
   打包 zip per skill           解 zip                       multipart 多 part
   ───── multipart/form ────►    │                            ↑
@@ -1472,9 +1347,9 @@ askdao-cli                    Conductor                    Anthropic
                                  (anti-corruption layer)
 ```
 
-- **CLI ↔ Conductor**: zip per skill（简单内部协议，PR #21 已实装跑通）
-- **Conductor ↔ Anthropic**: multipart 多 part（按 Anthropic §1.2.1 原生协议；conductor `sync_skill_zip` 已在解 zip + SDK `files=[...]` 调用）
-- **设计原则**：Anthropic 协议变化（未来支持 zip / 改 endpoint / 改 beta header）→ 只动 conductor，CLI 零改动
+- **CLI ↔ 服务端**: zip per skill（简单内部协议）
+- **服务端 ↔ Anthropic**: multipart 多 part（按 Anthropic 原生协议；服务端解 zip + SDK `files=[...]` 调用）
+- **设计原则**：Anthropic 协议变化（未来支持 zip / 改 endpoint / 改 beta header）→ 只动服务端，CLI 零改动
 
 **Harness 中性 invariant**（关键）：
 
@@ -1492,7 +1367,7 @@ zb, _ := deploy.ZipDir(skillAbsDir, skillName)         // zip 内顶层 = "tts/"
 | `.claude/skills/tts/` | `tts/` |
 | `.agents/skills/tts/` | `tts/` |
 | `skills/tts/`（KOL 自定义） | `tts/` |
-| `vendor/marswaveai/tts/`（更怪的） | `tts/` |
+| `vendor/some-org/tts/`（更怪的） | `tts/` |
 
 无论 KOL 用哪个 harness 习惯，Anthropic 端始终只看到 `tts/SKILL.md` 形态。**这条 invariant 由 `ZipDir` 实现保证 —— 物理上不可能泄露上级目录**。
 
@@ -1531,7 +1406,7 @@ persona:
 - 长 prompt（5000+ 字）虽然让 yaml 文件变胖，但 prompt 段放 yaml 末尾，前面的结构化字段仍清晰
 
 **收益**：
-- schema 简化：删 `PersonaFile` 字段（双侧 askdao-cli + conductor）
+- schema 简化：删 `PersonaFile` 字段（askdao-cli + 服务端两侧）
 - 故障域消失："yaml 引用 .md，.md 丢了怎么办"这条不存在了
 - 心智简化：KOL **只**面对 `askdao-agent.yml` 一个编辑对象（与 §9.12 项目布局哲学完全一致）
 - diff 干净：`askdao-agent.yml` 单文件 diff baseline，KOL 改 prompt 跟改 capabilities 一样的轨迹
@@ -1540,76 +1415,29 @@ persona:
 
 ---
 
-## 10. 落地路径
+## 10. 落地路径（askdao-cli 端）
 
 ### Phase 1（即将做）
 
-1. **本设计文档 v0.4 评审 → ADR 编号**：编入 `harness-design/primitives/`（建议 `07-harness-neutral-agent-spec.md` 含 v0.3 中间格式 + v0.4 Dockerfile 兼容子条款）
-2. **更新 plan/06**：
-   - §4.2 改写为带 `--auto` + `--harness` 路径
-   - §5 AgentSpec yaml schema 完全重写为中间格式 8 块（含 v0.4 workspace 5 个 Dockerfile 兼容字段）
-   - §6.1 CLI 框架：明确 Go（按 memory pivot）
-3. **更新 plan/01 + alembic**：
-   - alembic 017 加 3 列：`managed_agent_version` + `vault_hints_json` + `runtime_id`
-   - 同步更新 plan/02 conductor 业务字段
-4. **更新 plan/03 + Conductor**：
-   - 新增 `app/agents/spec.py`（中间格式 pydantic）+ `app/agents/adapters/anthropic_adapter.py`
-   - AnthropicAdapter 实现 v0.4 translation_report 输出 + extracted_apt/pip 兜底合并
-   - 加 `POST /api/v1/cli/recommend` + `POST /api/v1/cli/deploy`（含 translation_report 返回）
-   - 现有 `ManagedAgentsClient` 改造为 Anthropic adapter 的下游消费者
-5. **GitHub Issue 拆分**：按 §6 工程量切成 8-10 个 task：
-   - askdao-cli 端：6 个（5 个 scanner / 4 个 provider / recommender / cmd × 4 含 show / **render UX 5 模块**）
-   - conductor 端：3 个（spec + anthropic_adapter / cli endpoint / alembic）
+按 §6.1 工程量切成 task：
 
-### Phase 2（开源前必做）
+- 5 个 scanner（syft / enry / dockerfile / dev_filter / runtimes + mcp_config / skills_dir / secrets_hint / harness_signals）
+- 4 个 provider（python / node / go / rust）+ apt 反向映射
+- recommender（policy 启发式 + L4 LLM 客户端）
+- 命令实现（`init --auto` / `detect` / `deploy` / `show`）
+- render UX 5 模块（summary / reasoning / diff / warnings / lists）
 
-6. **新增 ADR**：`harness-design/primitives/08-multi-harness-runtime.md`（OpenAIAdapter + sandbox provider 选择）
-7. **plan/03 加章节**：M-OpenAI 阶段（`app/openai_sdk/` 新建 + chat.py 三岔重构）
-8. **askdao-cli 端**：deploy 命令 `--harness openai_agents_sdk` 通路打通
-9. **GitHub Issue 拆分**：~6 个 task（openai_adapter / 5 个 openai_sdk 子模块 / chat 三岔 / 测试）
+服务端的中间格式校验 + AnthropicAdapter + `/cli/recommend` + `/cli/deploy` endpoint 不在本文档范围。
+
+### Phase 2
+
+- deploy 命令 `--harness openai_agents_sdk` 通路打通
+- Translation report 渲染
 
 ---
 
 ## 附录 · 参考资料
 
-### v0.5 design review
-- [`review-v0.5-2026-05-06.md`](./review-v0.5-2026-05-06.md) — KOL 审阅 UX 中等详情卡片（7 块结构 + inline reasoning + 入口扩展）
-
-### v0.4 design review
-- [`review-v0.4-2026-05-06.md`](./review-v0.4-2026-05-06.md) — Dockerfile 兼容性补强（选项 B：5 字段；不做 GPU 声明）
-
-### v0.3 design review
-- [`review-v0.3-2026-05-06.md`](./review-v0.3-2026-05-06.md) — 中间格式可行性 + 字段重叠度评估 + 三阶段路线图
-
-### v0.2 design review
-- [`review-2026-05-06.md`](./review-2026-05-06.md) — Anthropic 三资源模型重审
-
 ### 上游 spike 报告
 - [`investigations/syft-spike-for-askdao-cli.md`](./investigations/syft-spike-for-askdao-cli.md)
 - [`investigations/nixpacks-provider-pattern.md`](./investigations/nixpacks-provider-pattern.md)
-
-### Anthropic Managed Agents 官方文档（同 org 私有仓库）
-- `harness-design/claude-managed-agents-docs/docs/managed-agents/overview.md`
-- `harness-design/claude-managed-agents-docs/docs/managed-agents/agent-setup.md`
-- `harness-design/claude-managed-agents-docs/docs/managed-agents/environments.md`
-- `harness-design/claude-managed-agents-docs/docs/managed-agents/skills.md`
-- `harness-design/claude-managed-agents-docs/docs/managed-agents/mcp-connector.md`
-- `harness-design/claude-managed-agents-docs/docs/managed-agents/vaults.md`
-- `harness-design/claude-managed-agents-docs/api/python/managed-agents/agents/create.md`
-- `harness-design/claude-managed-agents-docs/api/python/managed-agents/environments/create.md`
-
-### OpenAI Agents SDK 官方文档（v0.3 重读后引用，同 org 私有仓库）
-- `harness-design/openai-agents-sdk-docs/01-agents-sdk-overview.md`
-- `harness-design/openai-agents-sdk-docs/03-agent-definitions.md`
-- `harness-design/openai-agents-sdk-docs/04-models-and-providers.md`
-- `harness-design/openai-agents-sdk-docs/06-sandbox-agents.md`
-- `harness-design/openai-agents-python/` — Python SDK 源码
-
-### Warp Oz 设计参考（同 org 私有仓库）
-- `harness-design/warp-oz-docs/cloud-agents/environments.md`
-
-### 历史选型分析
-- `harness-design/archived-version/harness-selection-analysis.md` — 原始多 harness 推荐路径
-
-### 相关 memory
-- `project_askdao_cli_design_pivot_2026_05_05.md` — Go + Oz Environment 一等抽象 + multi-runtime ADR

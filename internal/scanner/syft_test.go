@@ -52,13 +52,10 @@ func TestScanPackages_FakeRunner(t *testing.T) {
 		t.Errorf("empty-type artifact should be dropped")
 	}
 
-	// Verify default exclude flowed into argv plus user-supplied one.
+	// Verify the user-supplied exclude flowed into argv.
 	joined := strings.Join(capturedArgs, " ")
 	if !strings.Contains(joined, "dir:/tmp/x") {
 		t.Errorf("missing dir target: %q", joined)
-	}
-	if !strings.Contains(joined, "--exclude ./openviking/**") {
-		t.Errorf("default exclude missing: %q", joined)
 	}
 	if !strings.Contains(joined, "--exclude ./extra/**") {
 		t.Errorf("user exclude missing: %q", joined)

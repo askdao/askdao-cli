@@ -7,8 +7,8 @@
 // [POS]: internal/pipeline 的 L3.5 builder —— 介于 scanner（L1-L3）和 recommender（L4 LLM）之间。
 //
 //	设计动机：skills 段是 deterministic 事实字段（哪些 skill 在 detection 里），不该让 LLM
-//	自由发挥。这是 v0.7 引入的"信任边界 in L1-L4"哲学（design.md §9.13）的第二次实例，
-//	第一次是 conductor 端 metadata.domain normalizer（PR #44）。
+//	自由发挥。这是 v0.7 引入的"信任边界 in L1-L4"哲学（design.md §9.13）的实例：
+//	硬字段确定性填充，软字段才交 LLM。
 //
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package pipeline
@@ -28,8 +28,7 @@ import (
 //     Path is the skill directory relative to project root (e.g.
 //     ".agents/skills/tts"), NOT the SKILL.md file. Both repo-native and
 //     vendored skills enter this list identically — Anthropic Managed Agents
-//     has no "reinstall from registry" path, every custom skill uploads
-//     (see harness-design/investigations/managed-agents-skill-installation.md).
+//     has no "reinstall from registry" path, every custom skill uploads.
 //
 //   - Each unique ImpliedAnthropicSkill (across all DetectedSkill entries)
 //     → one Skill{Type: "builtin", Provider: "anthropic", ID: <skill_id>}.
