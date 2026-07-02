@@ -13,6 +13,7 @@ metadata:
   expertise_level: pro
   domain:
     - backend-engineering
+  language: zh
   group_name: "My Agent Group"
   persona_file: persona.md
   labels:

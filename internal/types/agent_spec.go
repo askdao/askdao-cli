@@ -81,10 +81,16 @@ type Metadata struct {
 	// 与 Name（运行时标识 + dedup key）解耦，改它不动 dedup；Avatar 单 string 前缀
 	// （""=程序化默认 / "icon:<lucide-name>" / url，颜色复用 ThemeColor）。conductor
 	// 镜像 + /cli/deploy 双路径持久化，订阅者端 <AgentAvatar> 渲染。
-	DisplayName string            `json:"display_name,omitempty" yaml:"display_name,omitempty"`
-	Avatar      string            `json:"avatar,omitempty"       yaml:"avatar,omitempty"`
-	GroupName   string            `json:"group_name,omitempty"  yaml:"group_name,omitempty"`
-	Labels      map[string]string `json:"labels,omitempty"      yaml:"labels,omitempty"`
+	DisplayName string `json:"display_name,omitempty" yaml:"display_name,omitempty"`
+	Avatar      string `json:"avatar,omitempty"       yaml:"avatar,omitempty"`
+	// Language is the agent's declared OUTPUT language as an ISO 639-1
+	// lowercase two-letter code (e.g. "zh", "en"). Empty = universal /
+	// adaptive: the agent follows the user's language and shows under every
+	// language filter on the discover page. The KOL picks it in the web
+	// studio (Identity step) or writes metadata.language in askdao-agent.yml.
+	Language  string            `json:"language,omitempty"   yaml:"language,omitempty"`
+	GroupName string            `json:"group_name,omitempty" yaml:"group_name,omitempty"`
+	Labels    map[string]string `json:"labels,omitempty"     yaml:"labels,omitempty"`
 }
 
 // Persona is the model + role semantic layer. ModelPreferences are tried in

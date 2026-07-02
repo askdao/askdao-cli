@@ -296,6 +296,11 @@ function renderPanels(){ $('panels').innerHTML = panelIdentity()+panelPersona()+
 function panelIdentity(){
   const m = spec.metadata;
   const cats = (data.categories||[]).map(c=>`<option ${c===m.category?'selected':''}>${esc(c)}</option>`).join('');
+  // Output language: ISO 639-1 code; '' = universal/adaptive (agent follows the
+  // user's language, shows under every discover language filter). UI lists the
+  // two launch languages; the yaml field accepts any two-letter code by hand.
+  const langs = [['','Auto · follows the user'],['zh','中文 Chinese'],['en','English']].map(([v,l])=>
+    `<option value="${v}" ${v===(m.language||'')?'selected':''}>${l}</option>`).join('');
   const vis = [['private','only you'],['shared','your subscribers'],['public','anyone']].map(([v,h])=>
     `<label><input type="radio" name="vis" value="${v}" ${v===(m.visibility||'private')?'checked':''} onchange="spec.metadata.visibility=this.value"><span>${v}<small style="display:block;font-size:11px;color:var(--stone);font-weight:400;margin-top:2px">${h}</small></span></label>`).join('');
   const sw = (data.palette||[]).map(t=>
@@ -310,6 +315,7 @@ function panelIdentity(){
       <label class="f"><span>Description · what it does, who it's for ${confBadge('description','desc')}</span>
         <textarea id="f_desc" class="desc" placeholder="e.g. A spelling tutor for grade-school homework — it spots errors, explains the rules, and gives practice exercises.">${esc(m.description)}</textarea><div class="field-err" id="err_desc"></div></label>
       <label class="f"><span>Category ${confBadge('category')}</span><select id="f_cat">${cats}</select></label>
+      <label class="f"><span>Output language · which audience it speaks to</span><select id="f_lang">${langs}</select></label>
     </div>
     <div class="card">
       <p class="card-head">Theme color ${confBadge('theme_color','theme','color')}</p>
@@ -493,6 +499,7 @@ function fillReview(){
     <dt>Display name</dt><dd>${esc(m.display_name)||'<span class="empty">—</span>'}</dd>
     <dt>Description</dt><dd>${esc(m.description)||'<span class="empty">—</span>'}</dd>
     <dt>Category</dt><dd>${esc(m.category)||'—'}</dd>
+    <dt>Language</dt><dd>${m.language==='zh'?'中文 Chinese':m.language==='en'?'English':m.language?esc(m.language):'Auto · follows the user'}</dd>
     <dt>Visibility</dt><dd>${esc(m.visibility||'private')}</dd>
     <dt>Model</dt><dd>${esc(spec.persona.model_class||'balanced')}</dd>
     <dt>System prompt</dt><dd>${spHTML}</dd>
@@ -612,6 +619,7 @@ function collect(){
   if($('f_display')) m.display_name=$('f_display').value.trim();
   if($('f_desc')) m.description=$('f_desc').value.trim();
   if($('f_cat')) m.category=$('f_cat').value;
+  if($('f_lang')) m.language=$('f_lang').value; // '' = universal (omitempty drops it from yaml)
   if($('f_prompt')) p.system_prompt=$('f_prompt').value;
   // Map model_class → concrete model id; the deploy adapter reads model_preferences,
   // not model_class, so this is what makes the selector actually take effect.
