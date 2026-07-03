@@ -141,6 +141,49 @@ func TestClient_Deploy_BlockingWarnings(t *testing.T) {
 	}
 }
 
+func TestClient_Deploy_VisibilityDowngradeConfirm(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = io.WriteString(w, `{"detail":{"reason":"visibility_downgrade_requires_confirm","current_visibility":"public","requested_visibility":"private","agent_name":"童话讲书人"}}`)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	_, err := c.Deploy(context.Background(), DeployInput{AgentYAML: []byte("x")})
+	var vdc *ErrVisibilityDowngradeConfirm
+	if !errors.As(err, &vdc) {
+		t.Fatalf("err = %v, want *ErrVisibilityDowngradeConfirm", err)
+	}
+	d := vdc.Detail
+	if d.CurrentVisibility != "public" || d.RequestedVisibility != "private" || d.AgentName != "童话讲书人" {
+		t.Errorf("parsed detail = %+v", d)
+	}
+}
+
+func TestClient_Deploy_SendsConfirmVisibilityDowngradeField(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Errorf("ParseMultipartForm: %v", err)
+			return
+		}
+		if got := r.FormValue("confirm_visibility_downgrade"); got != "true" {
+			t.Errorf("confirm_visibility_downgrade field = %q, want true", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(DeployResponse{AgentID: "agt_x"})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	if _, err := c.Deploy(context.Background(), DeployInput{
+		AgentYAML:                  []byte("x"),
+		ConfirmVisibilityDowngrade: true,
+	}); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+}
+
 func TestClient_Deploy_GenericNon2xx(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)

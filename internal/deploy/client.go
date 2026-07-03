@@ -1,5 +1,5 @@
 // [INPUT]: 标准库 net/http / mime/multipart / encoding/json / context / io / time / bytes / errors / fmt
-// [OUTPUT]: Client（Deploy / SetupKol）+ DeployInput / DeployResponse / TranslationReport / TranslationWarning / KolProfilePatch / KolProfileRequired + ErrKolProfileRequired / ErrBlockingWarnings + DefaultDeployPath / DefaultKolProfilePath / DefaultTimeout
+// [OUTPUT]: Client（Deploy / SetupKol）+ DeployInput / DeployResponse / TranslationReport / TranslationWarning / KolProfilePatch / KolProfileRequired / VisibilityDowngrade + ErrKolProfileRequired / ErrBlockingWarnings / ErrVisibilityDowngradeConfirm + DefaultDeployPath / DefaultKolProfilePath / DefaultTimeout
 // [POS]: internal/deploy 的服务端 HTTP 客户端 —— `askdao agent deploy` 调 POST /api/v1/cli/deploy（multipart/form-data）+ PATCH /api/v1/users/me/kol-profile；cmd/askdao/deploy.go 消费；DeployResponse 与 409 形态对齐服务端契约（CI diff 校验）
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package deploy
@@ -41,6 +41,11 @@ type DeployInput struct {
 	// Force deploys even if the translation report has blocking (REJECTED /
 	// deploy-fatal) warnings.
 	Force bool
+	// ConfirmVisibilityDowngrade acknowledges taking an approved shared/public
+	// agent private (the conductor 409s with
+	// visibility_downgrade_requires_confirm otherwise). Distinct from Force,
+	// which only overrides translation warnings.
+	ConfirmVisibilityDowngrade bool
 	// SkillZips maps a form file-field name (the basename of a custom_local
 	// skill's path) to the zip bytes of that skill's directory.
 	SkillZips map[string][]byte
@@ -117,6 +122,37 @@ func (e *ErrKolProfileRequired) Error() string {
 	return "conductor requires KOL profile before deploy"
 }
 
+// VisibilityDowngrade is the parsed `detail` of a 409
+// visibility_downgrade_requires_confirm — the conductor refuses to take an
+// approved shared/public agent private without an explicit acknowledgement.
+type VisibilityDowngrade struct {
+	Reason              string `json:"reason"`
+	CurrentVisibility   string `json:"current_visibility"`
+	RequestedVisibility string `json:"requested_visibility"`
+	AgentName           string `json:"agent_name"`
+}
+
+// ErrVisibilityDowngradeConfirm is returned by Deploy when the agent.yml
+// explicitly sets visibility: private on an agent that is currently approved
+// and publicly serving (shared/public). Callers warn the user about the
+// consequences (subscribers and showcase pages lose access immediately; going
+// public again requires platform re-review) and, once confirmed, retry with
+// DeployInput.ConfirmVisibilityDowngrade=true. Detect with errors.As.
+type ErrVisibilityDowngradeConfirm struct {
+	Detail VisibilityDowngrade
+}
+
+func (e *ErrVisibilityDowngradeConfirm) Error() string {
+	name := e.Detail.AgentName
+	if name == "" {
+		name = "this agent"
+	}
+	return fmt.Sprintf(
+		"taking %s private requires confirmation (currently %s and approved); re-run with --confirm-downgrade",
+		name, e.Detail.CurrentVisibility,
+	)
+}
+
 // ErrBlockingWarnings is returned by Deploy when the translation report has
 // blocking (REJECTED / deploy-fatal) warnings and DeployInput.Force was not
 // set. Severity does not gate deploy — only TranslationAction.REJECTED does.
@@ -184,6 +220,11 @@ func (c *Client) Deploy(ctx context.Context, in DeployInput) (*DeployResponse, e
 			return nil, err
 		}
 	}
+	if in.ConfirmVisibilityDowngrade {
+		if err := mw.WriteField("confirm_visibility_downgrade", "true"); err != nil {
+			return nil, err
+		}
+	}
 	for name, zipBytes := range in.SkillZips {
 		fw, err := mw.CreateFormFile(name, name+".zip")
 		if err != nil {
@@ -235,11 +276,14 @@ func (c *Client) Deploy(ctx context.Context, in DeployInput) (*DeployResponse, e
 // conflictDetail captures the two known 409 detail shapes the conductor emits
 // from /cli/deploy: kol_profile_required and blocking (REJECTED) warnings.
 type conflictDetail struct {
-	Reason            string             `json:"reason"`
-	Fields            []string           `json:"fields"`
-	Hint              string             `json:"hint"`
-	SetupURL          string             `json:"setup_url"`
-	TranslationReport *TranslationReport `json:"translation_report"`
+	Reason              string             `json:"reason"`
+	Fields              []string           `json:"fields"`
+	Hint                string             `json:"hint"`
+	SetupURL            string             `json:"setup_url"`
+	CurrentVisibility   string             `json:"current_visibility"`
+	RequestedVisibility string             `json:"requested_visibility"`
+	AgentName           string             `json:"agent_name"`
+	TranslationReport   *TranslationReport `json:"translation_report"`
 }
 
 // classifyConflict parses a FastAPI 409 body ({"detail": {...}}) into a typed
@@ -260,6 +304,13 @@ func classifyConflict(body []byte) error {
 	case d.Reason == "kol_profile_required":
 		return &ErrKolProfileRequired{Detail: KolProfileRequired{
 			Reason: d.Reason, Fields: d.Fields, Hint: d.Hint, SetupURL: d.SetupURL,
+		}}
+	case d.Reason == "visibility_downgrade_requires_confirm":
+		return &ErrVisibilityDowngradeConfirm{Detail: VisibilityDowngrade{
+			Reason:              d.Reason,
+			CurrentVisibility:   d.CurrentVisibility,
+			RequestedVisibility: d.RequestedVisibility,
+			AgentName:           d.AgentName,
 		}}
 	case d.TranslationReport != nil:
 		return &ErrBlockingWarnings{Report: *d.TranslationReport}
