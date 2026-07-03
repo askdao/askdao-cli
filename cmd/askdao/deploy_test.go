@@ -274,6 +274,87 @@ func TestDeploy_Force_OverridesBlockingWarnings(t *testing.T) {
 	}
 }
 
+func TestDeploy_VisibilityDowngrade_RefusedWithoutConfirm(t *testing.T) {
+	// 降级确认闸：conductor 对「approved 公开 agent 显式降 private」返 409
+	// visibility_downgrade_requires_confirm。go test 下 stdin 非 TTY →
+	// 拒绝降级 + 指引 --confirm-downgrade + exit 1，不静默重试。
+	root := withWorkdir(t)
+	writeMinimalAgent(t, root, "test-agent")
+
+	var deployCalls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&deployCalls, 1)
+		writeJSON(w, http.StatusConflict, map[string]interface{}{
+			"detail": map[string]interface{}{
+				"reason":               "visibility_downgrade_requires_confirm",
+				"current_visibility":   "public",
+				"requested_visibility": "private",
+				"agent_name":           "storyteller",
+			},
+		})
+	}))
+	defer srv.Close()
+	t.Setenv("ASKDAO_CONDUCTOR_URL", srv.URL)
+	t.Setenv("ASKDAO_CONDUCTOR_TOKEN", "tok")
+
+	out, restore := captureStdout(t)
+	defer restore()
+	code := runDeploy(context.Background(), []string{"--dir", "test-agent"})
+	got := out()
+	if code != 1 {
+		t.Fatalf("deploy exit = %d, want 1\n--- output ---\n%s", code, got)
+	}
+	if deployCalls != 1 {
+		t.Errorf("deploy called %d times, want 1 (no unconfirmed retry)", deployCalls)
+	}
+	for _, want := range []string{"storyteller", "public", "--confirm-downgrade", "review"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output missing %q\n--- output ---\n%s", want, got)
+		}
+	}
+}
+
+func TestDeploy_ConfirmDowngradeFlag_Passes(t *testing.T) {
+	// --confirm-downgrade 直接在首个请求带 confirm_visibility_downgrade=true
+	//（CI / 非交互场景的确认通道）。
+	root := withWorkdir(t)
+	writeMinimalAgent(t, root, "test-agent")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseMultipartForm(10 << 20)
+		if r.FormValue("confirm_visibility_downgrade") != "true" {
+			writeJSON(w, http.StatusConflict, map[string]interface{}{
+				"detail": map[string]interface{}{
+					"reason":               "visibility_downgrade_requires_confirm",
+					"current_visibility":   "public",
+					"requested_visibility": "private",
+					"agent_name":           "storyteller",
+				},
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, deploy.DeployResponse{
+			AgentID: "agt_downgraded", AnthropicAgentID: "agent_d", AnthropicEnvironmentID: "env_d",
+			GroupID: "grp_d",
+			TranslationReport: deploy.TranslationReport{Harness: "anthropic_managed_agents"},
+		})
+	}))
+	defer srv.Close()
+	t.Setenv("ASKDAO_CONDUCTOR_URL", srv.URL)
+	t.Setenv("ASKDAO_CONDUCTOR_TOKEN", "tok")
+
+	out, restore := captureStdout(t)
+	defer restore()
+	code := runDeploy(context.Background(), []string{"--dir", "test-agent", "--confirm-downgrade"})
+	got := out()
+	if code != 0 {
+		t.Fatalf("deploy --confirm-downgrade should succeed, got %d\n--- output ---\n%s", code, got)
+	}
+	if !strings.Contains(got, "agt_downgraded") {
+		t.Errorf("output missing agt_downgraded\n--- output ---\n%s", got)
+	}
+}
+
 func TestDeploy_MissingSkillDir(t *testing.T) {
 	root := withWorkdir(t)
 	// askdao-agent.yml references a custom_local skill whose directory does

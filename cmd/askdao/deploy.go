@@ -3,13 +3,15 @@
 // [POS]: cmd/askdao 的 deploy 子命令；读 <dir>/askdao-agent.yml 原文 + 经 packageSkills 按 skill.path（project 相对 / 绝对 / ~ / Scope=="user"）
 //
 //	统一解析 + 递归打 zip（harness 中性 invariant）→ 经 internal/deploy.Client 上传 conductor /cli/deploy；处理
-//	kol_profile_required 时引导去 askdao.ai/dashboard/subscription（kol_join_mode 在订阅模式页设置，KOL profile 归云端）+ blocking-warning gating（仅 REJECTED 阻断，severity 不 gate）+ 结果打印。Token / server URL 解析顺序见 resolveServerAndToken
-//	(env > credentials.json > error)，对齐 docs/cli-auth-device-flow.md §6.3.
+//	kol_profile_required 时引导去 askdao.ai/dashboard/subscription（kol_join_mode 在订阅模式页设置，KOL profile 归云端）+ blocking-warning gating（仅 REJECTED 阻断，severity 不 gate）
+//	+ visibility 降级确认闸（409 visibility_downgrade_requires_confirm → promptVisibilityDowngrade 危险警告 + stdin Y/N，yes 重发带确认字段；--confirm-downgrade 非交互通道）+ 结果打印。
+//	Token / server URL 解析顺序见 resolveServerAndToken (env > credentials.json > error)，对齐 docs/cli-auth-device-flow.md §6.3.
 //
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -43,6 +45,7 @@ func runDeploy(ctx context.Context, args []string) int {
 	dir := fs.String("dir", ".", "KOL project root containing askdao-agent.yml")
 	harness := fs.String("harness", "", "Override preferred_harness from askdao-agent.yml")
 	force := fs.Bool("force", false, "Deploy even if the translation report has blocking (deploy-fatal) warnings")
+	confirmDowngrade := fs.Bool("confirm-downgrade", false, "Acknowledge taking an approved shared/public agent private (subscribers and showcase pages lose access; going public again requires re-review)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -111,11 +114,12 @@ func runDeploy(ctx context.Context, args []string) int {
 	cl := deploy.NewClient(conductorURL)
 	cl.AuthToken = token
 	in := deploy.DeployInput{
-		AgentYAML: agentYAML,
-		Detection: detection,
-		HarnessID: harnessID,
-		Force:     *force,
-		SkillZips: skillZips,
+		AgentYAML:                  agentYAML,
+		Detection:                  detection,
+		HarnessID:                  harnessID,
+		Force:                      *force,
+		ConfirmVisibilityDowngrade: *confirmDowngrade,
+		SkillZips:                  skillZips,
 	}
 
 	if n := len(skillZips); n > 0 {
@@ -124,6 +128,21 @@ func runDeploy(ctx context.Context, args []string) int {
 	printDeployProgress(conductorURL, harnessID, len(skillZips))
 
 	resp, derr := cl.Deploy(ctx, in)
+	if derr != nil {
+		// Visibility downgrade gate: the yaml explicitly sets visibility: private
+		// on an agent that is approved and publicly serving. Warn about both
+		// consequences (immediate loss of access for subscribers/showcase, and a
+		// fresh platform review to go public again), then ask for an explicit
+		// yes before retrying with the confirmation field set.
+		var vdc *deploy.ErrVisibilityDowngradeConfirm
+		if errors.As(derr, &vdc) {
+			if !promptVisibilityDowngrade(vdc) {
+				return 1
+			}
+			in.ConfirmVisibilityDowngrade = true
+			resp, derr = cl.Deploy(ctx, in)
+		}
+	}
 	if derr != nil {
 		var kpr *deploy.ErrKolProfileRequired
 		if errors.As(derr, &kpr) {
@@ -157,6 +176,56 @@ func runDeploy(ctx context.Context, args []string) int {
 
 	printDeployResult(resp)
 	return 0
+}
+
+// promptVisibilityDowngrade warns about taking a live approved shared/public
+// agent private and asks for an explicit yes. Returns true only on a confirmed
+// interactive "y"/"yes". When stdin is not a terminal (CI, pipes) it refuses
+// and points at --confirm-downgrade — a destructive default must never be
+// reachable by silence.
+func promptVisibilityDowngrade(e *deploy.ErrVisibilityDowngradeConfirm) bool {
+	name := e.Detail.AgentName
+	if name == "" {
+		name = "this agent"
+	}
+	cur := e.Detail.CurrentVisibility
+	if cur == "" {
+		cur = "shared/public"
+	}
+	fmt.Println()
+	fmt.Printf("⚠  DANGER: %q is currently %s and approved — it is serving users right now.\n", name, cur)
+	fmt.Println("   Taking it private will:")
+	fmt.Println("     • immediately cut off subscribers and its public showcase pages")
+	fmt.Printf("     • require a fresh platform review (back to pending) to become %s again\n", cur)
+	fmt.Println("   Tip: omit `visibility` in askdao-agent.yml to keep the current setting.")
+	if !stdinIsTerminal() {
+		fmt.Println()
+		fmt.Println("✗ deploy: refusing to downgrade without confirmation (stdin is not a terminal).")
+		fmt.Println("  Re-run with --confirm-downgrade to acknowledge, or drop `visibility: private` from askdao-agent.yml.")
+		return false
+	}
+	fmt.Print("\n   Take it private anyway? [y/N] ")
+	// EOF (e.g. stdin is /dev/null — a char device, so it passes the terminal
+	// check) reads an empty line and falls through to the refusal below: a
+	// destructive default must never be reachable by silence.
+	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "y", "yes":
+		return true
+	}
+	fmt.Println("✗ deploy: cancelled — agent visibility unchanged.")
+	fmt.Println("  To proceed deliberately, re-run with --confirm-downgrade; or drop `visibility: private` from askdao-agent.yml (omitted = keep current).")
+	return false
+}
+
+// stdinIsTerminal reports whether stdin is an interactive terminal (char
+// device). Under pipes / CI it is not, and interactive prompts must not block.
+func stdinIsTerminal() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
 }
 
 // kolProfileSetupURL resolves the page that clears the kol_profile_required

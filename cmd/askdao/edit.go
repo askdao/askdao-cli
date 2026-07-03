@@ -287,6 +287,21 @@ func studioDeployError(derr error) error {
 	if errors.As(derr, &bw) {
 		return fmt.Errorf("deploy blocked by deploy-fatal (rejected) translation warnings — fix the spec or re-run edit with --force")
 	}
+	var vdc *deploy.ErrVisibilityDowngradeConfirm
+	if errors.As(derr, &vdc) {
+		// The studio has no interactive confirm; the deploy CLI owns the
+		// acknowledged-downgrade path. Most of the time this 409 is a mistake
+		// (a stale `visibility: private` line), so lead with the fix.
+		name := vdc.Detail.AgentName
+		if name == "" {
+			name = "this agent"
+		}
+		cur := vdc.Detail.CurrentVisibility
+		if cur == "" {
+			cur = "shared/public"
+		}
+		return fmt.Errorf("deploy blocked: %s is live (%s, approved) — `visibility: private` would cut off subscribers and showcase pages, and going %s again needs a fresh platform review. Remove `visibility: private` from askdao-agent.yml (omitted = keep current), or run `askdao agent deploy --confirm-downgrade` to proceed deliberately", name, cur, cur)
+	}
 	return derr
 }
 

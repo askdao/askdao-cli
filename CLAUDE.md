@@ -43,8 +43,8 @@ askdao auth logout                         # 删除本地 credentials（不撤�
 askdao mcp setup [--print]                 # M2：调 conductor /cli/mcp-credentials 取 gateway URL+token，自动写本机 Claude Code(~/.claude.json upsert) + Codex(~/.codex/config.toml 追加 + ASKDAO_MCP_TOKEN env，Win 走 setx)；--print 只输出 snippet 不落盘
 askdao agent edit [--dir path] [--harness id] [--no-ui] [--force] [--observe]
                                            # v0.8 核心命令：扫描(或加载已有 askdao-agent.yml)+ 重扫拿 skill/MCP 候选 → 开本地 Web 工作台审阅/编辑 spec+Agent profile、按 scope 勾选 skill/MCP → Save 或一站式 Deploy。--no-ui 只写草稿退出(CI/headless)；--observe 临时挂 PreToolUse hook 预勾真实 claude session 实际激活的 skill/MCP
-askdao agent deploy [--dir path] [--harness id] [--force]
-                                           # 读 <dir>/askdao-agent.yml 原始字节 + 打包 custom_local skill 整目录 + 经 Conductor /cli/deploy 推到 Anthropic Managed Agents（**v0.7.1 起 update-mode**：同 yaml.metadata.name 重 deploy → in-place update Anthropic agent + env，复用 agent_id/group_id；改 name → fork 新 agent）
+askdao agent deploy [--dir path] [--harness id] [--force] [--confirm-downgrade]
+                                           # 读 <dir>/askdao-agent.yml 原始字节 + 打包 custom_local skill 整目录 + 经 Conductor /cli/deploy 推到 Anthropic Managed Agents（**v0.7.1 起 update-mode**：同 yaml.metadata.name 重 deploy → in-place update Anthropic agent + env，复用 agent_id/group_id；改 name → fork 新 agent；**降级确认闸**：yaml 省略 visibility = 保持线上现值；对已上架服务的 agent 显式 visibility: private → 危险警告 + 交互确认（或 --confirm-downgrade），降级会让订阅者/展示页失访且改回公开需平台重审）
 askdao update [--force]                    # 自升级到最新 GitHub Release（checksum 校验 + 原子换装；-dev 构建拒绝，--force 越过/同版本重装）；首装走 install/ 一键脚本
 askdao version                             # 打印版本
 askdao help                                # 顶层帮助（子命令用 askdao <cmd> --help 看 flag）
