@@ -1,0 +1,14 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "askdao-studio",
+  "outputfilename": "AskDAO Studio",
+  "frontend:install": "",
+  "frontend:build": "",
+  "author": {
+    "name": "AskDAO"
+  },
+  "info": {
+    "productName": "AskDAO Studio",
+    "comments": "AskDAO Studio — 把本地 AI 项目变成线上可订阅 agent 的桌面向导（复用 webstudio）"
+  }
+}

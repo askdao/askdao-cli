@@ -3,12 +3,13 @@
 > Go 单二进制 CLI。在 KOL 项目目录下扫描技术栈、推断框架、生成 Anthropic Managed Agents 配置草稿。
 > askdao-cli 是 AskDAO 在你本机运行的开源部分 —— 信任锚点。
 
-技术栈：Go 1.26 + anchore/syft + go-enry/enry + moby/buildkit (dockerfile parser) + anthropic-sdk-go
+技术栈：Go 1.26 + anchore/syft + go-enry/enry + moby/buildkit (dockerfile parser) + anthropic-sdk-go；桌面 app（`cmd/askdao-studio`）+ Wails v2
 
 ---
 
 <directory>
 cmd/askdao/ - CLI 入口（main.go router + common.go 共享 helper）+ 用户命令（auth login/status/logout · agent edit/deploy）；v0.8 命令精简，审阅入口收敛为 agent edit 本地 Web 工作台
+cmd/askdao-studio/ - Wails v2 桌面 app（M1 建设中，issue #64）—— askdao-cli 第二入口，AssetServer.Handler 复用 webstudio 显示 studio.html（零 sidecar/零前端构建链）；桌面功能经 StudioData.Desktop flag 隔离不碰 CLI
 internal/ - 业务实现（auth/ 凭据 + Device Code Flow 客户端 · types/ 双 schema · scanner/ 确定性扫描 + harness 感知双 scope · providers/ 框架推断 · pipeline/ L1-L4 编排 · recommender/ L4 LLM + /cli/recommend 客户端 · render/ 审阅卡片 · webstudio/ 本地 Web 工作台(127.0.0.1 + go:embed) · observe/ --observe 临时 hook 生命周期(写/合并/清理 settings.local.json，零残留三件套) · deploy/ conductor /cli/deploy 客户端 + skill zip 打包 · selfupdate/ askdao update 自升级引擎(GitHub Releases latest + checksum 校验 + 原子换装)）
 install/ - 一键安装脚本（install.sh / install.ps1 / install.cmd），经 askdao.ai rewrite 反向代理分发，canonical 在本仓（开源可审计）
 docs/ - 设计文档与调研报告（design.md = Phase 1 静态流水线主稿 + observe-layer-design.md = v0.8+ Observe 层方向 + cli-auth-device-flow.md（OAuth 2.0 Device Code Flow）+ HANDOFF.md + investigations/ 子目录：2 份实现底座 spike + 3 份 Agent Session 观测报告）
@@ -19,6 +20,7 @@ go.mod - Go module 定义（github.com/askdao/askdao-cli）
 Makefile - build / install / test / lint / clean / snapshot 标准目标
 .goreleaser.yml - GoReleaser v2 发布管线（windows/darwin/linux × amd64/arm64 + checksums；version 经 ldflags -X main.version 注入）
 .github/workflows/release.yml - tag v* 触发：go test → goreleaser release 挂 GitHub Release
+.github/workflows/desktop-build.yml - 桌面 app（cmd/askdao-studio）per-OS matrix（macos/windows）wails build 编译验证（PR/dispatch 触发）
 LICENSE - MIT
 .gitignore - Go 标准忽略规则
 </config>

@@ -1,0 +1,46 @@
+name: Desktop Build
+
+# 桌面 app (cmd/askdao-studio) 的编译打包验证。本地无 go/wails 且 GUI 需真机,
+# 故 Wails 产物只能在 per-OS runner 上 build (macOS 不可交叉编译,必须 macos-latest)。
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "cmd/askdao-studio/**"
+      - "internal/webstudio/**"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/desktop-build.yml"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: darwin/universal
+          - os: windows-latest
+            platform: windows/amd64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Build desktop app
+        working-directory: cmd/askdao-studio
+        run: wails build -platform ${{ matrix.platform }} -skipbindings -o "AskDAOStudio"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: askdao-studio-${{ matrix.os }}
+          path: cmd/askdao-studio/build/bin/*
+          if-no-files-found: warn

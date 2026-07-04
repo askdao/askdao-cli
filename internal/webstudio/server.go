@@ -1,5 +1,5 @@
 // [INPUT]: 标准库 (context/embed/encoding/json/fmt/net/net/http/os/exec/runtime/sort/strings/sync/time) + internal/types
-// [OUTPUT]: 对外提供 Options / Serve；包内 buildMux / openBrowser / observed
+// [OUTPUT]: 对外提供 Options / Serve / Handler；包内 buildMux / openBrowser / observed
 // [POS]: webstudio 的本地 HTTP server —— 绑 127.0.0.1:随机端口，serve go:embed 的 studio.html +
 //
 //	/api/spec(GET) /api/save /api/deploy /api/done /api/observe(GET 读名单 / POST 收 hook 上报)；
@@ -79,6 +79,15 @@ func Serve(opts Options) error {
 	defer cancel()
 	_ = srv.Shutdown(ctx)
 	return err
+}
+
+// Handler builds the studio's HTTP handler for embedding in a long-lived host —
+// the desktop app wires it into the Wails AssetServer, where a deploy must NOT
+// end the session. Serve (the CLI path) blocks until deploy/done; the desktop
+// host owns its own lifecycle, so the done signal is created here and discarded
+// (buffered cap-1, never read). Routes are identical to Serve's.
+func Handler(opts Options) http.Handler {
+	return buildMux(opts, make(chan error, 1))
 }
 
 // buildMux wires the studio routes. done is signaled (closed-over) when the KOL
