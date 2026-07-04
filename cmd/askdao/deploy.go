@@ -519,6 +519,15 @@ func packageSkills(dir string, spec *types.AgentSpec) (map[string][]byte, error)
 // callers handle typed errors (*deploy.ErrKolProfileRequired,
 // *deploy.ErrBlockingWarnings). Used by the web studio's one-stop OnDeploy.
 func deployFromDir(ctx context.Context, dir, harnessOverride string, force bool) (*deploy.DeployResponse, error) {
+	return deployFromDirWithConfirm(ctx, dir, harnessOverride, force, false)
+}
+
+// deployFromDirWithConfirm is deployFromDir plus the visibility-downgrade
+// confirmation flag (deploy.DeployInput.ConfirmVisibilityDowngrade). The desktop
+// studio re-sends with confirmDowngrade=true after the user acknowledges an
+// in-app downgrade prompt; deployFromDir passes false, so the CLI web studio
+// path is unchanged.
+func deployFromDirWithConfirm(ctx context.Context, dir, harnessOverride string, force, confirmDowngrade bool) (*deploy.DeployResponse, error) {
 	agentYAML, err := os.ReadFile(filepath.Join(dir, askdaoAgentFileName))
 	if err != nil {
 		return nil, err
@@ -549,10 +558,11 @@ func deployFromDir(ctx context.Context, dir, harnessOverride string, force bool)
 	cl := deploy.NewClient(conductorURL)
 	cl.AuthToken = token
 	return cl.Deploy(ctx, deploy.DeployInput{
-		AgentYAML: agentYAML,
-		Detection: detection,
-		HarnessID: harnessID,
-		Force:     force,
-		SkillZips: skillZips,
+		AgentYAML:                  agentYAML,
+		Detection:                  detection,
+		HarnessID:                  harnessID,
+		Force:                      force,
+		ConfirmVisibilityDowngrade: confirmDowngrade,
+		SkillZips:                  skillZips,
 	})
 }
