@@ -10,6 +10,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
 
 	"github.com/askdao/askdao-cli/internal/webstudio"
 )
@@ -32,6 +33,14 @@ func main() {
 		MinHeight: 640,
 		AssetServer: &assetserver.Options{
 			Handler: studioHandler,
+		},
+		// Standard macOS titlebar so the close/minimize traffic-light buttons show.
+		// Wails' default puts the webview full-height, and webstudio's full-width top
+		// bar (built for a browser tab) then covers the traffic lights — leaving the
+		// window with no way to close (verified on real hardware). TitleBarDefault
+		// keeps the webview below a native titlebar where the buttons are always visible.
+		Mac: &mac.Options{
+			TitleBar: mac.TitleBarDefault(),
 		},
 		OnStartup: app.startup,
 		Bind:      []interface{}{app},
