@@ -26,9 +26,10 @@ type StudioData struct {
 	Categories      []string                  `json:"categories"`
 	ProjectName     string                    `json:"project_name"`
 	Harness         string                    `json:"harness"`
-	Observe         bool                      `json:"observe"` // --observe session: frontend shows the observe panel + polls /api/observe
-	Desktop         bool                      `json:"desktop"` // desktop-app session: frontend shows desktop-only blocks (assistant sidebar / test chat); CLI edit leaves it false
-	Icons           []IconDef                 `json:"icons"`   // avatar icon 网格的 lucide 子集（AvatarIcons）
+	Observe         bool                      `json:"observe"`    // --observe session: frontend shows the observe panel + polls /api/observe
+	Desktop         bool                      `json:"desktop"`    // desktop-app session: frontend shows desktop-only blocks (assistant sidebar / test chat); CLI edit leaves it false
+	NeedsScan       bool                      `json:"needs_scan"` // desktop pre-scan placeholder: frontend shows the folder-picker prompt until POST /api/scan returns a scanned draft
+	Icons           []IconDef                 `json:"icons"`      // avatar icon 网格的 lucide 子集（AvatarIcons）
 }
 
 // ObservedData is the GET /api/observe payload: the skills and MCP servers seen

@@ -1173,6 +1173,15 @@
     </div>
   </div>
 
+  <div id="scanOverlay" class="overlay" hidden>
+    <div class="done-card">
+      <h2>Open a project</h2>
+      <p class="done-msg">Choose a local folder with your AI project (skills, MCP config, etc.). AskDAO Studio scans it on your machine and drafts an agent — nothing leaves your computer.</p>
+      <button type="button" class="act btn primary" onclick="doScan()">Choose folder…</button>
+      <p class="done-msg" id="scanStatus"></p>
+    </div>
+  </div>
+
   <script>
     const STEPS = [{ label: "Identity" }, { label: "Persona" }, { label: "Skills & Tools" }, { label: "Review & Deploy" }];
     // model_class → concrete anthropic model id. collect() writes model_preferences[0]
@@ -1209,7 +1218,24 @@
       applyAccent(spec.metadata.theme_color);
       renderNav(); renderPanels(); go(0);
       startObservePolling();
-      if (data.desktop) initAuth();
+      if (data.desktop) { initAuth(); if (data.needs_scan) showScanPrompt(); }
+    }
+
+    // Desktop-only: the pre-scan placeholder shows a folder-picker overlay. POST
+    // /api/scan opens a native picker (Go side), scans on-device, then we reload
+    // the workbench with the scanned draft.
+    function showScanPrompt() { $('scanOverlay').hidden = false; }
+    async function doScan() {
+      $('scanStatus').textContent = 'Scanning… (a folder picker opened — pick your project)';
+      try {
+        const r = await (await fetch('/api/scan', { method: 'POST' })).json();
+        if (r && r.error) throw new Error(r.error);
+        $('scanOverlay').hidden = true;
+        $('scanStatus').textContent = '';
+        await load();
+      } catch (e) {
+        $('scanStatus').textContent = 'Scan failed: ' + (e.message || e);
+      }
     }
 
     // Desktop-only login panel (data.desktop). Uses webstudio's /api/auth/* which
