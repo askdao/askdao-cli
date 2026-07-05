@@ -1,9 +1,8 @@
 // [INPUT]: 依赖 testing / os / path/filepath / archive/zip / net/http(test) + internal/deploy + internal/types
-// [OUTPUT]: TestResolveSkillDir（四分支路径解析单测）+ TestDeploy_UserScopeAbsolutePath（全局 skill 绝对路径 e2e 回归）+ TestPackageSkills_FrontmatterValidation（SKILL.md frontmatter name/description 必填 + name 唯一的拒绝路径）
-// [POS]: cmd/askdao 的 skill 打包真相源测试；锁住 resolveSkillDir 的 ~ / 绝对 / Scope=="user" / project 相对四分支，
+// [OUTPUT]: TestDeploy_UserScopeAbsolutePath — 全局 skill 绝对路径 e2e 回归（runDeploy 复用 internal/deploy.PackageSkills 正确打包工作台勾选的 user-scope skill）
+// [POS]: cmd/askdao 的 deploy e2e 回归；skill 打包单元测试（resolveSkillDir 四分支 + frontmatter 校验）随打包逻辑提取到 internal/deploy/skills_test.go。
 //
-//	并回归 runDeploy 复用 packageSkills 后能正确打包工作台勾选的全局（user-scope）skill —— 旧内联循环此处会
-//	因 filepath.Join(dir, absPath) 拼错路径报 "directory not found"。
+//	旧内联循环此处会因 filepath.Join(dir, absPath) 拼错路径报 "directory not found"，本 e2e 守住修复。
 //
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package main
@@ -21,61 +20,7 @@ import (
 	"testing"
 
 	"github.com/askdao/askdao-cli/internal/deploy"
-	"github.com/askdao/askdao-cli/internal/types"
 )
-
-// TestResolveSkillDir locks the four path-resolution branches shared by the CLI
-// (`agent deploy`) and the web studio (`agent edit` one-stop deploy). The web
-// studio writes global (user-scope) skills into the yaml with an ABSOLUTE path
-// (api.go derives it from filepath.Dir of an absolute Source), so the absolute
-// + Scope=="user" branches are the ones that actually fire in production — and
-// the ones the old inline deploy loop silently mishandled.
-func TestResolveSkillDir(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("UserHomeDir: %v", err)
-	}
-	const dir = "/proj"
-	abs := filepath.Join(string(filepath.Separator), "abs", "skills", "foo")
-
-	cases := []struct {
-		name  string
-		skill types.Skill
-		want  string
-	}{
-		{
-			name:  "tilde expands to home regardless of scope",
-			skill: types.Skill{Path: "~/.claude/skills/foo"},
-			want:  filepath.Join(home, ".claude", "skills", "foo"),
-		},
-		{
-			name:  "absolute path returned verbatim (the studio global-skill case)",
-			skill: types.Skill{Path: abs, Scope: "user"},
-			want:  abs,
-		},
-		{
-			name:  "relative path with user scope kept as-is (documented CWD-relative)",
-			skill: types.Skill{Path: "bar", Scope: "user"},
-			want:  filepath.FromSlash("bar"),
-		},
-		{
-			name:  "project-relative path joins dir",
-			skill: types.Skill{Path: ".agents/skills/foo", Scope: "project"},
-			want:  filepath.Join(dir, ".agents", "skills", "foo"),
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := resolveSkillDir(dir, tc.skill)
-			if err != nil {
-				t.Fatalf("resolveSkillDir: %v", err)
-			}
-			if got != tc.want {
-				t.Errorf("resolveSkillDir(%q, %+v) = %q, want %q", dir, tc.skill, got, tc.want)
-			}
-		})
-	}
-}
 
 // TestDeploy_UserScopeAbsolutePath is the regression for the CLI/studio packaging
 // divergence: a yaml referencing a global skill by ABSOLUTE path + scope=user
@@ -154,72 +99,4 @@ func TestDeploy_UserScopeAbsolutePath(t *testing.T) {
 	if !strings.Contains(got, "global-skill") {
 		t.Errorf("output should mention the packaged global-skill\n--- output ---\n%s", got)
 	}
-}
-
-// TestPackageSkills_FrontmatterValidation locks the deploy-time SKILL.md
-// frontmatter gate: name + description are required (description is the
-// trigger instruction the model matches against — a skill without it deploys
-// fine but never activates), and frontmatter names must be unique across the
-// packaged set. Validation fires in packageSkills so both `agent deploy` and
-// the web studio's one-stop deploy reject the same inputs.
-func TestPackageSkills_FrontmatterValidation(t *testing.T) {
-	writeSkill := func(t *testing.T, root, dirName, skillMD string) string {
-		t.Helper()
-		d := filepath.Join(root, "skills", dirName)
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(d, "SKILL.md"), []byte(skillMD), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		return filepath.ToSlash(filepath.Join("skills", dirName))
-	}
-	specFor := func(paths ...string) *types.AgentSpec {
-		s := &types.AgentSpec{}
-		for _, p := range paths {
-			s.Skills = append(s.Skills, types.Skill{Type: "custom_local", Path: p})
-		}
-		return s
-	}
-
-	t.Run("missing frontmatter rejected", func(t *testing.T) {
-		root := t.TempDir()
-		p := writeSkill(t, root, "bare", "Just a body, no frontmatter.\n")
-		_, err := packageSkills(root, specFor(p))
-		if err == nil || !strings.Contains(err.Error(), "must declare 'name'") {
-			t.Errorf("want missing-name error, got %v", err)
-		}
-	})
-
-	t.Run("missing description rejected", func(t *testing.T) {
-		root := t.TempDir()
-		p := writeSkill(t, root, "no-desc", "---\nname: no-desc\n---\nbody\n")
-		_, err := packageSkills(root, specFor(p))
-		if err == nil || !strings.Contains(err.Error(), "must declare 'description'") {
-			t.Errorf("want missing-description error, got %v", err)
-		}
-	})
-
-	t.Run("frontmatter name collision rejected", func(t *testing.T) {
-		root := t.TempDir()
-		md := "---\nname: same-name\ndescription: a skill\n---\nbody\n"
-		p1 := writeSkill(t, root, "skill-a", md)
-		p2 := writeSkill(t, root, "skill-b", md)
-		_, err := packageSkills(root, specFor(p1, p2))
-		if err == nil || !strings.Contains(err.Error(), "name collision") {
-			t.Errorf("want frontmatter-name collision error, got %v", err)
-		}
-	})
-
-	t.Run("complete frontmatter packages fine", func(t *testing.T) {
-		root := t.TempDir()
-		p := writeSkill(t, root, "good", "---\nname: good\ndescription: does a good thing when asked\n---\nbody\n")
-		zips, err := packageSkills(root, specFor(p))
-		if err != nil {
-			t.Fatalf("packageSkills: %v", err)
-		}
-		if _, ok := zips["good"]; !ok {
-			t.Errorf("expected zip for 'good', got keys %v", sortedKeys(zips))
-		}
-	})
 }
