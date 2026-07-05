@@ -6,7 +6,7 @@ AskDAO Studio 桌面 app（Wails v2 main）—— askdao-cli 第二入口，面�
 ## 成员清单
 
 - **main.go** — Wails main：`wails.Run(&options.App{Title/Width/Height/MinWidth/MinHeight, AssetServer:{Handler: webstudio.Handler(app.StudioOptions())}, OnStartup, Bind:[app]})`。AssetServer.Handler 复用 webstudio 的 http 表面（`Assets:nil` → 所有 GET 转发到它；见 [../../internal/webstudio/CLAUDE.md](../../internal/webstudio/CLAUDE.md)）。
-- **app.go** — `App`（Wails bound-method 宿主 + `ctx`）+ `NewApp` / `startup(ctx)` + `StudioOptions`（桌面注入 webstudio 的 `Data`/`OnSave`/`OnDeploy`）。**阶段2 骨架**：`placeholderSpec` 占位 StudioData + `Desktop=true` + stub 回调；扫描/部署真实接线（拖文件夹 → `pipeline.Run` → `BuildStudioData`；`OnDeploy` → `deployFromDirWithConfirm`）在后续阶段。
+- **app.go** — `App`（Wails bound-method 宿主 + `ctx`）+ `NewApp` / `startup(ctx)` + `StudioOptions`（桌面注入 webstudio 的 `Data`/`OnSave`/`OnDeploy`）。**阶段2 骨架 + 阶段3 登录**：`placeholderSpec` 占位 StudioData + `Desktop=true`；`authState`/`startLogin`/`loginPoll`/`logout` + `openBrowser` 接 `internal/auth` device flow(复用 CLI 同一 `credentials.json`,桌面/CLI 登录互通)→ 注入 webstudio `OnAuthState`/`OnLogin`/`OnLoginPoll`/`OnLogout`。扫描/部署真实接线（拖文件夹 → `pipeline.Run` → `BuildStudioData`；`OnDeploy` → `deployFromDirWithConfirm`）在后续阶段。
 - **wails.json** — Wails 项目配置。`frontend:install`/`frontend:build` 空 → `wails build` 不碰前端（无 npm 构建链，只期望 AssetServer.Handler）。`outputfilename: AskDAO Studio`。
 
 ## 设计约束

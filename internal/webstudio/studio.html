@@ -1133,6 +1133,7 @@
       <a class="brand" href="#" onclick="return false"><img src="/logo.png" alt="AskDAO"><span class="wordmark">AskDAO
           Agent</span></a>
       <span class="proj">project · <b id="projName">…</b></span>
+      <span id="loginbar" hidden style="margin-left:auto;display:flex;align-items:center;gap:8px;font:500 13px Inter,system-ui,sans-serif"></span>
     </div>
   </header>
 
@@ -1208,7 +1209,50 @@
       applyAccent(spec.metadata.theme_color);
       renderNav(); renderPanels(); go(0);
       startObservePolling();
+      if (data.desktop) initAuth();
     }
+
+    // Desktop-only login panel (data.desktop). Uses webstudio's /api/auth/* which
+    // exist ONLY when the desktop host injects auth callbacks — the CLI never has
+    // these routes, so agent edit is unaffected. Device flow: Sign in → POST /login
+    // shows a user code + opens the browser → poll /poll until approved.
+    let authPollTimer = null;
+    async function initAuth() { $('loginbar').hidden = false; await refreshAuth(); }
+    async function refreshAuth() {
+      try { renderLogin(await (await fetch('/api/auth/status')).json()); }
+      catch (e) { $('loginbar').innerHTML = '<span style="color:#b45">auth unavailable</span>'; }
+    }
+    function renderLogin(s) {
+      if (s && s.logged_in) {
+        $('loginbar').innerHTML = `<span>✓ ${esc(s.email || 'signed in')}</span> <button class="act btn" onclick="doLogout()">Sign out</button>`;
+      } else {
+        $('loginbar').innerHTML = `<button class="act btn primary" onclick="doLogin()">Sign in to AskDAO</button>`;
+      }
+    }
+    async function doLogin() {
+      $('loginbar').innerHTML = '<span>starting…</span>';
+      try {
+        const ch = await (await fetch('/api/auth/login', { method: 'POST' })).json();
+        if (ch.error) throw new Error(ch.error);
+        $('loginbar').innerHTML = `<span>code <b>${esc(ch.user_code)}</b> · browser opened, approve to finish…</span>`;
+        if (authPollTimer) clearInterval(authPollTimer);
+        authPollTimer = setInterval(pollAuth, 3000);
+      } catch (e) {
+        $('loginbar').innerHTML = `<span style="color:#b45">login failed</span> <button class="act btn" onclick="doLogin()">Retry</button>`;
+      }
+    }
+    async function pollAuth() {
+      try {
+        const s = await (await fetch('/api/auth/poll')).json();
+        if (s.error) { clearInterval(authPollTimer); $('loginbar').innerHTML = `<span style="color:#b45">${esc(s.error)}</span> <button class="act btn" onclick="doLogin()">Retry</button>`; return; }
+        if (s.logged_in) { clearInterval(authPollTimer); renderLogin(s); }
+      } catch (e) { /* transient — keep polling */ }
+    }
+    async function doLogout() {
+      try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (e) { }
+      refreshAuth();
+    }
+
     function initVault() {
       const v = spec.vault_hints || {};
       vault = [

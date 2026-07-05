@@ -1,5 +1,5 @@
 // [INPUT]: 依赖 path/filepath；internal/types 的 AgentSpec / Detection / DetectedSkill / ReasoningDecision
-// [OUTPUT]: 对外提供 StudioData / SkillCandidate / MCPCandidate / ObservedData / BuildStudioData
+// [OUTPUT]: 对外提供 StudioData / SkillCandidate / MCPCandidate / ObservedData / AuthState / LoginChallenge / BuildStudioData
 // [POS]: webstudio 的数据契约层 —— 把 pipeline 产物（spec 草稿 + detection 候选）摊平成前端 JSON；
 //
 //	restorePrior=true（编辑已有 yaml）时勾选态以 spec.skills/mcp_servers 为唯一真相；
@@ -47,6 +47,22 @@ type DeployResult struct {
 	GroupLink string `json:"group_link,omitempty"`
 	AgentID   string `json:"agent_id,omitempty"`
 	Created   bool   `json:"created"`
+}
+
+// AuthState is the desktop login status — the GET /api/auth/status payload and
+// the result of each login poll. Desktop-only; the CLI web studio never registers
+// /api/auth/* (its auth callbacks are nil), so `agent edit` never sees it.
+type AuthState struct {
+	LoggedIn bool   `json:"logged_in"`
+	Email    string `json:"email,omitempty"`
+}
+
+// LoginChallenge is the device-flow user code + verification URL the desktop login
+// panel shows after POST /api/auth/login. The Go side opens the browser to the
+// URL; the frontend then polls GET /api/auth/poll until logged in.
+type LoginChallenge struct {
+	UserCode        string `json:"user_code"`
+	VerificationURL string `json:"verification_url"`
 }
 
 // SkillCandidate is one selectable skill — a concrete custom_local skill (with a

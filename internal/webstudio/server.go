@@ -45,6 +45,14 @@ type Options struct {
 	OnDeploy  func(*types.AgentSpec) (*DeployResult, error)
 	OnReady   func(port int)
 	NoBrowser bool
+
+	// Desktop-only auth callbacks. All nil in the CLI (agent edit) path — the
+	// desktop app injects them, and their presence registers the /api/auth/*
+	// routes. CLI leaves them nil, so `agent edit` never exposes those routes.
+	OnAuthState func() AuthState
+	OnLogin     func() (LoginChallenge, error)
+	OnLoginPoll func() (AuthState, error)
+	OnLogout    func() error
 }
 
 // Serve starts the local studio, opens the browser, and blocks until the KOL
@@ -196,6 +204,44 @@ func buildMux(opts Options, done chan error) *http.ServeMux {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
+
+	// Desktop-only /api/auth/* — registered only when the desktop host injects the
+	// auth callbacks. The CLI (agent edit) leaves them nil, so these routes never
+	// exist there and its behavior is unchanged.
+	if opts.OnAuthState != nil {
+		mux.HandleFunc("/api/auth/status", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, opts.OnAuthState())
+		})
+	}
+	if opts.OnLogin != nil {
+		mux.HandleFunc("/api/auth/login", func(w http.ResponseWriter, r *http.Request) {
+			ch, err := opts.OnLogin()
+			if err != nil {
+				writeErr(w, err)
+				return
+			}
+			writeJSON(w, ch)
+		})
+	}
+	if opts.OnLoginPoll != nil {
+		mux.HandleFunc("/api/auth/poll", func(w http.ResponseWriter, r *http.Request) {
+			st, err := opts.OnLoginPoll()
+			if err != nil {
+				writeErr(w, err)
+				return
+			}
+			writeJSON(w, st)
+		})
+	}
+	if opts.OnLogout != nil {
+		mux.HandleFunc("/api/auth/logout", func(w http.ResponseWriter, r *http.Request) {
+			if err := opts.OnLogout(); err != nil {
+				writeErr(w, err)
+				return
+			}
+			writeJSON(w, map[string]string{"status": "logged_out"})
+		})
+	}
 
 	return mux
 }
