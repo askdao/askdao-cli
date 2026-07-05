@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -310,4 +312,20 @@ func placeholderData() *webstudio.StudioData {
 	d.Desktop = true
 	d.NeedsScan = true
 	return d
+}
+
+// openBrowser best-effort opens url in the default browser (macOS open / Windows
+// start / Linux xdg-open). Failure is non-fatal — the login panel also shows the URL.
+func openBrowser(url string) {
+	var cmd string
+	var args []string
+	switch runtime.GOOS {
+	case "darwin":
+		cmd, args = "open", []string{url}
+	case "windows":
+		cmd, args = "cmd", []string{"/c", "start", url}
+	default:
+		cmd, args = "xdg-open", []string{url}
+	}
+	_ = exec.Command(cmd, args...).Start()
 }
