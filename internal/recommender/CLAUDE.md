@@ -22,7 +22,7 @@ L4 推荐器 —— askdao-cli 的"模糊推断"边界。L1-L3 全确定性，�
   `DefaultMockRecommend` 内部 helper：
   - `extractCompatibleMCPServers` 只透传 `AnthropicCompatible=true` 的 server（stdio 自动过滤）
   - `buildWorkspace` 从 detection 抽 prod-only pip / npm 包名，apt 列表去重合并 provider summary + detection.InferredAptPackages
-  - `buildVaultHints` 按 required 拆 RequiredCredentials / OptionalCredentials；UsedByGuess.MCPServer 写成 `map[string]interface{}{"mcp_server": ...}` 对齐 schema 自由形态
+  - `BuildVaultHints`（导出）**过滤非凭证**（跳过 `PurposeGuess == types.UnknownSecretPurpose` 的配置参数，不进 vault_hints）后按 required 拆 RequiredCredentials / OptionalCredentials；UsedByGuess.MCPServer 写成 `map[string]interface{}{"mcp_server": ...}` 对齐 schema 自由形态。被 `cmd/askdao/edit.go` + `cmd/askdao-studio/app.go` 作确定性硬字段覆写复用（治 mock + conductor 两路径）
   - `harnessFor` 优先级：`req.PreferredHarness` > `Detection.DetectedHarnessSignals.RecommendedHarness` > 兜底 `anthropic_managed_agents`
 
 - **capabilities.go** — `DefaultCapabilities(policy)` 确定性生成 capabilities（hard field §9.13，同 skills 不交 LLM 即兴）：4 槽固定 `enabled=true` + 规范 scopes 词表（shell:read/write/execute · filesystem:read/write · web:fetch · code_execution:javascript/shell）+ permission（shell 按 production signals 收紧为 `ask_for_dangerous`，其余 `always_allow`）。被 `MockClient`（llm.go）+ `cmd/askdao/edit.go` loadOrScan 两分支覆盖 `spec.Capabilities`。Anthropic adapter 忽略 scopes，未来 harness 可用。

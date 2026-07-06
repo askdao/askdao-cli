@@ -174,7 +174,7 @@ func DefaultMockRecommend(req RecommendRequest) *RecommendResponse {
 		MCPServers:       extractCompatibleMCPServers(req.Detection),
 		Skills:           []types.Skill{},
 		Workspace:        buildWorkspace(req),
-		VaultHints:       buildVaultHints(req.Detection),
+		VaultHints:       BuildVaultHints(req.Detection),
 		PreferredHarness: harnessFor(req),
 	}
 	syncNetworkingFromMCP(&spec)
@@ -299,12 +299,20 @@ func syncNetworkingFromMCP(spec *types.AgentSpec) {
 	}
 }
 
-func buildVaultHints(d *types.Detection) types.VaultHints {
+// BuildVaultHints turns detected env keys into vault_hints, EXCLUDING config
+// params (PurposeGuess == types.UnknownSecretPurpose): only keys that matched a
+// credential rule become declared credentials subscribers must provide. Used as
+// a deterministic hard-field override in cmd/askdao/edit.go and
+// cmd/askdao-studio/app.go so both mock and conductor specs stay credential-only.
+func BuildVaultHints(d *types.Detection) types.VaultHints {
 	hints := types.VaultHints{}
 	if d == nil {
 		return hints
 	}
 	for _, s := range d.DetectedRequiredSecrets {
+		if s.PurposeGuess == types.UnknownSecretPurpose {
+			continue // configuration parameter, not a credential — never declare it
+		}
 		entry := types.VaultCredential{Name: s.Name, Purpose: s.PurposeGuess, From: s.From, Required: s.Required, Note: s.Note}
 		if s.UsedByGuess != nil && s.UsedByGuess.MCPServer != "" {
 			entry.UsedBy = map[string]interface{}{"mcp_server": s.UsedByGuess.MCPServer}

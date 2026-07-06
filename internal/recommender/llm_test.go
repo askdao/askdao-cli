@@ -120,6 +120,32 @@ func TestMockClient_DefaultRecommend(t *testing.T) {
 	}
 }
 
+func TestBuildVaultHints_ExcludesConfigParams(t *testing.T) {
+	det := &types.Detection{
+		DetectedRequiredSecrets: []types.DetectedRequiredSecret{
+			{Name: "OPENAI_API_KEY", PurposeGuess: "OpenAI API authentication", Required: true},
+			{Name: "DATABASE_URL", PurposeGuess: "PostgreSQL connection string", Required: false},
+			{Name: "DEFAULT_LANGUAGE", PurposeGuess: types.UnknownSecretPurpose, Required: false},
+			{Name: "DALLE3_SIZE", PurposeGuess: types.UnknownSecretPurpose, Required: false},
+		},
+	}
+	hints := BuildVaultHints(det)
+	// Keys matching a credential rule are kept (split by required); config params
+	// carrying UnknownSecretPurpose are dropped entirely.
+	if len(hints.RequiredCredentials) != 1 || hints.RequiredCredentials[0].Name != "OPENAI_API_KEY" {
+		t.Errorf("required = %+v, want [OPENAI_API_KEY]", hints.RequiredCredentials)
+	}
+	if len(hints.OptionalCredentials) != 1 || hints.OptionalCredentials[0].Name != "DATABASE_URL" {
+		t.Errorf("optional = %+v, want [DATABASE_URL]", hints.OptionalCredentials)
+	}
+	all := append(append([]types.VaultCredential{}, hints.RequiredCredentials...), hints.OptionalCredentials...)
+	for _, c := range all {
+		if c.Name == "DEFAULT_LANGUAGE" || c.Name == "DALLE3_SIZE" {
+			t.Errorf("config param %q leaked into vault_hints", c.Name)
+		}
+	}
+}
+
 func TestMockClient_OverrideRespected(t *testing.T) {
 	called := false
 	mock := &MockClient{Override: func(req RecommendRequest) (*RecommendResponse, error) {

@@ -196,6 +196,7 @@ func loadOrScan(ctx context.Context, dir, harness, home string) (*types.AgentSpe
 	// stay opt-in candidates in the studio.
 	res.Recommendation.Spec.Skills = res.AgentSkills
 	res.Recommendation.Spec.Capabilities = recommender.DefaultCapabilities(detRiskHints(res.Detection))
+	res.Recommendation.Spec.VaultHints = recommender.BuildVaultHints(res.Detection)
 	spec := &res.Recommendation.Spec
 	writeBaseline(dir, spec, res.Detection)
 	return spec, res.Detection, false, 0

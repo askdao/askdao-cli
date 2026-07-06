@@ -102,6 +102,7 @@ func (a *App) scan() (*webstudio.StudioData, error) {
 	spec := &res.Recommendation.Spec
 	spec.Skills = res.AgentSkills // deterministic skills override (hard field, §9.13)
 	spec.Capabilities = recommender.DefaultCapabilities(riskHints(res.Detection))
+	spec.VaultHints = recommender.BuildVaultHints(res.Detection) // credential-only (hard field, §9.13)
 	if spec.Metadata.ThemeColor == "" {
 		spec.Metadata.ThemeColor = webstudio.DefaultThemeForCategory(spec.Metadata.Category)
 	}
