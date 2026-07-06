@@ -782,21 +782,12 @@
       flex: 1;
     }
 
-    .vreq {
-      font-family: var(--sans);
-      font-size: 12px;
-      color: var(--olive);
-      white-space: nowrap;
-      display: inline-flex;
-      gap: 5px;
-      align-items: center;
-      cursor: pointer;
-    }
-
-    .vreq input {
-      width: 15px;
-      height: 15px;
+    .vrow .vtick {
+      flex: 0 0 auto;
+      width: 16px;
+      height: 16px;
       accent-color: var(--accent);
+      cursor: pointer;
     }
 
     .vdel {
@@ -1281,9 +1272,12 @@
 
     function initVault() {
       const v = spec.vault_hints || {};
+      // Scanned credentials become read-only tick rows (like skill/mcp candidates),
+      // default checked — vault_hints is already the scanner-filtered credential set.
+      // required/optional stays per-row for collect() to split the buckets; no control.
       vault = [
-        ...(v.required_credentials || []).map(c => ({ name: c.name || '', purpose: c.purpose || '', required: true })),
-        ...(v.optional_credentials || []).map(c => ({ name: c.name || '', purpose: c.purpose || '', required: false })),
+        ...(v.required_credentials || []).map(c => ({ name: c.name || '', purpose: c.purpose || '', required: true, checked: true, readonly: true })),
+        ...(v.optional_credentials || []).map(c => ({ name: c.name || '', purpose: c.purpose || '', required: false, checked: true, readonly: true })),
       ];
     }
     function renderNav() {
@@ -1457,19 +1451,28 @@
 
     /* vault / secrets */
     function vaultPaneHTML() {
-      const rows = vault.length ? vault.map((c, i) =>
-        `<div class="vrow">
+      const rows = vault.length ? vault.map((c, i) => {
+        const ck = c.checked ? 'checked' : '';
+        if (c.readonly) {
+          // scanned credential: single tick like a skill/mcp candidate + read-only name
+          // and required/optional tag. Untick to leave it out; no required box or ×.
+          const tag = c.required ? '<span class="tag ink">required</span>' : '<span class="tag">optional</span>';
+          return `<label class="item"><input type="checkbox" id="secret-${i}" ${ck}><div><div class="nm"><span class="mono">${esc(c.name)}</span> ${tag}</div>${c.purpose ? `<div class="ds">${esc(c.purpose)}</div>` : ''}</div></label>`;
+        }
+        // manual credential (+ Add credential): still needs inputs to fill; tick + delete.
+        return `<div class="vrow">
+       <input type="checkbox" class="vtick" id="secret-${i}" ${ck} title="include">
        <input type="text" class="vn" id="v-name-${i}" value="${esc(c.name)}" placeholder="ENV_VAR_NAME">
        <input type="text" class="vp" id="v-purpose-${i}" value="${esc(c.purpose)}" placeholder="what it's for">
-       <label class="vreq"><input type="checkbox" id="v-req-${i}" ${c.required ? 'checked' : ''}>required</label>
        <button type="button" class="vdel" title="remove" onclick="delVault(${i})">×</button>
-     </div>`).join('')
-        : '<p class="empty">No credentials declared. Add one if this agent needs API keys or secrets from its subscribers.</p>';
-      return `<p class="card-note">Credentials each subscriber provides during onboarding — declare what's needed; values are never entered or stored here.</p><div class="field-err" id="err_vault"></div>${rows}<button type="button" class="addv" onclick="addVault()">+ Add credential</button>`;
+     </div>`;
+      }).join('')
+        : '<p class="empty">No credentials detected. Add one if this agent needs API keys or secrets from its subscribers.</p>';
+      return `<p class="card-note">Credentials each subscriber provides during onboarding — tick the ones this agent needs; values are never entered or stored here.</p><div class="field-err" id="err_vault"></div>${rows}<button type="button" class="addv" onclick="addVault()">+ Add credential</button>`;
     }
-    function syncVault() { vault.forEach((c, i) => { if ($('v-name-' + i)) { c.name = $('v-name-' + i).value.trim(); c.purpose = $('v-purpose-' + i).value.trim(); c.required = $('v-req-' + i).checked; } }); }
+    function syncVault() { vault.forEach((c, i) => { const t = $('secret-' + i); if (t) c.checked = t.checked; if (!c.readonly && $('v-name-' + i)) { c.name = $('v-name-' + i).value.trim(); c.purpose = $('v-purpose-' + i).value.trim(); } }); }
     function refreshVaultPane() { const p = document.querySelector('[data-pane="vault"] .card'); if (p) p.innerHTML = vaultPaneHTML(); if ($('vaultCnt')) $('vaultCnt').textContent = vault.length; }
-    function addVault() { syncVault(); vault.push({ name: '', purpose: '', required: true }); refreshVaultPane(); }
+    function addVault() { syncVault(); vault.push({ name: '', purpose: '', required: true, checked: true, readonly: false }); refreshVaultPane(); }
     function delVault(i) { syncVault(); vault.splice(i, 1); refreshVaultPane(); }
 
     /* Step 4 · Review (no reasoning dump — confidence lives inline on each step) */
@@ -1489,7 +1492,7 @@
       const m = spec.metadata;
       const skillNames = (data.skill_candidates || []).filter((c, i) => { const e = $('skill-' + i); return e && e.checked; }).map(c => c.name);
       const mcpNames = (data.mcp_candidates || []).filter((c, i) => { const e = $('mcp-' + i); return e && e.checked; }).map(c => c.name);
-      const secretNames = vault.filter(c => c.name).map(c => c.name);
+      const secretNames = vault.filter(c => c.name && c.checked).map(c => c.name);
       const chips = (arr, mono) => arr.length ? arr.map(n => `<span class="rtag${mono ? ' mono' : ''}">${esc(n)}</span>`).join('') : '<span class="empty">none</span>';
       const c = palette[m.theme_color] || '#1b365d';
       const sp = (spec.persona.system_prompt || '').trim();
@@ -1640,9 +1643,10 @@
         const s = { name: c.name, type: c.type }; if (c.url) s.url = c.url; if (c.command) s.command = c.command; spec.mcp_servers.push(s);
       });
       syncVault();
+      const pickedVault = vault.filter(c => c.name && c.checked);
       spec.vault_hints = {
-        required_credentials: vault.filter(c => c.name && c.required).map(c => ({ name: c.name, purpose: c.purpose, required: true })),
-        optional_credentials: vault.filter(c => c.name && !c.required).map(c => ({ name: c.name, purpose: c.purpose, required: false })),
+        required_credentials: pickedVault.filter(c => c.required).map(c => ({ name: c.name, purpose: c.purpose, required: true })),
+        optional_credentials: pickedVault.filter(c => !c.required).map(c => ({ name: c.name, purpose: c.purpose, required: false })),
       };
       return spec;
     }
