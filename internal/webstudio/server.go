@@ -45,10 +45,14 @@ type Options struct {
 	// the desktop app returns a placeholder until a folder is scanned, then swaps
 	// in the scanned draft. nil (the CLI path) → the static Data above is served.
 	OnSpec func() *StudioData
-	// OnScan, if set, registers POST /api/scan: the desktop app opens a folder
-	// picker, runs the scan pipeline, and returns fresh StudioData. CLI leaves it
-	// nil (agent edit already scanned before Serve), so the route never exists there.
-	OnScan    func() (*StudioData, error)
+	// OnScanPick/OnScanRun/OnScanCancel, if set, register POST /api/scan/{pick,run,
+	// cancel}: the desktop app splits the picker from the pipeline so the frontend can
+	// show the picked path and a Stop button. pick opens the folder dialog (returns the
+	// path), run scans it (returns fresh StudioData) under a cancellable context, cancel
+	// aborts an in-flight run. CLI leaves them nil (agent edit scanned before Serve).
+	OnScanPick   func() (string, error)
+	OnScanRun    func() (*StudioData, error)
+	OnScanCancel func() error
 	OnSave    func(*types.AgentSpec) error
 	OnDeploy  func(*types.AgentSpec) (*DeployResult, error)
 	OnReady   func(port int)
@@ -217,16 +221,37 @@ func buildMux(opts Options, done chan error) *http.ServeMux {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// Desktop-only POST /api/scan — pick a folder, run the scan pipeline, return
-	// fresh StudioData (the frontend then reloads). CLI leaves OnScan nil.
-	if opts.OnScan != nil {
-		mux.HandleFunc("/api/scan", func(w http.ResponseWriter, r *http.Request) {
-			d, err := opts.OnScan()
+	// Desktop-only scan routes — split so the frontend shows the picked path + a Stop
+	// button. /api/scan/pick opens the folder dialog (returns the path), /api/scan/run
+	// scans it under a cancellable context (returns fresh StudioData), /api/scan/cancel
+	// aborts an in-flight run. CLI leaves these callbacks nil, so the routes never exist.
+	if opts.OnScanPick != nil {
+		mux.HandleFunc("/api/scan/pick", func(w http.ResponseWriter, r *http.Request) {
+			dir, err := opts.OnScanPick()
+			if err != nil {
+				writeErr(w, err)
+				return
+			}
+			writeJSON(w, map[string]string{"dir": dir})
+		})
+	}
+	if opts.OnScanRun != nil {
+		mux.HandleFunc("/api/scan/run", func(w http.ResponseWriter, r *http.Request) {
+			d, err := opts.OnScanRun()
 			if err != nil {
 				writeErr(w, err)
 				return
 			}
 			writeJSON(w, d)
+		})
+	}
+	if opts.OnScanCancel != nil {
+		mux.HandleFunc("/api/scan/cancel", func(w http.ResponseWriter, r *http.Request) {
+			if err := opts.OnScanCancel(); err != nil {
+				writeErr(w, err)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
 		})
 	}
 

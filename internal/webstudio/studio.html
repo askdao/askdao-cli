@@ -1168,7 +1168,8 @@
     <div class="done-card">
       <h2>Open a project</h2>
       <p class="done-msg">Choose a local folder with your AI project (skills, MCP config, etc.). AskDAO Studio scans it on your machine and drafts an agent — nothing leaves your computer.</p>
-      <button type="button" class="act btn primary" onclick="doScan()">Choose folder…</button>
+      <button type="button" id="chooseFolderBtn" class="act btn primary" onclick="doScan()">Choose folder…</button>
+      <button type="button" id="stopScanBtn" class="act btn" hidden onclick="stopScan()">Stop scanning</button>
       <p class="done-msg" id="scanStatus"></p>
     </div>
   </div>
@@ -1216,18 +1217,38 @@
     // /api/scan opens a native picker (Go side), scans on-device, then we reload
     // the workbench with the scanned draft.
     function showScanPrompt() { $('scanOverlay').hidden = false; }
+    // Split scan: pick opens the native dialog and returns the path immediately, so we
+    // show it + a Stop button before the (cancellable) run. Stop → /api/scan/cancel
+    // aborts the pipeline mid-flight and the run fetch rejects back to the picker.
     async function doScan() {
-      $('scanStatus').textContent = 'Scanning… (a folder picker opened — pick your project)';
+      let dir;
       try {
-        const r = await (await fetch('/api/scan', { method: 'POST' })).json();
+        const p = await (await fetch('/api/scan/pick', { method: 'POST' })).json();
+        if (p && p.error) throw new Error(p.error);
+        dir = p && p.dir;
+      } catch (e) { $('scanStatus').textContent = 'Could not open the folder picker: ' + (e.message || e); return; }
+      if (!dir) return; // user cancelled the dialog — leave the picker as-is
+      $('chooseFolderBtn').hidden = true;
+      $('stopScanBtn').hidden = false;
+      $('scanStatus').textContent = 'Scanning ' + dir + ' …';
+      try {
+        const r = await (await fetch('/api/scan/run', { method: 'POST' })).json();
         if (r && r.error) throw new Error(r.error);
         $('scanOverlay').hidden = true;
         $('scanStatus').textContent = '';
+        resetScanPrompt();
         await load();
       } catch (e) {
-        $('scanStatus').textContent = 'Scan failed: ' + (e.message || e);
+        resetScanPrompt();
+        $('scanStatus').textContent = 'Scan stopped or failed: ' + (e.message || e);
       }
     }
+    async function stopScan() {
+      $('stopScanBtn').disabled = true;
+      $('scanStatus').textContent = 'Stopping…';
+      try { await fetch('/api/scan/cancel', { method: 'POST' }); } catch (e) { /* the run fetch's catch resets the UI */ }
+    }
+    function resetScanPrompt() { $('chooseFolderBtn').hidden = false; $('stopScanBtn').hidden = true; $('stopScanBtn').disabled = false; }
 
     // Desktop-only login panel (data.desktop). Uses webstudio's /api/auth/* which
     // exist ONLY when the desktop host injects auth callbacks — the CLI never has

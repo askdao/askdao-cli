@@ -1,6 +1,6 @@
 // [INPUT]: context/errors/fmt/net·url/os/path·filepath/sync + gopkg.in/yaml.v3 + wails runtime；internal/{auth,deploy,deployflow,pipeline,recommender,types,webstudio}
 // [OUTPUT]: App（Wails bound-method 宿主 + 登录/项目态）+ StudioOptions（注入 webstudio 数据与桌面回调）
-// [POS]: cmd/askdao-studio 应用层 —— 桌面壳业务逻辑：登录(device flow)/扫描(选文件夹→pipeline.Run)/保存(写 yaml)/部署(deployflow.PackageSkills 单源 + deploy.Client)，全复用 internal 核心包
+// [POS]: cmd/askdao-studio 应用层 —— 桌面壳业务逻辑：登录(device flow)/扫描(pick 选文件夹→run 跑管线,Stop 可 cancel)/保存(写 yaml)/部署(deployflow.PackageSkills 单源 + deploy.Client)，全复用 internal 核心包
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package main
 
@@ -40,6 +40,8 @@ type App struct {
 	server      string
 	dir         string                // scanned project dir ("" until a folder is scanned)
 	currentData *webstudio.StudioData // served by OnSpec; placeholder until scan
+	pendingDir  string                // folder picked but not yet scanned (pick → run)
+	scanCancel  context.CancelFunc    // cancels the in-flight runScan; nil when idle
 }
 
 // NewApp constructs the desktop App with a placeholder StudioData so the
@@ -55,14 +57,16 @@ func (a *App) startup(ctx context.Context) { a.ctx = ctx }
 // register /api/auth/*. Desktop-only routes exist because these callbacks are set.
 func (a *App) StudioOptions() webstudio.Options {
 	return webstudio.Options{
-		OnSpec:      a.spec,
-		OnScan:      a.scan,
-		OnSave:      a.save,
-		OnDeploy:    a.deploy,
-		OnAuthState: a.authState,
-		OnLogin:     a.startLogin,
-		OnLoginPoll: a.loginPoll,
-		OnLogout:    a.logout,
+		OnSpec:       a.spec,
+		OnScanPick:   a.pickFolder,
+		OnScanRun:    a.runScan,
+		OnScanCancel: a.cancelScan,
+		OnSave:       a.save,
+		OnDeploy:     a.deploy,
+		OnAuthState:  a.authState,
+		OnLogin:      a.startLogin,
+		OnLoginPoll:  a.loginPoll,
+		OnLogout:     a.logout,
 	}
 }
 
@@ -73,21 +77,38 @@ func (a *App) spec() *webstudio.StudioData {
 	return a.currentData
 }
 
-// scan opens a folder picker, runs the scan pipeline (LLM draft when logged in,
-// else offline mock — same as the CLI), and swaps the placeholder for the
-// scanned StudioData. A cancelled picker keeps the current data.
-func (a *App) scan() (*webstudio.StudioData, error) {
+// pickFolder opens the native folder picker and stores the choice as pending —
+// the frontend shows the path + Stop button before runScan does the actual work.
+// An empty dir means the user cancelled the dialog (runScan is then not called).
+func (a *App) pickFolder() (string, error) {
 	dir, err := wailsruntime.OpenDirectoryDialog(a.reqCtx(), wailsruntime.OpenDialogOptions{
 		Title: "Choose your project folder",
 	})
 	if err != nil {
-		return nil, err
+		return "", err
 	}
+	a.mu.Lock()
+	a.pendingDir = dir
+	a.mu.Unlock()
+	return dir, nil
+}
+
+// runScan scans the pending folder under a per-scan cancellable context, so the
+// frontend Stop button can abort syft / the conductor call mid-flight. On success
+// it swaps in the scanned StudioData; a cancelled scan surfaces context.Canceled.
+func (a *App) runScan() (*webstudio.StudioData, error) {
+	a.mu.Lock()
+	dir := a.pendingDir
+	ctx, cancel := context.WithCancel(a.reqCtx())
+	a.scanCancel = cancel
+	a.mu.Unlock()
+	defer func() { a.mu.Lock(); a.scanCancel = nil; a.mu.Unlock(); cancel() }()
+
 	if dir == "" {
-		return a.spec(), nil
+		return nil, errors.New("no folder picked yet")
 	}
 	home, _ := os.UserHomeDir()
-	res, err := pipeline.Run(a.reqCtx(), pipeline.Options{
+	res, err := pipeline.Run(ctx, pipeline.Options{
 		Root:      dir,
 		AgentName: filepath.Base(dir),
 		LLM:       a.llmClient(),
@@ -115,6 +136,17 @@ func (a *App) scan() (*webstudio.StudioData, error) {
 	a.dir, a.currentData = dir, data
 	a.mu.Unlock()
 	return data, nil
+}
+
+// cancelScan aborts the in-flight runScan (if any). Idempotent — a no-op when idle.
+func (a *App) cancelScan() error {
+	a.mu.Lock()
+	c := a.scanCancel
+	a.mu.Unlock()
+	if c != nil {
+		c()
+	}
+	return nil
 }
 
 // save writes the edited spec to <dir>/askdao-agent.yml (syncing networking from
