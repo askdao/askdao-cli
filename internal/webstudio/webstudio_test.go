@@ -2,8 +2,10 @@ package webstudio
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -178,8 +180,11 @@ func TestScanRoutes(t *testing.T) {
 	var picked, ran, cancelled bool
 	done := make(chan error, 1)
 	opts := Options{
-		OnScanPick:   func() (string, error) { picked = true; return "/tmp/proj", nil },
-		OnScanRun:    func() (*StudioData, error) { ran = true; return &StudioData{Spec: &types.AgentSpec{Metadata: types.Metadata{Name: "scanned"}}}, nil },
+		OnScanPick: func() (string, error) { picked = true; return "/tmp/proj", nil },
+		OnScanRun: func() (*StudioData, error) {
+			ran = true
+			return &StudioData{Spec: &types.AgentSpec{Metadata: types.Metadata{Name: "scanned"}}}, nil
+		},
 		OnScanCancel: func() error { cancelled = true; return nil },
 	}
 	srv := httptest.NewServer(buildMux(opts, done))
@@ -224,6 +229,50 @@ func TestScanRoutesAbsentForCLI(t *testing.T) {
 		if r.StatusCode != 404 {
 			t.Errorf("%s should be 404 when callback nil, got %d", p, r.StatusCode)
 		}
+	}
+}
+
+func TestChatRoute(t *testing.T) {
+	var gotReq ChatRequest
+	done := make(chan error, 1)
+	opts := Options{
+		OnChat: func(ctx context.Context, req ChatRequest, emit func(raw []byte) error) error {
+			gotReq = req
+			_ = emit([]byte(`{"type":"text_delta","text":"Hi"}`))
+			_ = emit([]byte(`{"type":"done","sdk_session_id":"sesn_1"}`))
+			return nil
+		},
+	}
+	srv := httptest.NewServer(buildMux(opts, done))
+	defer srv.Close()
+
+	r, err := http.Post(srv.URL+"/api/chat", "application/json", bytes.NewBufferString(`{"message":"hello","agent_id":"agt_1"}`))
+	if err != nil || r.StatusCode != 200 {
+		t.Fatalf("/api/chat status=%v err=%v", r.StatusCode, err)
+	}
+	defer r.Body.Close()
+	if ct := r.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Errorf("content-type = %q, want text/event-stream", ct)
+	}
+	// each raw frame from OnChat is re-wrapped as an SSE data-frame for the browser.
+	respBody, _ := io.ReadAll(r.Body)
+	want := "data: {\"type\":\"text_delta\",\"text\":\"Hi\"}\n\ndata: {\"type\":\"done\",\"sdk_session_id\":\"sesn_1\"}\n\n"
+	if string(respBody) != want {
+		t.Errorf("stream body =\n%q\nwant\n%q", string(respBody), want)
+	}
+	if gotReq.Message != "hello" || gotReq.AgentID != "agt_1" {
+		t.Errorf("OnChat got req = %+v", gotReq)
+	}
+}
+
+// /api/chat must NOT exist when OnChat is nil (the CLI agent-edit path).
+func TestChatRouteAbsentForCLI(t *testing.T) {
+	done := make(chan error, 1)
+	srv := httptest.NewServer(buildMux(Options{Data: &StudioData{}}, done))
+	defer srv.Close()
+	r, _ := http.Post(srv.URL+"/api/chat", "application/json", bytes.NewBufferString(`{"message":"x"}`))
+	if r.StatusCode != 404 {
+		t.Errorf("/api/chat should be 404 when OnChat nil, got %d", r.StatusCode)
 	}
 }
 

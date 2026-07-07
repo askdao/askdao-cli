@@ -1,4 +1,4 @@
-// [INPUT]: context/errors/fmt/net·url/os/path·filepath/sync + gopkg.in/yaml.v3 + wails runtime；internal/{auth,deploy,deployflow,pipeline,recommender,types,webstudio}
+// [INPUT]: context/errors/fmt/net·url/os/path·filepath/sync + gopkg.in/yaml.v3 + wails runtime；internal/{auth,chat,deploy,deployflow,pipeline,recommender,types,webstudio}
 // [OUTPUT]: App（Wails bound-method 宿主 + 登录/项目态）+ StudioOptions（注入 webstudio 数据与桌面回调）
 // [POS]: cmd/askdao-studio 应用层 —— 桌面壳业务逻辑：登录(device flow)/扫描(pick 选文件夹→run 跑管线,Stop 可 cancel)/保存(写 yaml)/部署(deployflow.PackageSkills 单源 + deploy.Client)，全复用 internal 核心包
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -19,6 +19,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/askdao/askdao-cli/internal/auth"
+	"github.com/askdao/askdao-cli/internal/chat"
 	"github.com/askdao/askdao-cli/internal/deploy"
 	"github.com/askdao/askdao-cli/internal/deployflow"
 	"github.com/askdao/askdao-cli/internal/pipeline"
@@ -67,6 +68,7 @@ func (a *App) StudioOptions() webstudio.Options {
 		OnLogin:      a.startLogin,
 		OnLoginPoll:  a.loginPoll,
 		OnLogout:     a.logout,
+		OnChat:       a.chat,
 	}
 }
 
@@ -210,6 +212,26 @@ func (a *App) deploy(spec *types.AgentSpec) (*webstudio.DeployResult, error) {
 		AgentID:   resp.AgentID,
 		Created:   resp.Created,
 	}, nil
+}
+
+// chat forwards one test-chat turn to conductor's /chat and streams each raw SSE
+// frame to emit (webstudio's /api/chat handler re-wraps them for the frontend).
+// Auth + base URL come from auth.Load(), same as deploy — so the KOL tests the
+// agent they just deployed with the same cli_ token; agent_id is
+// DeployResult.AgentID (ACL: owner==caller). No timeout: the turn streams as long
+// as the agent runs, bounded by the Wails runtime ctx.
+func (a *App) chat(ctx context.Context, req webstudio.ChatRequest, emit func(raw []byte) error) error {
+	creds, err := auth.Load()
+	if err != nil {
+		return errors.New("not logged in — sign in to AskDAO first")
+	}
+	cl := chat.NewClient(creds.Server)
+	cl.AuthToken = creds.AccessToken
+	return cl.Stream(ctx, chat.Request{
+		Message:   req.Message,
+		AgentID:   req.AgentID,
+		SessionID: req.SessionID,
+	}, emit)
 }
 
 // llmClient wires the recommend client: conductor when logged in, offline mock
