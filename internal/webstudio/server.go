@@ -1,5 +1,5 @@
 // [INPUT]: 标准库 (context/embed/encoding/json/fmt/net/net/http/os/exec/runtime/sort/strings/sync/time) + internal/types
-// [OUTPUT]: 对外提供 Options / Serve；包内 buildMux / openBrowser / observed
+// [OUTPUT]: 对外提供 Options / Serve / Handler；包内 buildMux / openBrowser / observed
 // [POS]: webstudio 的本地 HTTP server —— 绑 127.0.0.1:随机端口，serve go:embed 的 studio.html +
 //
 //	/api/spec(GET) /api/save /api/deploy /api/done /api/observe(GET 读名单 / POST 收 hook 上报)；
@@ -40,11 +40,31 @@ var logoPNG []byte
 // point back here. All are injected by the cmd layer so webstudio stays free of
 // pipeline/deploy deps.
 type Options struct {
-	Data      *StudioData
+	Data *StudioData
+	// OnSpec, if set, supplies the StudioData for GET /api/spec dynamically —
+	// the desktop app returns a placeholder until a folder is scanned, then swaps
+	// in the scanned draft. nil (the CLI path) → the static Data above is served.
+	OnSpec func() *StudioData
+	// OnScanPick/OnScanRun/OnScanCancel, if set, register POST /api/scan/{pick,run,
+	// cancel}: the desktop app splits the picker from the pipeline so the frontend can
+	// show the picked path and a Stop button. pick opens the folder dialog (returns the
+	// path), run scans it (returns fresh StudioData) under a cancellable context, cancel
+	// aborts an in-flight run. CLI leaves them nil (agent edit scanned before Serve).
+	OnScanPick   func() (string, error)
+	OnScanRun    func() (*StudioData, error)
+	OnScanCancel func() error
 	OnSave    func(*types.AgentSpec) error
 	OnDeploy  func(*types.AgentSpec) (*DeployResult, error)
 	OnReady   func(port int)
 	NoBrowser bool
+
+	// Desktop-only auth callbacks. All nil in the CLI (agent edit) path — the
+	// desktop app injects them, and their presence registers the /api/auth/*
+	// routes. CLI leaves them nil, so `agent edit` never exposes those routes.
+	OnAuthState func() AuthState
+	OnLogin     func() (LoginChallenge, error)
+	OnLoginPoll func() (AuthState, error)
+	OnLogout    func() error
 }
 
 // Serve starts the local studio, opens the browser, and blocks until the KOL
@@ -81,6 +101,15 @@ func Serve(opts Options) error {
 	return err
 }
 
+// Handler builds the studio's HTTP handler for embedding in a long-lived host —
+// the desktop app wires it into the Wails AssetServer, where a deploy must NOT
+// end the session. Serve (the CLI path) blocks until deploy/done; the desktop
+// host owns its own lifecycle, so the done signal is created here and discarded
+// (buffered cap-1, never read). Routes are identical to Serve's.
+func Handler(opts Options) http.Handler {
+	return buildMux(opts, make(chan error, 1))
+}
+
 // buildMux wires the studio routes. done is signaled (closed-over) when the KOL
 // confirms via /api/deploy (success) or /api/done. Extracted from Serve so
 // httptest can exercise the handlers without binding a socket.
@@ -104,6 +133,10 @@ func buildMux(opts Options, done chan error) *http.ServeMux {
 	})
 
 	mux.HandleFunc("/api/spec", func(w http.ResponseWriter, r *http.Request) {
+		if opts.OnSpec != nil {
+			writeJSON(w, opts.OnSpec())
+			return
+		}
 		writeJSON(w, opts.Data)
 	})
 
@@ -187,6 +220,78 @@ func buildMux(opts Options, done chan error) *http.ServeMux {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
+
+	// Desktop-only scan routes — split so the frontend shows the picked path + a Stop
+	// button. /api/scan/pick opens the folder dialog (returns the path), /api/scan/run
+	// scans it under a cancellable context (returns fresh StudioData), /api/scan/cancel
+	// aborts an in-flight run. CLI leaves these callbacks nil, so the routes never exist.
+	if opts.OnScanPick != nil {
+		mux.HandleFunc("/api/scan/pick", func(w http.ResponseWriter, r *http.Request) {
+			dir, err := opts.OnScanPick()
+			if err != nil {
+				writeErr(w, err)
+				return
+			}
+			writeJSON(w, map[string]string{"dir": dir})
+		})
+	}
+	if opts.OnScanRun != nil {
+		mux.HandleFunc("/api/scan/run", func(w http.ResponseWriter, r *http.Request) {
+			d, err := opts.OnScanRun()
+			if err != nil {
+				writeErr(w, err)
+				return
+			}
+			writeJSON(w, d)
+		})
+	}
+	if opts.OnScanCancel != nil {
+		mux.HandleFunc("/api/scan/cancel", func(w http.ResponseWriter, r *http.Request) {
+			if err := opts.OnScanCancel(); err != nil {
+				writeErr(w, err)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		})
+	}
+
+	// Desktop-only /api/auth/* — registered only when the desktop host injects the
+	// auth callbacks. The CLI (agent edit) leaves them nil, so these routes never
+	// exist there and its behavior is unchanged.
+	if opts.OnAuthState != nil {
+		mux.HandleFunc("/api/auth/status", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, opts.OnAuthState())
+		})
+	}
+	if opts.OnLogin != nil {
+		mux.HandleFunc("/api/auth/login", func(w http.ResponseWriter, r *http.Request) {
+			ch, err := opts.OnLogin()
+			if err != nil {
+				writeErr(w, err)
+				return
+			}
+			writeJSON(w, ch)
+		})
+	}
+	if opts.OnLoginPoll != nil {
+		mux.HandleFunc("/api/auth/poll", func(w http.ResponseWriter, r *http.Request) {
+			st, err := opts.OnLoginPoll()
+			if err != nil {
+				writeErr(w, err)
+				return
+			}
+			writeJSON(w, st)
+		})
+	}
+	if opts.OnLogout != nil {
+		mux.HandleFunc("/api/auth/logout", func(w http.ResponseWriter, r *http.Request) {
+			if err := opts.OnLogout(); err != nil {
+				writeErr(w, err)
+				return
+			}
+			writeJSON(w, map[string]string{"status": "logged_out"})
+		})
+	}
 
 	return mux
 }

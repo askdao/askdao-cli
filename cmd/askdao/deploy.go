@@ -1,6 +1,6 @@
-// [INPUT]: 标准库 + internal/auth（Credentials / Load / ErrNoCredentials）+ internal/deploy（Client / DeployInput / ZipDir / Err* 类型）+ internal/render（Diff / TranslationWarnings）+ internal/scanner（ParseSkillFrontmatter — deploy 前置校验）+ internal/types（AgentSpec）+ gopkg.in/yaml.v3
-// [OUTPUT]: runDeploy — `askdao agent deploy` 命令实装；packageSkills / deployFromDir / resolveSkillDir — skill 打包真相源（CLI + 工作台共用）
-// [POS]: cmd/askdao 的 deploy 子命令；读 <dir>/askdao-agent.yml 原文 + 经 packageSkills 按 skill.path（project 相对 / 绝对 / ~ / Scope=="user"）
+// [INPUT]: 标准库 + internal/auth（Credentials / Load / ErrNoCredentials）+ internal/deploy（Client / DeployInput / Err* 类型）+ internal/deployflow（PackageSkills — skill 打包单源）+ internal/render（Diff / TranslationWarnings）+ internal/types（AgentSpec）+ gopkg.in/yaml.v3
+// [OUTPUT]: runDeploy — `askdao agent deploy` 命令实装；deployFromDir / deployFromDirWithConfirm — 部署入口（skill 打包已提取到 internal/deployflow.PackageSkills 单源，CLI + 桌面共用）
+// [POS]: cmd/askdao 的 deploy 子命令；读 <dir>/askdao-agent.yml 原文 + 经 internal/deployflow.PackageSkills 按 skill.path（project 相对 / 绝对 / ~ / Scope=="user"）
 //
 //	统一解析 + 递归打 zip（harness 中性 invariant）→ 经 internal/deploy.Client 上传 conductor /cli/deploy；处理
 //	kol_profile_required 时引导去 askdao.ai/dashboard/subscription（kol_join_mode 在订阅模式页设置，KOL profile 归云端）+ blocking-warning gating（仅 REJECTED 阻断，severity 不 gate）
@@ -25,8 +25,8 @@ import (
 
 	"github.com/askdao/askdao-cli/internal/auth"
 	"github.com/askdao/askdao-cli/internal/deploy"
+	"github.com/askdao/askdao-cli/internal/deployflow"
 	"github.com/askdao/askdao-cli/internal/render"
-	"github.com/askdao/askdao-cli/internal/scanner"
 	"github.com/askdao/askdao-cli/internal/types"
 )
 
@@ -91,7 +91,7 @@ func runDeploy(ctx context.Context, args []string) int {
 	// Anthropic only ever sees `tts/SKILL.md` regardless of the on-disk
 	// .claude/ or .agents/ prefix). Keeping a separate inline loop here once
 	// caused the CLI to mishandle global skills the studio packaged fine.
-	skillZips, err := packageSkills(*dir, &spec)
+	skillZips, err := deployflow.PackageSkills(*dir, &spec)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "deploy:", err)
 		return 1
@@ -440,85 +440,20 @@ func readSpec(path string) (*types.AgentSpec, error) {
 	return &s, nil
 }
 
-// resolveSkillDir resolves a custom_local skill's on-disk directory. Project
-// scope (relative path) joins dir; user scope (Scope=="user", an absolute path,
-// or a ~-prefixed path) resolves against the home dir / filesystem so global
-// skills picked in the web studio package correctly.
-func resolveSkillDir(dir string, s types.Skill) (string, error) {
-	path := s.Path
-	if strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(home, filepath.FromSlash(path[2:])), nil
-	}
-	if filepath.IsAbs(path) || s.Scope == "user" {
-		return filepath.FromSlash(path), nil
-	}
-	return filepath.Join(dir, filepath.FromSlash(path)), nil
-}
-
-// packageSkills zips every custom_local skill referenced by spec into a
-// name→zip map, applying the harness-neutral invariant (zip top dir =
-// filepath.Base). Shared by `agent deploy` (CLI) and the web studio's
-// OnDeploy. Returns a descriptive error on a missing dir / SKILL.md / name
-// collision / incomplete SKILL.md frontmatter (name + description are how
-// the model decides to activate a skill — a skill missing them deploys
-// fine but never triggers, so we fail fast here instead).
-func packageSkills(dir string, spec *types.AgentSpec) (map[string][]byte, error) {
-	skillZips := map[string][]byte{}
-	fmNames := map[string]string{} // frontmatter name → yaml path (collision detection)
-	for _, s := range spec.Skills {
-		if s.Type != "custom_local" {
-			continue
-		}
-		if s.Path == "" {
-			return nil, fmt.Errorf("a custom_local skill entry is missing 'path'")
-		}
-		skillName := filepath.Base(filepath.Clean(s.Path))
-		if skillName == "" || skillName == "." || skillName == "/" {
-			return nil, fmt.Errorf("custom_local skill path %q: cannot resolve a skill name", s.Path)
-		}
-		skillDir, err := resolveSkillDir(dir, s)
-		if err != nil {
-			return nil, err
-		}
-		if fi, serr := os.Stat(skillDir); serr != nil || !fi.IsDir() {
-			return nil, fmt.Errorf("custom_local skill %q: directory not found at %s", s.Path, skillDir)
-		}
-		skillMD := filepath.Join(skillDir, "SKILL.md")
-		if _, serr := os.Stat(skillMD); serr != nil {
-			return nil, fmt.Errorf("custom_local skill %q: %s has no SKILL.md", s.Path, skillDir)
-		}
-		fmName, fmDesc := scanner.ParseSkillFrontmatter(skillMD)
-		if fmName == "" {
-			return nil, fmt.Errorf("custom_local skill %q: SKILL.md frontmatter must declare 'name' (add a leading `---` block with name + description)", s.Path)
-		}
-		if fmDesc == "" {
-			return nil, fmt.Errorf("custom_local skill %q: SKILL.md frontmatter must declare 'description' — it is the trigger instruction the model matches against; without it the skill never activates", s.Path)
-		}
-		if prev, dup := fmNames[fmName]; dup {
-			return nil, fmt.Errorf("skill frontmatter name collision %q (declared by both %s and %s)", fmName, prev, s.Path)
-		}
-		fmNames[fmName] = s.Path
-		zb, zerr := deploy.ZipDir(skillDir, skillName)
-		if zerr != nil {
-			return nil, fmt.Errorf("packaging skill %q: %w", s.Path, zerr)
-		}
-		if _, dup := skillZips[skillName]; dup {
-			return nil, fmt.Errorf("skill name collision %q (two paths share a basename)", skillName)
-		}
-		skillZips[skillName] = zb
-	}
-	return skillZips, nil
-}
-
 // deployFromDir reads <dir>/askdao-agent.yml, packages its custom_local skills,
 // and POSTs to conductor /cli/deploy. It performs no interactive prompting —
 // callers handle typed errors (*deploy.ErrKolProfileRequired,
 // *deploy.ErrBlockingWarnings). Used by the web studio's one-stop OnDeploy.
 func deployFromDir(ctx context.Context, dir, harnessOverride string, force bool) (*deploy.DeployResponse, error) {
+	return deployFromDirWithConfirm(ctx, dir, harnessOverride, force, false)
+}
+
+// deployFromDirWithConfirm is deployFromDir plus the visibility-downgrade
+// confirmation flag (deploy.DeployInput.ConfirmVisibilityDowngrade). The desktop
+// studio re-sends with confirmDowngrade=true after the user acknowledges an
+// in-app downgrade prompt; deployFromDir passes false, so the CLI web studio
+// path is unchanged.
+func deployFromDirWithConfirm(ctx context.Context, dir, harnessOverride string, force, confirmDowngrade bool) (*deploy.DeployResponse, error) {
 	agentYAML, err := os.ReadFile(filepath.Join(dir, askdaoAgentFileName))
 	if err != nil {
 		return nil, err
@@ -527,7 +462,7 @@ func deployFromDir(ctx context.Context, dir, harnessOverride string, force bool)
 	if err := yaml.Unmarshal(agentYAML, &spec); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", askdaoAgentFileName, err)
 	}
-	skillZips, err := packageSkills(dir, &spec)
+	skillZips, err := deployflow.PackageSkills(dir, &spec)
 	if err != nil {
 		return nil, err
 	}
@@ -549,10 +484,11 @@ func deployFromDir(ctx context.Context, dir, harnessOverride string, force bool)
 	cl := deploy.NewClient(conductorURL)
 	cl.AuthToken = token
 	return cl.Deploy(ctx, deploy.DeployInput{
-		AgentYAML: agentYAML,
-		Detection: detection,
-		HarnessID: harnessID,
-		Force:     force,
-		SkillZips: skillZips,
+		AgentYAML:                  agentYAML,
+		Detection:                  detection,
+		HarnessID:                  harnessID,
+		Force:                      force,
+		ConfirmVisibilityDowngrade: confirmDowngrade,
+		SkillZips:                  skillZips,
 	})
 }

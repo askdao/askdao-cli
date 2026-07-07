@@ -297,6 +297,13 @@ type ImpliedAnthropicSkill struct {
 	Confidence float64 `json:"confidence"`
 }
 
+// UnknownSecretPurpose is the PurposeGuess assigned to an env key that matched
+// no credential rule — a configuration parameter, not a real secret.
+// recommender.BuildVaultHints excludes entries carrying this purpose so config
+// params never leak into vault_hints (the credentials subscribers must provide
+// during onboarding).
+const UnknownSecretPurpose = "Unknown — KOL should review and decide"
+
 // DetectedRequiredSecret is one secret key inferred from .env.example plus the
 // service-mapping heuristics; values are never captured.
 type DetectedRequiredSecret struct {

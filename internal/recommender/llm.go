@@ -19,6 +19,11 @@ import (
 // CLI); design.md §6.2 documents the endpoint contract.
 const DefaultRecommendPath = "/api/v1/cli/recommend"
 
+// DefaultModelClassesPath is the conductor REST path for the model-class catalog
+// (tier label / concrete model / cost) the studio step-2 selector renders, so
+// concrete model ids live only in conductor (zero client re-download on a swap).
+const DefaultModelClassesPath = "/api/v1/cli/model-classes"
+
 // DefaultTimeout caps any single conductor recommend call. Generous because
 // upstream LLM calls dominate latency.
 const DefaultTimeout = 90 * time.Second
@@ -135,6 +140,67 @@ func (c *ConductorClient) Recommend(ctx context.Context, req RecommendRequest) (
 	return &out, nil
 }
 
+// modelClassesResponse is the GET /cli/model-classes envelope.
+type modelClassesResponse struct {
+	Classes []types.ModelClassEntry `json:"classes"`
+}
+
+// FetchModelClasses GETs conductor's offered model-class tiers (label /
+// concrete model id / derived cost). Mirrors Recommend's request shape.
+func (c *ConductorClient) FetchModelClasses(ctx context.Context) ([]types.ModelClassEntry, error) {
+	if c.BaseURL == "" {
+		return nil, errors.New("recommender: ConductorClient.BaseURL is empty")
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		c.BaseURL+DefaultModelClassesPath, nil)
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Accept", "application/json")
+	if c.AuthToken != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.AuthToken)
+	}
+	client := c.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: DefaultTimeout}
+	}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("recommender: conductor unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("recommender: read response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("recommender: conductor returned %d: %s",
+			resp.StatusCode, truncate(string(respBody), 240))
+	}
+	var out modelClassesResponse
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return nil, fmt.Errorf("recommender: decode response: %w", err)
+	}
+	return out.Classes, nil
+}
+
+// FetchModelClassesOrFallback fetches conductor's model-class catalog, degrading
+// to the bundled minimal fallback (stable labels, NO concrete model ids) when
+// conductor is unreachable/unconfigured — so `askdao agent edit` works offline
+// and the concrete model is resolved server-side from model_class at deploy.
+func FetchModelClassesOrFallback(ctx context.Context, baseURL, token string) []types.ModelClassEntry {
+	if baseURL != "" {
+		fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		c := NewConductorClient(baseURL)
+		c.AuthToken = token
+		if classes, err := c.FetchModelClasses(fetchCtx); err == nil && len(classes) > 0 {
+			return classes
+		}
+	}
+	return types.FallbackModelClasses()
+}
+
 // MockClient returns canned data without calling out. The default canned
 // response is a minimal-but-valid AgentSpec built from the request context.
 // Tests can override Override to inject specific responses.
@@ -164,17 +230,17 @@ func DefaultMockRecommend(req RecommendRequest) *RecommendResponse {
 			Visibility: "private",
 		},
 		Persona: types.Persona{
-			ModelClass: "balanced",
-			ModelPreferences: []types.ModelPreference{
-				{Provider: "anthropic", ID: "claude-sonnet-4-6", Speed: "standard"},
-			},
+			// model_class only — conductor resolves the concrete model id from
+			// the model-class catalog (or the studio selector fills it); no
+			// hardcoded model id in this binary.
+			ModelClass:   "balanced",
 			SystemPrompt: "You are an AI assistant for " + req.AgentName + ".",
 		},
 		Capabilities:     DefaultCapabilities(req.Policy),
 		MCPServers:       extractCompatibleMCPServers(req.Detection),
 		Skills:           []types.Skill{},
 		Workspace:        buildWorkspace(req),
-		VaultHints:       buildVaultHints(req.Detection),
+		VaultHints:       BuildVaultHints(req.Detection),
 		PreferredHarness: harnessFor(req),
 	}
 	syncNetworkingFromMCP(&spec)
@@ -299,12 +365,20 @@ func syncNetworkingFromMCP(spec *types.AgentSpec) {
 	}
 }
 
-func buildVaultHints(d *types.Detection) types.VaultHints {
+// BuildVaultHints turns detected env keys into vault_hints, EXCLUDING config
+// params (PurposeGuess == types.UnknownSecretPurpose): only keys that matched a
+// credential rule become declared credentials subscribers must provide. Used as
+// a deterministic hard-field override in cmd/askdao/edit.go and
+// cmd/askdao-studio/app.go so both mock and conductor specs stay credential-only.
+func BuildVaultHints(d *types.Detection) types.VaultHints {
 	hints := types.VaultHints{}
 	if d == nil {
 		return hints
 	}
 	for _, s := range d.DetectedRequiredSecrets {
+		if s.PurposeGuess == types.UnknownSecretPurpose {
+			continue // configuration parameter, not a credential — never declare it
+		}
 		entry := types.VaultCredential{Name: s.Name, Purpose: s.PurposeGuess, From: s.From, Required: s.Required, Note: s.Note}
 		if s.UsedByGuess != nil && s.UsedByGuess.MCPServer != "" {
 			entry.UsedBy = map[string]interface{}{"mcp_server": s.UsedByGuess.MCPServer}

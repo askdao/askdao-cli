@@ -174,6 +174,59 @@ func TestDoneSavesSpec(t *testing.T) {
 	}
 }
 
+func TestScanRoutes(t *testing.T) {
+	var picked, ran, cancelled bool
+	done := make(chan error, 1)
+	opts := Options{
+		OnScanPick:   func() (string, error) { picked = true; return "/tmp/proj", nil },
+		OnScanRun:    func() (*StudioData, error) { ran = true; return &StudioData{Spec: &types.AgentSpec{Metadata: types.Metadata{Name: "scanned"}}}, nil },
+		OnScanCancel: func() error { cancelled = true; return nil },
+	}
+	srv := httptest.NewServer(buildMux(opts, done))
+	defer srv.Close()
+
+	// pick returns the chosen dir immediately (frontend shows it before scanning).
+	r, err := http.Post(srv.URL+"/api/scan/pick", "application/json", nil)
+	if err != nil || r.StatusCode != 200 || !picked {
+		t.Fatalf("/api/scan/pick status=%v picked=%v err=%v", r.StatusCode, picked, err)
+	}
+	var pick map[string]string
+	_ = json.NewDecoder(r.Body).Decode(&pick)
+	if pick["dir"] != "/tmp/proj" {
+		t.Errorf("/api/scan/pick must return {dir}: %v", pick)
+	}
+
+	// run scans the pending folder and returns fresh StudioData.
+	r, _ = http.Post(srv.URL+"/api/scan/run", "application/json", nil)
+	if r.StatusCode != 200 || !ran {
+		t.Errorf("/api/scan/run not handled: status=%d ran=%v", r.StatusCode, ran)
+	}
+	var data StudioData
+	_ = json.NewDecoder(r.Body).Decode(&data)
+	if data.Spec == nil || data.Spec.Metadata.Name != "scanned" {
+		t.Errorf("/api/scan/run did not return scanned StudioData: %+v", data.Spec)
+	}
+
+	// cancel aborts the in-flight run.
+	r, _ = http.Post(srv.URL+"/api/scan/cancel", "application/json", nil)
+	if r.StatusCode != 200 || !cancelled {
+		t.Errorf("/api/scan/cancel not handled: status=%d cancelled=%v", r.StatusCode, cancelled)
+	}
+}
+
+// scan routes must NOT exist when the callbacks are nil (the CLI agent-edit path).
+func TestScanRoutesAbsentForCLI(t *testing.T) {
+	done := make(chan error, 1)
+	srv := httptest.NewServer(buildMux(Options{Data: &StudioData{}}, done))
+	defer srv.Close()
+	for _, p := range []string{"/api/scan/pick", "/api/scan/run", "/api/scan/cancel"} {
+		r, _ := http.Post(srv.URL+p, "application/json", nil)
+		if r.StatusCode != 404 {
+			t.Errorf("%s should be 404 when callback nil, got %d", p, r.StatusCode)
+		}
+	}
+}
+
 func TestObserveEndpoint(t *testing.T) {
 	done := make(chan error, 1)
 	srv := httptest.NewServer(buildMux(Options{Data: &StudioData{}}, done))

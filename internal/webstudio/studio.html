@@ -439,6 +439,16 @@
       font-weight: 600;
     }
 
+    .model-hint {
+      color: var(--stone);
+      font-size: 12.5px;
+      margin: 8px 2px 0;
+    }
+
+    .mono {
+      font-family: var(--mono);
+    }
+
     .swatches {
       display: flex;
       gap: 12px;
@@ -782,21 +792,12 @@
       flex: 1;
     }
 
-    .vreq {
-      font-family: var(--sans);
-      font-size: 12px;
-      color: var(--olive);
-      white-space: nowrap;
-      display: inline-flex;
-      gap: 5px;
-      align-items: center;
-      cursor: pointer;
-    }
-
-    .vreq input {
-      width: 15px;
-      height: 15px;
+    .vrow .vtick {
+      flex: 0 0 auto;
+      width: 16px;
+      height: 16px;
       accent-color: var(--accent);
+      cursor: pointer;
     }
 
     .vdel {
@@ -1133,6 +1134,7 @@
       <a class="brand" href="#" onclick="return false"><img src="/logo.png" alt="AskDAO"><span class="wordmark">AskDAO
           Agent</span></a>
       <span class="proj">project · <b id="projName">…</b></span>
+      <span id="loginbar" hidden style="margin-left:auto;display:flex;align-items:center;gap:8px;font:500 13px Inter,system-ui,sans-serif"></span>
     </div>
   </header>
 
@@ -1172,18 +1174,42 @@
     </div>
   </div>
 
+  <div id="scanOverlay" class="overlay" hidden>
+    <div class="done-card">
+      <h2>Open a project</h2>
+      <p class="done-msg">Choose a local folder with your AI project (skills, MCP config, etc.). AskDAO Studio scans it on your machine and drafts an agent — nothing leaves your computer.</p>
+      <button type="button" id="chooseFolderBtn" class="act btn primary" onclick="doScan()">Choose folder…</button>
+      <button type="button" id="stopScanBtn" class="act btn" hidden onclick="stopScan()">Stop scanning</button>
+      <p class="done-msg" id="scanStatus"></p>
+    </div>
+  </div>
+
   <script>
     const STEPS = [{ label: "Identity" }, { label: "Persona" }, { label: "Skills & Tools" }, { label: "Review & Deploy" }];
-    // model_class → concrete anthropic model id. collect() writes model_preferences[0]
-    // from this, so the KOL's Model Class choice actually reaches the deploy adapter —
-    // which picks the first anthropic id in model_preferences and ignores model_class.
-    const MODEL_CLASS_ID = {
-      high_reasoning: 'claude-opus-4-8',
-      balanced: 'claude-sonnet-5',
-      fast: 'claude-haiku-4-5',
-      multimodal: 'claude-sonnet-5',
-      coding: 'claude-sonnet-5',
-    };
+    // Model-class tiers come from data.model_catalog (fetched from conductor's
+    // /cli/model-classes), NOT a hardcoded table — concrete model ids live only
+    // in conductor. modelEntry() looks one up by slug; the offline fallback
+    // catalog has no model_id (binary stays id-free) so the caption degrades to
+    // the tier blurb.
+    const modelEntry = (slug) => (data.model_catalog || []).find(c => c.slug === slug);
+    function modelHintHTML(slug) {
+      const c = modelEntry(slug);
+      if (!c) return '';
+      if (!c.model_id) return esc(c.blurb || '');
+      const cost = c.cost_tier && c.cost_tier !== 'unknown' ? ` · ${esc(c.cost_tier)} cost` : '';
+      return `${esc(c.friendly_name)} <span class="mono">(${esc(c.model_id)})</span>${cost}`;
+    }
+    function reviewModelHTML(slug) {
+      const c = modelEntry(slug);
+      if (!c) return esc(slug || 'balanced');
+      if (!c.model_id) return esc(c.label);
+      return `${esc(c.label)} · ${esc(c.friendly_name)} <span class="mono">(${esc(c.model_id)})</span>`;
+    }
+    function pickModelClass(slug) {
+      spec.persona.model_class = slug;
+      const hint = $('modelHint');
+      if (hint) hint.innerHTML = modelHintHTML(slug);
+    }
     const HARNESS_NAME = { claude: "Claude Code", codex: "OpenAI Codex", cursor: "Cursor", cowork: "Claude Cowork" };
     let data, spec, palette = {}, step = 0, vault = [];
     const $ = (id) => document.getElementById(id);
@@ -1208,12 +1234,95 @@
       applyAccent(spec.metadata.theme_color);
       renderNav(); renderPanels(); go(0);
       startObservePolling();
+      if (data.desktop) { initAuth(); if (data.needs_scan) showScanPrompt(); }
     }
+
+    // Desktop-only: the pre-scan placeholder shows a folder-picker overlay. POST
+    // /api/scan opens a native picker (Go side), scans on-device, then we reload
+    // the workbench with the scanned draft.
+    function showScanPrompt() { $('scanOverlay').hidden = false; }
+    // Split scan: pick opens the native dialog and returns the path immediately, so we
+    // show it + a Stop button before the (cancellable) run. Stop → /api/scan/cancel
+    // aborts the pipeline mid-flight and the run fetch rejects back to the picker.
+    async function doScan() {
+      let dir;
+      try {
+        const p = await (await fetch('/api/scan/pick', { method: 'POST' })).json();
+        if (p && p.error) throw new Error(p.error);
+        dir = p && p.dir;
+      } catch (e) { $('scanStatus').textContent = 'Could not open the folder picker: ' + (e.message || e); return; }
+      if (!dir) return; // user cancelled the dialog — leave the picker as-is
+      $('chooseFolderBtn').hidden = true;
+      $('stopScanBtn').hidden = false;
+      $('scanStatus').textContent = 'Scanning ' + dir + ' …';
+      try {
+        const r = await (await fetch('/api/scan/run', { method: 'POST' })).json();
+        if (r && r.error) throw new Error(r.error);
+        $('scanOverlay').hidden = true;
+        $('scanStatus').textContent = '';
+        resetScanPrompt();
+        await load();
+      } catch (e) {
+        resetScanPrompt();
+        $('scanStatus').textContent = 'Scan stopped or failed: ' + (e.message || e);
+      }
+    }
+    async function stopScan() {
+      $('stopScanBtn').disabled = true;
+      $('scanStatus').textContent = 'Stopping…';
+      try { await fetch('/api/scan/cancel', { method: 'POST' }); } catch (e) { /* the run fetch's catch resets the UI */ }
+    }
+    function resetScanPrompt() { $('chooseFolderBtn').hidden = false; $('stopScanBtn').hidden = true; $('stopScanBtn').disabled = false; }
+
+    // Desktop-only login panel (data.desktop). Uses webstudio's /api/auth/* which
+    // exist ONLY when the desktop host injects auth callbacks — the CLI never has
+    // these routes, so agent edit is unaffected. Device flow: Sign in → POST /login
+    // shows a user code + opens the browser → poll /poll until approved.
+    let authPollTimer = null;
+    async function initAuth() { $('loginbar').hidden = false; await refreshAuth(); }
+    async function refreshAuth() {
+      try { renderLogin(await (await fetch('/api/auth/status')).json()); }
+      catch (e) { $('loginbar').innerHTML = '<span style="color:#b45">auth unavailable</span>'; }
+    }
+    function renderLogin(s) {
+      if (s && s.logged_in) {
+        $('loginbar').innerHTML = `<span>✓ ${esc(s.email || 'signed in')}</span> <button class="act btn" onclick="doLogout()">Sign out</button>`;
+      } else {
+        $('loginbar').innerHTML = `<button class="act btn primary" onclick="doLogin()">Sign in to AskDAO</button>`;
+      }
+    }
+    async function doLogin() {
+      $('loginbar').innerHTML = '<span>starting…</span>';
+      try {
+        const ch = await (await fetch('/api/auth/login', { method: 'POST' })).json();
+        if (ch.error) throw new Error(ch.error);
+        $('loginbar').innerHTML = `<span>code <b>${esc(ch.user_code)}</b> · browser opened, approve to finish…</span>`;
+        if (authPollTimer) clearInterval(authPollTimer);
+        authPollTimer = setInterval(pollAuth, 3000);
+      } catch (e) {
+        $('loginbar').innerHTML = `<span style="color:#b45">login failed</span> <button class="act btn" onclick="doLogin()">Retry</button>`;
+      }
+    }
+    async function pollAuth() {
+      try {
+        const s = await (await fetch('/api/auth/poll')).json();
+        if (s.error) { clearInterval(authPollTimer); $('loginbar').innerHTML = `<span style="color:#b45">${esc(s.error)}</span> <button class="act btn" onclick="doLogin()">Retry</button>`; return; }
+        if (s.logged_in) { clearInterval(authPollTimer); renderLogin(s); }
+      } catch (e) { /* transient — keep polling */ }
+    }
+    async function doLogout() {
+      try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (e) { }
+      refreshAuth();
+    }
+
     function initVault() {
       const v = spec.vault_hints || {};
+      // Scanned credentials become read-only tick rows (like skill/mcp candidates),
+      // default checked — vault_hints is already the scanner-filtered credential set.
+      // required/optional stays per-row for collect() to split the buckets; no control.
       vault = [
-        ...(v.required_credentials || []).map(c => ({ name: c.name || '', purpose: c.purpose || '', required: true })),
-        ...(v.optional_credentials || []).map(c => ({ name: c.name || '', purpose: c.purpose || '', required: false })),
+        ...(v.required_credentials || []).map(c => ({ name: c.name || '', purpose: c.purpose || '', required: true, checked: true, readonly: true })),
+        ...(v.optional_credentials || []).map(c => ({ name: c.name || '', purpose: c.purpose || '', required: false, checked: true, readonly: true })),
       ];
     }
     function renderNav() {
@@ -1271,13 +1380,19 @@
     /* Step 2 · Persona */
     function panelPersona() {
       const p = spec.persona;
-      const classes = [['high_reasoning', 'Deep reasoning'], ['balanced', 'Balanced'], ['fast', 'Fast'], ['multimodal', 'Multimodal'], ['coding', 'Coding']]
-        .map(([v, l]) => `<label><input type="radio" name="mc" value="${v}" ${v === p.model_class ? 'checked' : ''} onchange="spec.persona.model_class=this.value"><span>${l}</span></label>`).join('');
+      const catalog = data.model_catalog || [];
+      // Default selection to the recommended tier when the draft's model_class
+      // isn't one of the offered slugs (e.g. legacy multimodal/coding).
+      if (catalog.length && !catalog.some(c => c.slug === p.model_class)) {
+        p.model_class = (catalog.find(c => c.recommended) || catalog[0]).slug;
+      }
+      const classes = catalog
+        .map(c => `<label><input type="radio" name="mc" value="${esc(c.slug)}" ${c.slug === p.model_class ? 'checked' : ''} onchange="pickModelClass(this.value)"><span>${esc(c.label)}</span></label>`).join('');
       return `<section class="panel" data-step="1">
     <p class="eyebrow">Step 2 of 4 · Persona</p>
     <h2>Shape its voice</h2>
-    <p class="sub">Pick the model class and write the system prompt that defines its behaviour.</p>
-    <div class="card"><label class="f"><span>Model class ${confBadge('model')}</span><div class="seg">${classes}</div><div class="field-err" id="err_model"></div></label></div>
+    <p class="sub">Pick the model and write the system prompt that defines its behaviour.</p>
+    <div class="card"><label class="f"><span>Model ${confBadge('model')}</span><div class="seg">${classes}</div><div class="model-hint" id="modelHint">${modelHintHTML(p.model_class)}</div><div class="field-err" id="err_model"></div></label></div>
     <div class="card"><label class="f"><span>System prompt ${confBadge('persona', 'system', 'prompt')}</span>
       <textarea id="f_prompt" class="prompt" placeholder="You are a …">${esc(p.system_prompt)}</textarea><div class="field-err" id="err_prompt"></div></label></div>
   </section>`;
@@ -1387,19 +1502,28 @@
 
     /* vault / secrets */
     function vaultPaneHTML() {
-      const rows = vault.length ? vault.map((c, i) =>
-        `<div class="vrow">
+      const rows = vault.length ? vault.map((c, i) => {
+        const ck = c.checked ? 'checked' : '';
+        if (c.readonly) {
+          // scanned credential: single tick like a skill/mcp candidate + read-only name
+          // and required/optional tag. Untick to leave it out; no required box or ×.
+          const tag = c.required ? '<span class="tag ink">required</span>' : '<span class="tag">optional</span>';
+          return `<label class="item"><input type="checkbox" id="secret-${i}" ${ck}><div><div class="nm"><span class="mono">${esc(c.name)}</span> ${tag}</div>${c.purpose ? `<div class="ds">${esc(c.purpose)}</div>` : ''}</div></label>`;
+        }
+        // manual credential (+ Add credential): still needs inputs to fill; tick + delete.
+        return `<div class="vrow">
+       <input type="checkbox" class="vtick" id="secret-${i}" ${ck} title="include">
        <input type="text" class="vn" id="v-name-${i}" value="${esc(c.name)}" placeholder="ENV_VAR_NAME">
        <input type="text" class="vp" id="v-purpose-${i}" value="${esc(c.purpose)}" placeholder="what it's for">
-       <label class="vreq"><input type="checkbox" id="v-req-${i}" ${c.required ? 'checked' : ''}>required</label>
        <button type="button" class="vdel" title="remove" onclick="delVault(${i})">×</button>
-     </div>`).join('')
-        : '<p class="empty">No credentials declared. Add one if this agent needs API keys or secrets from its subscribers.</p>';
-      return `<p class="card-note">Credentials each subscriber provides during onboarding — declare what's needed; values are never entered or stored here.</p><div class="field-err" id="err_vault"></div>${rows}<button type="button" class="addv" onclick="addVault()">+ Add credential</button>`;
+     </div>`;
+      }).join('')
+        : '<p class="empty">No credentials detected. Add one if this agent needs API keys or secrets from its subscribers.</p>';
+      return `<p class="card-note">Credentials each subscriber provides during onboarding — tick the ones this agent needs; values are never entered or stored here.</p><div class="field-err" id="err_vault"></div>${rows}<button type="button" class="addv" onclick="addVault()">+ Add credential</button>`;
     }
-    function syncVault() { vault.forEach((c, i) => { if ($('v-name-' + i)) { c.name = $('v-name-' + i).value.trim(); c.purpose = $('v-purpose-' + i).value.trim(); c.required = $('v-req-' + i).checked; } }); }
+    function syncVault() { vault.forEach((c, i) => { const t = $('secret-' + i); if (t) c.checked = t.checked; if (!c.readonly && $('v-name-' + i)) { c.name = $('v-name-' + i).value.trim(); c.purpose = $('v-purpose-' + i).value.trim(); } }); }
     function refreshVaultPane() { const p = document.querySelector('[data-pane="vault"] .card'); if (p) p.innerHTML = vaultPaneHTML(); if ($('vaultCnt')) $('vaultCnt').textContent = vault.length; }
-    function addVault() { syncVault(); vault.push({ name: '', purpose: '', required: true }); refreshVaultPane(); }
+    function addVault() { syncVault(); vault.push({ name: '', purpose: '', required: true, checked: true, readonly: false }); refreshVaultPane(); }
     function delVault(i) { syncVault(); vault.splice(i, 1); refreshVaultPane(); }
 
     /* Step 4 · Review (no reasoning dump — confidence lives inline on each step) */
@@ -1419,7 +1543,7 @@
       const m = spec.metadata;
       const skillNames = (data.skill_candidates || []).filter((c, i) => { const e = $('skill-' + i); return e && e.checked; }).map(c => c.name);
       const mcpNames = (data.mcp_candidates || []).filter((c, i) => { const e = $('mcp-' + i); return e && e.checked; }).map(c => c.name);
-      const secretNames = vault.filter(c => c.name).map(c => c.name);
+      const secretNames = vault.filter(c => c.name && c.checked).map(c => c.name);
       const chips = (arr, mono) => arr.length ? arr.map(n => `<span class="rtag${mono ? ' mono' : ''}">${esc(n)}</span>`).join('') : '<span class="empty">none</span>';
       const c = palette[m.theme_color] || '#1b365d';
       const sp = (spec.persona.system_prompt || '').trim();
@@ -1433,7 +1557,7 @@
     <dt>Category</dt><dd>${esc(m.category) || '—'}</dd>
     <dt>Language</dt><dd>${m.language === 'zh' ? '中文 Chinese' : m.language === 'en' ? 'English' : m.language ? esc(m.language) : 'Auto · follows the user'}</dd>
     <dt>Visibility</dt><dd>${esc(m.visibility || 'private')}</dd>
-    <dt>Model</dt><dd>${esc(spec.persona.model_class || 'balanced')}</dd>
+    <dt>Model</dt><dd>${reviewModelHTML(spec.persona.model_class)}</dd>
     <dt>System prompt</dt><dd>${spHTML}</dd>
     <dt>Skills (${skillNames.length})</dt><dd class="chips">${chips(skillNames)}</dd>
     <dt>MCP servers (${mcpNames.length})</dt><dd class="chips">${chips(mcpNames)}</dd>
@@ -1555,9 +1679,11 @@
       if ($('f_cat')) m.category = $('f_cat').value;
       if ($('f_lang')) m.language = $('f_lang').value; // '' = universal (omitempty drops it from yaml)
       if ($('f_prompt')) p.system_prompt = $('f_prompt').value;
-      // Map model_class → concrete model id; the deploy adapter reads model_preferences,
-      // not model_class, so this is what makes the selector actually take effect.
-      p.model_preferences = [{ provider: 'anthropic', id: MODEL_CLASS_ID[p.model_class] || MODEL_CLASS_ID.balanced }];
+      // Fill model_preferences[0] from the fetched catalog (not a hardcoded
+      // table). Offline fallback has no model_id → leave empty; conductor
+      // resolves the concrete id from model_class at deploy time.
+      const mc = modelEntry(p.model_class);
+      p.model_preferences = (mc && mc.model_id) ? [{ provider: 'anthropic', id: mc.model_id }] : [];
       spec.skills = [];
       (data.skill_candidates || []).forEach((c, i) => {
         const el = $('skill-' + i); if (!el || !el.checked) return;
@@ -1570,9 +1696,10 @@
         const s = { name: c.name, type: c.type }; if (c.url) s.url = c.url; if (c.command) s.command = c.command; spec.mcp_servers.push(s);
       });
       syncVault();
+      const pickedVault = vault.filter(c => c.name && c.checked);
       spec.vault_hints = {
-        required_credentials: vault.filter(c => c.name && c.required).map(c => ({ name: c.name, purpose: c.purpose, required: true })),
-        optional_credentials: vault.filter(c => c.name && !c.required).map(c => ({ name: c.name, purpose: c.purpose, required: false })),
+        required_credentials: pickedVault.filter(c => c.required).map(c => ({ name: c.name, purpose: c.purpose, required: true })),
+        optional_credentials: pickedVault.filter(c => !c.required).map(c => ({ name: c.name, purpose: c.purpose, required: false })),
       };
       return spec;
     }
@@ -1617,9 +1744,16 @@
       groupLink = link || '';
       $('doneLink').hidden = !groupLink;
       if (groupLink) $('doneLinkOpen').href = groupLink;
-      dialogTerminal = !!terminal;
+      // "terminal" (Deploy / Save & finish) means no-dismiss ONLY in the CLI browser,
+      // where the local server exits and the page goes dead, so the hint is "close the
+      // tab". The desktop app keeps the Wails server alive (server.go Handler never
+      // exits on deploy/done), so always leave a way out: dismiss button, click-outside,
+      // and a hint that points at the window instead of a tab.
+      const noDismiss = terminal && !data.desktop;
+      dialogTerminal = noDismiss;
       $('doneClose').hidden = !terminal;
-      $('doneDismiss').hidden = terminal;
+      $('doneClose').textContent = data.desktop ? 'You can close the window, or keep editing.' : 'You can close this tab.';
+      $('doneDismiss').hidden = noDismiss;
       $('doneDismiss').textContent = ok ? 'Continue' : 'Dismiss';
       $('doneOverlay').hidden = false;
     }

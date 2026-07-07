@@ -20,4 +20,8 @@
 
 - **observe-hook-skill-activation-spike.md** — `agent edit --observe` 可行性 spike（2026-05-21）：验证 Claude Code hooks 能否捕获「skill 激活 / MCP tool 调用」。**结论：完全可行、直接捕获、无需间接推断**。官方 hooks reference + 本机真实 transcript 双证：`Skill` 是一等内置工具（`PreToolUse matcher:"Skill"`，skill 名落 `tool_input.skill`）、MCP tool 形态固定 `mcp__<server>__<tool>`（正则拆 server 预勾）、HTTP hook 直发 `127.0.0.1` 复用现有 webstudio server。唯一边界 `/skillname` 斜杠绕过 PreToolUse（场景影响极小）。含零残留方案（settings.local.json append+标记+整文件备份+启动自检）+ 风险表（子代理冒泡 R3 需开工前实测）+ Plan B transcript 离线解析兜底 + 开工清单。
 
+### Desktop Studio 复用核查
+
+- **desktop-studio-webstudio-reuse-assessment.md** — 桌面 app（`cmd/askdao-studio`，issue #64）复用 webstudio 的可行性核查（2026-07-04）：webstudio 现状功能全景 + 桌面功能 gap 表 + `Desktop` flag 隔离扩展方案（照搬 `Observe` flag 先例，CLI `edit.go` 零改动）+ `deployFromDir` 向后兼容扩展（加 confirm 参数透传可见性降级确认）+ 复用接口锚点（pipeline/auth/deploy/recommender/webstudio 签名 + file:line）+ 构建现实（Wails 需 `CGO=1` per-OS matrix，不能并进 goreleaser 交叉编译；无 PR CI 门禁）。**结论：复用可行、`Desktop` flag 干净隔离不破坏 CLI，比 React 从零重写省一个数量级**。
+
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

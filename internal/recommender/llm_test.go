@@ -120,6 +120,32 @@ func TestMockClient_DefaultRecommend(t *testing.T) {
 	}
 }
 
+func TestBuildVaultHints_ExcludesConfigParams(t *testing.T) {
+	det := &types.Detection{
+		DetectedRequiredSecrets: []types.DetectedRequiredSecret{
+			{Name: "OPENAI_API_KEY", PurposeGuess: "OpenAI API authentication", Required: true},
+			{Name: "DATABASE_URL", PurposeGuess: "PostgreSQL connection string", Required: false},
+			{Name: "DEFAULT_LANGUAGE", PurposeGuess: types.UnknownSecretPurpose, Required: false},
+			{Name: "DALLE3_SIZE", PurposeGuess: types.UnknownSecretPurpose, Required: false},
+		},
+	}
+	hints := BuildVaultHints(det)
+	// Keys matching a credential rule are kept (split by required); config params
+	// carrying UnknownSecretPurpose are dropped entirely.
+	if len(hints.RequiredCredentials) != 1 || hints.RequiredCredentials[0].Name != "OPENAI_API_KEY" {
+		t.Errorf("required = %+v, want [OPENAI_API_KEY]", hints.RequiredCredentials)
+	}
+	if len(hints.OptionalCredentials) != 1 || hints.OptionalCredentials[0].Name != "DATABASE_URL" {
+		t.Errorf("optional = %+v, want [DATABASE_URL]", hints.OptionalCredentials)
+	}
+	all := append(append([]types.VaultCredential{}, hints.RequiredCredentials...), hints.OptionalCredentials...)
+	for _, c := range all {
+		if c.Name == "DEFAULT_LANGUAGE" || c.Name == "DALLE3_SIZE" {
+			t.Errorf("config param %q leaked into vault_hints", c.Name)
+		}
+	}
+}
+
 func TestMockClient_OverrideRespected(t *testing.T) {
 	called := false
 	mock := &MockClient{Override: func(req RecommendRequest) (*RecommendResponse, error) {
@@ -210,6 +236,72 @@ func TestConductorClient_EmptyBaseURL(t *testing.T) {
 	_, err := client.Recommend(context.Background(), sampleRequest())
 	if err == nil {
 		t.Error("empty BaseURL should error")
+	}
+}
+
+func TestFetchModelClasses_HappyPath(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != DefaultModelClassesPath {
+			t.Errorf("path = %q, want %q", r.URL.Path, DefaultModelClassesPath)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
+			t.Errorf("auth header = %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(modelClassesResponse{Classes: []types.ModelClassEntry{
+			{Slug: "balanced", Label: "Balanced", ModelID: "claude-sonnet-5",
+				FriendlyName: "Claude Sonnet 5", CostTier: "moderate", Recommended: true},
+		}})
+	}))
+	defer server.Close()
+
+	client := NewConductorClient(server.URL)
+	client.AuthToken = "test-token"
+	classes, err := client.FetchModelClasses(context.Background())
+	if err != nil {
+		t.Fatalf("FetchModelClasses: %v", err)
+	}
+	if len(classes) != 1 || classes[0].ModelID != "claude-sonnet-5" || !classes[0].Recommended {
+		t.Errorf("classes = %+v", classes)
+	}
+}
+
+func TestFetchModelClassesOrFallback_FallbackOnEmptyBaseURL(t *testing.T) {
+	// No conductor configured → bundled fallback (stable labels, NO model ids).
+	classes := FetchModelClassesOrFallback(context.Background(), "", "")
+	if len(classes) != 3 {
+		t.Fatalf("fallback should have 3 tiers, got %d", len(classes))
+	}
+	for _, c := range classes {
+		if c.ModelID != "" {
+			t.Errorf("fallback tier %q must carry no concrete model id, got %q", c.Slug, c.ModelID)
+		}
+	}
+	if !classes[1].Recommended || classes[1].Slug != "balanced" {
+		t.Errorf("fallback recommended tier = %+v, want balanced", classes[1])
+	}
+}
+
+func TestFetchModelClassesOrFallback_FallbackOnServerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	classes := FetchModelClassesOrFallback(context.Background(), server.URL, "")
+	if len(classes) != 3 || classes[0].Slug != "high_reasoning" {
+		t.Errorf("server error should degrade to fallback, got %+v", classes)
+	}
+}
+
+func TestDefaultMockRecommend_NoHardcodedModelID(t *testing.T) {
+	// Regression: the offline mock must set only model_class, never a hardcoded
+	// concrete model id — conductor resolves it from model_class at deploy time.
+	resp := DefaultMockRecommend(sampleRequest())
+	if resp.Spec.Persona.ModelClass != "balanced" {
+		t.Errorf("model_class = %q, want balanced", resp.Spec.Persona.ModelClass)
+	}
+	if len(resp.Spec.Persona.ModelPreferences) != 0 {
+		t.Errorf("mock must not hardcode model_preferences, got %+v", resp.Spec.Persona.ModelPreferences)
 	}
 }
 

@@ -26,6 +26,10 @@ AWS_SECRET_ACCESS_KEY=
 # arbitrary third-party
 STRIPE_API_KEY=
 
+# password / service-account credentials
+JUPYTER_PASSWORD=
+GOOGLE_APPLICATION_CREDENTIALS=
+
 # unknown — no rule matches
 CUSTOM_FLAG=true
 `)
@@ -61,6 +65,15 @@ CUSTOM_FLAG=true
 	}
 	if byName["CUSTOM_FLAG"].Required {
 		t.Error("CUSTOM_FLAG with no rule match should be required=false")
+	}
+	if !byName["JUPYTER_PASSWORD"].Required {
+		t.Error("JUPYTER_PASSWORD should match PASSWORD rule (required)")
+	}
+	if !byName["GOOGLE_APPLICATION_CREDENTIALS"].Required {
+		t.Error("GOOGLE_APPLICATION_CREDENTIALS should match CREDENTIAL rule (required)")
+	}
+	if byName["CUSTOM_FLAG"].PurposeGuess != types.UnknownSecretPurpose {
+		t.Errorf("CUSTOM_FLAG purpose = %q, want UnknownSecretPurpose", byName["CUSTOM_FLAG"].PurposeGuess)
 	}
 }
 

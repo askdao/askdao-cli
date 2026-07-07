@@ -35,6 +35,8 @@ var secretRules = []secretRule{
 	{matchSubstr: []string{"REDIS_URL"}, purpose: "Redis connection string (project-internal)", required: false, note: "Likely development-only"},
 	{matchSubstr: []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"}, purpose: "AWS credentials", required: true},
 	{matchSubstr: []string{"_API_KEY", "_TOKEN", "_SECRET"}, purpose: "Third-party API credential", required: true},
+	{matchSubstr: []string{"PASSWORD"}, purpose: "Password credential", required: true},
+	{matchSubstr: []string{"CREDENTIAL"}, purpose: "Service account credential", required: true},
 }
 
 // DetectRequiredSecrets reads .env.example / .env.sample / .env.template at
@@ -132,7 +134,7 @@ func classifySecret(name, source string, mcpHints map[string]string) types.Detec
 	return types.DetectedRequiredSecret{
 		Name:         name,
 		From:         source,
-		PurposeGuess: "Unknown — KOL should review and decide",
+		PurposeGuess: types.UnknownSecretPurpose,
 		Required:     false,
 	}
 }

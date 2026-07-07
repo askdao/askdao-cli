@@ -14,7 +14,7 @@ L4 推荐器 —— askdao-cli 的"模糊推断"边界。L1-L3 全确定性，�
   默认 policy 永远是 `always_allow`；产生 `ProductionSignals` 时往 `ToolOverridesRecommended` 加两条 `bash` + `write` → `always_ask`。这与 design.md §4 的示例对齐 —— policy 层不直接翻 default，让 LLM 后续基于 evidence 加 nuance。
 - **fs.go** — 极薄包装 `os.Stat` / `os.ReadDir`，把 `os` import 局限在一处，让 policy.go 的依赖更干净。变量 `osStat` 留作测试可替换钩子。
 - **llm.go** — `LLMClient` 接口 + 两实现：
-  - `ConductorClient`：HTTP POST `/api/v1/cli/recommend`，bearer 鉴权可选，默认 90s 超时（覆盖 LLM tail latency）。响应解析后会校验 `apiVersion == askdao.ai/v1`，避免 conductor 端意外升级 schema 静默通过。
+  - `ConductorClient`：HTTP POST `/api/v1/cli/recommend`，bearer 鉴权可选，默认 90s 超时（覆盖 LLM tail latency）。响应解析后会校验 `apiVersion == askdao.ai/v1`，避免 conductor 端意外升级 schema 静默通过。**另加 `FetchModelClasses`（GET `/api/v1/cli/model-classes`）+ 模块级 `FetchModelClassesOrFallback(ctx, baseURL, token)`：拉 model 档目录喂 studio 第二步选择器，conductor 不可达/未登录时降级 `types.FallbackModelClasses()`（仅 slug/label/blurb、无 concrete id → 二进制不含模型 id，真 id 部署时由 conductor 从 model_class 解析）。**
   - `MockClient`：`Override` 函数指针注入；nil 时走 `DefaultMockRecommend`，按请求材料拼一份"足够合法"的 AgentSpec —— 让开发期 / 单测在没有在线 conductor 时也能联调（`ASKDAO_CONDUCTOR_URL` 未设时 cmd 层 `chooseLLMClient` 默认走它），并作为 conductor `/cli/recommend` 集成测试的参考实现。
   
   `RecommendRequest` 携带 `Detection` + `ProviderSummary` slice + `Policy` + `AgentName` + `PreferredHarness`。`ProviderSummary` 是 internal/providers 的 `FrameworkPlan` 的 JSON-friendly 投影 —— 不直接 import providers 包是为了避免跟 conductor 端 mock server 引入跨包循环。
@@ -22,8 +22,9 @@ L4 推荐器 —— askdao-cli 的"模糊推断"边界。L1-L3 全确定性，�
   `DefaultMockRecommend` 内部 helper：
   - `extractCompatibleMCPServers` 只透传 `AnthropicCompatible=true` 的 server（stdio 自动过滤）
   - `buildWorkspace` 从 detection 抽 prod-only pip / npm 包名，apt 列表去重合并 provider summary + detection.InferredAptPackages
-  - `buildVaultHints` 按 required 拆 RequiredCredentials / OptionalCredentials；UsedByGuess.MCPServer 写成 `map[string]interface{}{"mcp_server": ...}` 对齐 schema 自由形态
+  - `BuildVaultHints`（导出）**过滤非凭证**（跳过 `PurposeGuess == types.UnknownSecretPurpose` 的配置参数，不进 vault_hints）后按 required 拆 RequiredCredentials / OptionalCredentials；UsedByGuess.MCPServer 写成 `map[string]interface{}{"mcp_server": ...}` 对齐 schema 自由形态。被 `cmd/askdao/edit.go` + `cmd/askdao-studio/app.go` 作确定性硬字段覆写复用（治 mock + conductor 两路径）
   - `harnessFor` 优先级：`req.PreferredHarness` > `Detection.DetectedHarnessSignals.RecommendedHarness` > 兜底 `anthropic_managed_agents`
+  - `Persona` 只设 `ModelClass:"balanced"`，**不再硬编码 `ModelPreferences` 具体 model id**（真 id 由 conductor 从 model_class 解析 / studio 选择器从 catalog 填），杜绝客户端硬编码模型 id
 
 - **capabilities.go** — `DefaultCapabilities(policy)` 确定性生成 capabilities（hard field §9.13，同 skills 不交 LLM 即兴）：4 槽固定 `enabled=true` + 规范 scopes 词表（shell:read/write/execute · filesystem:read/write · web:fetch · code_execution:javascript/shell）+ permission（shell 按 production signals 收紧为 `ask_for_dangerous`，其余 `always_allow`）。被 `MockClient`（llm.go）+ `cmd/askdao/edit.go` loadOrScan 两分支覆盖 `spec.Capabilities`。Anthropic adapter 忽略 scopes，未来 harness 可用。
 - **\*\_test.go** — `policy_test.go` 覆盖 production deploy + glob + dir + 用户数据 + 空树 + 错误边界；`llm_test.go` 覆盖 MockClient 默认输出 + Override 注入 + ConductorClient happy-path（用 `httptest.NewServer` 反向喂 `DefaultMockRecommend` 验证序列化往返）+ 非 2xx 错误带 body + apiVersion 校验 + 空 BaseURL。
