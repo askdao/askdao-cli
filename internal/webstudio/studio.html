@@ -439,6 +439,16 @@
       font-weight: 600;
     }
 
+    .model-hint {
+      color: var(--stone);
+      font-size: 12.5px;
+      margin: 8px 2px 0;
+    }
+
+    .mono {
+      font-family: var(--mono);
+    }
+
     .swatches {
       display: flex;
       gap: 12px;
@@ -1176,16 +1186,30 @@
 
   <script>
     const STEPS = [{ label: "Identity" }, { label: "Persona" }, { label: "Skills & Tools" }, { label: "Review & Deploy" }];
-    // model_class → concrete anthropic model id. collect() writes model_preferences[0]
-    // from this, so the KOL's Model Class choice actually reaches the deploy adapter —
-    // which picks the first anthropic id in model_preferences and ignores model_class.
-    const MODEL_CLASS_ID = {
-      high_reasoning: 'claude-opus-4-8',
-      balanced: 'claude-sonnet-5',
-      fast: 'claude-haiku-4-5',
-      multimodal: 'claude-sonnet-5',
-      coding: 'claude-sonnet-5',
-    };
+    // Model-class tiers come from data.model_catalog (fetched from conductor's
+    // /cli/model-classes), NOT a hardcoded table — concrete model ids live only
+    // in conductor. modelEntry() looks one up by slug; the offline fallback
+    // catalog has no model_id (binary stays id-free) so the caption degrades to
+    // the tier blurb.
+    const modelEntry = (slug) => (data.model_catalog || []).find(c => c.slug === slug);
+    function modelHintHTML(slug) {
+      const c = modelEntry(slug);
+      if (!c) return '';
+      if (!c.model_id) return esc(c.blurb || '');
+      const cost = c.cost_tier && c.cost_tier !== 'unknown' ? ` · ${esc(c.cost_tier)} cost` : '';
+      return `${esc(c.friendly_name)} <span class="mono">(${esc(c.model_id)})</span>${cost}`;
+    }
+    function reviewModelHTML(slug) {
+      const c = modelEntry(slug);
+      if (!c) return esc(slug || 'balanced');
+      if (!c.model_id) return esc(c.label);
+      return `${esc(c.label)} · ${esc(c.friendly_name)} <span class="mono">(${esc(c.model_id)})</span>`;
+    }
+    function pickModelClass(slug) {
+      spec.persona.model_class = slug;
+      const hint = $('modelHint');
+      if (hint) hint.innerHTML = modelHintHTML(slug);
+    }
     const HARNESS_NAME = { claude: "Claude Code", codex: "OpenAI Codex", cursor: "Cursor", cowork: "Claude Cowork" };
     let data, spec, palette = {}, step = 0, vault = [];
     const $ = (id) => document.getElementById(id);
@@ -1356,13 +1380,19 @@
     /* Step 2 · Persona */
     function panelPersona() {
       const p = spec.persona;
-      const classes = [['high_reasoning', 'Deep reasoning'], ['balanced', 'Balanced'], ['fast', 'Fast'], ['multimodal', 'Multimodal'], ['coding', 'Coding']]
-        .map(([v, l]) => `<label><input type="radio" name="mc" value="${v}" ${v === p.model_class ? 'checked' : ''} onchange="spec.persona.model_class=this.value"><span>${l}</span></label>`).join('');
+      const catalog = data.model_catalog || [];
+      // Default selection to the recommended tier when the draft's model_class
+      // isn't one of the offered slugs (e.g. legacy multimodal/coding).
+      if (catalog.length && !catalog.some(c => c.slug === p.model_class)) {
+        p.model_class = (catalog.find(c => c.recommended) || catalog[0]).slug;
+      }
+      const classes = catalog
+        .map(c => `<label><input type="radio" name="mc" value="${esc(c.slug)}" ${c.slug === p.model_class ? 'checked' : ''} onchange="pickModelClass(this.value)"><span>${esc(c.label)}</span></label>`).join('');
       return `<section class="panel" data-step="1">
     <p class="eyebrow">Step 2 of 4 · Persona</p>
     <h2>Shape its voice</h2>
-    <p class="sub">Pick the model class and write the system prompt that defines its behaviour.</p>
-    <div class="card"><label class="f"><span>Model class ${confBadge('model')}</span><div class="seg">${classes}</div><div class="field-err" id="err_model"></div></label></div>
+    <p class="sub">Pick the model and write the system prompt that defines its behaviour.</p>
+    <div class="card"><label class="f"><span>Model ${confBadge('model')}</span><div class="seg">${classes}</div><div class="model-hint" id="modelHint">${modelHintHTML(p.model_class)}</div><div class="field-err" id="err_model"></div></label></div>
     <div class="card"><label class="f"><span>System prompt ${confBadge('persona', 'system', 'prompt')}</span>
       <textarea id="f_prompt" class="prompt" placeholder="You are a …">${esc(p.system_prompt)}</textarea><div class="field-err" id="err_prompt"></div></label></div>
   </section>`;
@@ -1527,7 +1557,7 @@
     <dt>Category</dt><dd>${esc(m.category) || '—'}</dd>
     <dt>Language</dt><dd>${m.language === 'zh' ? '中文 Chinese' : m.language === 'en' ? 'English' : m.language ? esc(m.language) : 'Auto · follows the user'}</dd>
     <dt>Visibility</dt><dd>${esc(m.visibility || 'private')}</dd>
-    <dt>Model</dt><dd>${esc(spec.persona.model_class || 'balanced')}</dd>
+    <dt>Model</dt><dd>${reviewModelHTML(spec.persona.model_class)}</dd>
     <dt>System prompt</dt><dd>${spHTML}</dd>
     <dt>Skills (${skillNames.length})</dt><dd class="chips">${chips(skillNames)}</dd>
     <dt>MCP servers (${mcpNames.length})</dt><dd class="chips">${chips(mcpNames)}</dd>
@@ -1649,9 +1679,11 @@
       if ($('f_cat')) m.category = $('f_cat').value;
       if ($('f_lang')) m.language = $('f_lang').value; // '' = universal (omitempty drops it from yaml)
       if ($('f_prompt')) p.system_prompt = $('f_prompt').value;
-      // Map model_class → concrete model id; the deploy adapter reads model_preferences,
-      // not model_class, so this is what makes the selector actually take effect.
-      p.model_preferences = [{ provider: 'anthropic', id: MODEL_CLASS_ID[p.model_class] || MODEL_CLASS_ID.balanced }];
+      // Fill model_preferences[0] from the fetched catalog (not a hardcoded
+      // table). Offline fallback has no model_id → leave empty; conductor
+      // resolves the concrete id from model_class at deploy time.
+      const mc = modelEntry(p.model_class);
+      p.model_preferences = (mc && mc.model_id) ? [{ provider: 'anthropic', id: mc.model_id }] : [];
       spec.skills = [];
       (data.skill_candidates || []).forEach((c, i) => {
         const el = $('skill-' + i); if (!el || !el.checked) return;

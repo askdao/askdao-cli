@@ -1,6 +1,6 @@
 // [INPUT]: internal/pipeline（Run）+ internal/webstudio（Serve / BuildStudioData / DefaultThemeForCategory）
 //
-//   - internal/deploy（DeployResponse / Err* 类型）+ internal/observe（Install / SweepStale）+ internal/types（AgentSpec / Detection）+ yaml；
+//   - internal/deploy（DeployResponse / Err* 类型）+ internal/observe（Install / SweepStale）+ internal/types（AgentSpec / Detection）+ internal/recommender（DefaultCapabilities / BuildVaultHints / FetchModelClassesOrFallback）+ yaml；
 //     复用同包 helper：chooseLLMClient / readSpec / resolveServerAndToken / deployFromDir / ensureAskdaoDir /
 //     defaultAgentName / askdaoAgentFileName / askdaoDirName
 //
@@ -80,6 +80,11 @@ func runEdit(ctx context.Context, args []string) int {
 	// selection verbatim. A fresh draft uses the default selection policy.
 	data := webstudio.BuildStudioData(spec, det, "Anthropic Managed Agents", loaded)
 	data.Observe = *observeMode
+	// Model-class catalog for the step-2 selector: fetched from conductor so the
+	// concrete model ids aren't baked into this binary. Degrades to a minimal
+	// bundled fallback offline (token is optional for edit).
+	editURL, editToken, _ := resolveServerAndToken()
+	data.ModelCatalog = recommender.FetchModelClassesOrFallback(ctx, editURL, editToken)
 
 	// --observe arms temporary hooks bound to the studio port (set in OnReady, once
 	// the port is known) and tears them down on the way out. SweepStale first clears

@@ -132,6 +132,7 @@ func (a *App) runScan() (*webstudio.StudioData, error) {
 	}
 	data := webstudio.BuildStudioData(spec, res.Detection, "Anthropic Managed Agents", false)
 	data.Desktop = true
+	data.ModelCatalog = a.modelCatalog(ctx)
 	a.mu.Lock()
 	a.dir, a.currentData = dir, data
 	a.mu.Unlock()
@@ -221,6 +222,17 @@ func (a *App) llmClient() recommender.LLMClient {
 	cl := recommender.NewConductorClient(creds.Server)
 	cl.AuthToken = creds.AccessToken
 	return cl
+}
+
+// modelCatalog fetches the conductor model-class catalog for the step-2
+// selector, degrading to the bundled minimal fallback when logged out / offline
+// (so the binary carries no concrete model ids).
+func (a *App) modelCatalog(ctx context.Context) []types.ModelClassEntry {
+	var url, token string
+	if creds, err := auth.Load(); err == nil {
+		url, token = creds.Server, creds.AccessToken
+	}
+	return recommender.FetchModelClassesOrFallback(ctx, url, token)
 }
 
 // --- login (device flow, 阶段3) -------------------------------------------------
