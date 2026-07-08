@@ -302,6 +302,57 @@ func TestOpenExternalAbsentForCLI(t *testing.T) {
 	}
 }
 
+func TestSkillValidateRoute(t *testing.T) {
+	done := make(chan error, 1)
+	opts := Options{
+		OnSkillValidate: func() ([]SkillValidation, error) {
+			return []SkillValidation{
+				{Path: ".claude/skills/good", DirName: "good", HasName: true, HasDescription: true},
+				{Path: ".claude/skills/nodesc", DirName: "nodesc", HasName: true, HasDescription: false},
+			}, nil
+		},
+	}
+	srv := httptest.NewServer(buildMux(opts, done))
+	defer srv.Close()
+	r, err := http.Post(srv.URL+"/api/skill-validate", "application/json", nil)
+	if err != nil || r.StatusCode != 200 {
+		t.Fatalf("/api/skill-validate status=%v err=%v", r.StatusCode, err)
+	}
+	var got []SkillValidation
+	_ = json.NewDecoder(r.Body).Decode(&got)
+	if len(got) != 2 || got[1].Path != ".claude/skills/nodesc" || got[1].HasDescription {
+		t.Errorf("/api/skill-validate result = %+v", got)
+	}
+}
+
+func TestSkillFixRoute(t *testing.T) {
+	var gotFix SkillFix
+	done := make(chan error, 1)
+	opts := Options{OnSkillFix: func(f SkillFix) error { gotFix = f; return nil }}
+	srv := httptest.NewServer(buildMux(opts, done))
+	defer srv.Close()
+	r, err := http.Post(srv.URL+"/api/skill-fix", "application/json", bytes.NewBufferString(`{"path":".claude/skills/nodesc","description":"does a thing when asked"}`))
+	if err != nil || r.StatusCode != 200 {
+		t.Fatalf("/api/skill-fix status=%v err=%v", r.StatusCode, err)
+	}
+	if gotFix.Path != ".claude/skills/nodesc" || gotFix.Description != "does a thing when asked" {
+		t.Errorf("OnSkillFix got %+v", gotFix)
+	}
+}
+
+// skill routes must NOT exist when the callbacks are nil (the CLI agent-edit path).
+func TestSkillRoutesAbsentForCLI(t *testing.T) {
+	done := make(chan error, 1)
+	srv := httptest.NewServer(buildMux(Options{Data: &StudioData{}}, done))
+	defer srv.Close()
+	for _, p := range []string{"/api/skill-validate", "/api/skill-fix"} {
+		r, _ := http.Post(srv.URL+p, "application/json", nil)
+		if r.StatusCode != 404 {
+			t.Errorf("%s should be 404 when callback nil, got %d", p, r.StatusCode)
+		}
+	}
+}
+
 func TestObserveEndpoint(t *testing.T) {
 	done := make(chan error, 1)
 	srv := httptest.NewServer(buildMux(Options{Data: &StudioData{}}, done))

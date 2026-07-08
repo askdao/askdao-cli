@@ -1,5 +1,5 @@
 // [INPUT]: 依赖 path/filepath；internal/types 的 AgentSpec / Detection / DetectedSkill / ReasoningDecision
-// [OUTPUT]: 对外提供 StudioData / SkillCandidate / MCPCandidate / ObservedData / AuthState / LoginChallenge / ChatRequest / BuildStudioData
+// [OUTPUT]: 对外提供 StudioData / SkillCandidate / MCPCandidate / ObservedData / AuthState / LoginChallenge / ChatRequest / SkillValidation / SkillFix / BuildStudioData
 // [POS]: webstudio 的数据契约层 —— 把 pipeline 产物（spec 草稿 + detection 候选）摊平成前端 JSON；
 //
 //	restorePrior=true（编辑已有 yaml）时勾选态以 spec.skills/mcp_servers 为唯一真相；
@@ -59,6 +59,29 @@ type ChatRequest struct {
 	Message   string `json:"message"`
 	AgentID   string `json:"agent_id"`
 	SessionID string `json:"session_id,omitempty"`
+}
+
+// SkillValidation is one entry of the /api/skill-validate result — the desktop
+// Skills step reads it to flag a custom_local skill whose SKILL.md frontmatter is
+// missing name or description (exactly the fields PackageSkills rejects at deploy
+// time, surfaced here so the KOL fixes them before deploy, not after). Path
+// matches the SkillCandidate.Path the frontend keys on; DirName is the folder
+// basename offered as a one-tap name fill.
+type SkillValidation struct {
+	Path           string `json:"path"`
+	DirName        string `json:"dir_name"`
+	HasName        bool   `json:"has_name"`
+	HasDescription bool   `json:"has_description"`
+}
+
+// SkillFix is the POST /api/skill-fix body — write name and/or description into a
+// custom_local skill's SKILL.md frontmatter (an empty field is left untouched, so
+// the KOL can fix just the missing one). Path is the SkillCandidate.Path; the Go
+// side resolves it to the on-disk SKILL.md.
+type SkillFix struct {
+	Path        string `json:"path"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // AuthState is the desktop login status — the GET /api/auth/status payload and
