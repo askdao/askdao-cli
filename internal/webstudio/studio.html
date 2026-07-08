@@ -1870,6 +1870,18 @@
       }
     }
 
+    // Desktop: the webview ignores target=_blank / window.open, so route external-
+    // link clicks (the group page, any future external link) through the Go side —
+    // POST /api/open-external opens them in the real browser. Registered once;
+    // guarded by data.desktop at click time. CLI keeps native target=_blank.
+    document.addEventListener('click', (e) => {
+      if (!data || !data.desktop) return;
+      const a = e.target.closest && e.target.closest('a[target="_blank"]');
+      if (!a || !a.getAttribute('href')) return;
+      e.preventDefault();
+      fetch('/api/open-external', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: a.href }) });
+    });
+
     // confidence tooltip — single fixed node near <body>, positioned by JS; immune
     // to card stacking-contexts and the .wrap scroll-overflow that clipped the old
     // CSS pseudo-element version. Flips above the badge when there's no room below.

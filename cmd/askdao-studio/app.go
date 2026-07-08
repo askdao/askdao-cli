@@ -58,17 +58,18 @@ func (a *App) startup(ctx context.Context) { a.ctx = ctx }
 // register /api/auth/*. Desktop-only routes exist because these callbacks are set.
 func (a *App) StudioOptions() webstudio.Options {
 	return webstudio.Options{
-		OnSpec:       a.spec,
-		OnScanPick:   a.pickFolder,
-		OnScanRun:    a.runScan,
-		OnScanCancel: a.cancelScan,
-		OnSave:       a.save,
-		OnDeploy:     a.deploy,
-		OnAuthState:  a.authState,
-		OnLogin:      a.startLogin,
-		OnLoginPoll:  a.loginPoll,
-		OnLogout:     a.logout,
-		OnChat:       a.chat,
+		OnSpec:         a.spec,
+		OnScanPick:     a.pickFolder,
+		OnScanRun:      a.runScan,
+		OnScanCancel:   a.cancelScan,
+		OnSave:         a.save,
+		OnDeploy:       a.deploy,
+		OnAuthState:    a.authState,
+		OnLogin:        a.startLogin,
+		OnLoginPoll:    a.loginPoll,
+		OnLogout:       a.logout,
+		OnChat:         a.chat,
+		OnOpenExternal: a.openExternal,
 	}
 }
 
@@ -232,6 +233,14 @@ func (a *App) chat(ctx context.Context, req webstudio.ChatRequest, emit func(raw
 		AgentID:   req.AgentID,
 		SessionID: req.SessionID,
 	}, emit)
+}
+
+// openExternal opens url in the system browser. The desktop webview ignores
+// target=_blank / window.open, so studio.html routes external-link clicks (the
+// group page) here via /api/open-external. Reuses openBrowser (same as login).
+func (a *App) openExternal(url string) error {
+	openBrowser(url)
+	return nil
 }
 
 // llmClient wires the recommend client: conductor when logged in, offline mock

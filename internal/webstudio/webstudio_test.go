@@ -276,6 +276,32 @@ func TestChatRouteAbsentForCLI(t *testing.T) {
 	}
 }
 
+func TestOpenExternalRoute(t *testing.T) {
+	var gotURL string
+	done := make(chan error, 1)
+	opts := Options{OnOpenExternal: func(url string) error { gotURL = url; return nil }}
+	srv := httptest.NewServer(buildMux(opts, done))
+	defer srv.Close()
+	r, err := http.Post(srv.URL+"/api/open-external", "application/json", bytes.NewBufferString(`{"url":"https://askdao.ai/g/x"}`))
+	if err != nil || r.StatusCode != 200 {
+		t.Fatalf("/api/open-external status=%v err=%v", r.StatusCode, err)
+	}
+	if gotURL != "https://askdao.ai/g/x" {
+		t.Errorf("OnOpenExternal got %q", gotURL)
+	}
+}
+
+// /api/open-external must NOT exist when OnOpenExternal is nil (the CLI path).
+func TestOpenExternalAbsentForCLI(t *testing.T) {
+	done := make(chan error, 1)
+	srv := httptest.NewServer(buildMux(Options{Data: &StudioData{}}, done))
+	defer srv.Close()
+	r, _ := http.Post(srv.URL+"/api/open-external", "application/json", bytes.NewBufferString(`{"url":"x"}`))
+	if r.StatusCode != 404 {
+		t.Errorf("/api/open-external should be 404 when OnOpenExternal nil, got %d", r.StatusCode)
+	}
+}
+
 func TestObserveEndpoint(t *testing.T) {
 	done := make(chan error, 1)
 	srv := httptest.NewServer(buildMux(Options{Data: &StudioData{}}, done))

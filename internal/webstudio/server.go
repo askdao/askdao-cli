@@ -2,7 +2,7 @@
 // [OUTPUT]: 对外提供 Options / Serve / Handler；包内 buildMux / openBrowser / observed
 // [POS]: webstudio 的本地 HTTP server —— 绑 127.0.0.1:随机端口，serve go:embed 的 studio.html +
 //
-//	/api/spec(GET) /api/save /api/deploy /api/done /api/observe(GET 读名单 / POST 收 hook 上报) /api/chat(桌面流式代理→conductor /chat SSE)；
+//	/api/spec(GET) /api/save /api/deploy /api/done /api/observe(GET 读名单 / POST 收 hook 上报) /api/chat(桌面流式代理→conductor /chat SSE) /api/open-external(桌面外链→系统浏览器)；
 //	写 yaml / deploy 由 cmd 层注入 OnSave/OnDeploy 回调解耦，OnReady(port) 在 serve 后回调供 cmd 写 hook settings；
 //	阻塞至 KOL 在浏览器点 部署 或 完成。buildMux 抽出供 httptest 单测。
 //
@@ -72,6 +72,12 @@ type Options struct {
 	// client and errors when the downstream connection is gone (stop streaming).
 	// CLI leaves it nil, so /api/chat never exists there.
 	OnChat func(ctx context.Context, req ChatRequest, emit func(raw []byte) error) error
+
+	// OnOpenExternal, if set, registers POST /api/open-external — the desktop
+	// webview swallows target=_blank / window.open, so the frontend routes
+	// external-link clicks (the group page, etc.) here and the Go side opens
+	// them in the real browser. CLI leaves it nil, so the route never exists.
+	OnOpenExternal func(url string) error
 }
 
 // Serve starts the local studio, opens the browser, and blocks until the KOL
@@ -328,6 +334,27 @@ func buildMux(opts Options, done chan error) *http.ServeMux {
 				// Best-effort error frame; if emit itself fails the client is already gone.
 				_ = emit([]byte(fmt.Sprintf(`{"type":"error","message":%q}`, err.Error())))
 			}
+		})
+	}
+
+	// Desktop-only /api/open-external — the webview swallows target=_blank /
+	// window.open, so the frontend POSTs external-link clicks here and the Go
+	// side opens them in the real browser. CLI leaves OnOpenExternal nil, so the
+	// route never exists there.
+	if opts.OnOpenExternal != nil {
+		mux.HandleFunc("/api/open-external", func(w http.ResponseWriter, r *http.Request) {
+			var p struct {
+				URL string `json:"url"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+				writeErr(w, err)
+				return
+			}
+			if err := opts.OnOpenExternal(p.URL); err != nil {
+				writeErr(w, err)
+				return
+			}
+			writeJSON(w, map[string]string{"status": "opened"})
 		})
 	}
 
