@@ -2,7 +2,7 @@
 // [OUTPUT]: 对外提供 Options / Serve / Handler；包内 buildMux / openBrowser / observed
 // [POS]: webstudio 的本地 HTTP server —— 绑 127.0.0.1:随机端口，serve go:embed 的 studio.html +
 //
-//	/api/spec(GET) /api/save /api/deploy /api/done /api/observe(GET 读名单 / POST 收 hook 上报)；
+//	/api/spec(GET) /api/save /api/deploy /api/done /api/observe(GET 读名单 / POST 收 hook 上报) /api/chat(桌面流式代理→conductor /chat SSE)；
 //	写 yaml / deploy 由 cmd 层注入 OnSave/OnDeploy 回调解耦，OnReady(port) 在 serve 后回调供 cmd 写 hook settings；
 //	阻塞至 KOL 在浏览器点 部署 或 完成。buildMux 抽出供 httptest 单测。
 //
@@ -53,10 +53,10 @@ type Options struct {
 	OnScanPick   func() (string, error)
 	OnScanRun    func() (*StudioData, error)
 	OnScanCancel func() error
-	OnSave    func(*types.AgentSpec) error
-	OnDeploy  func(*types.AgentSpec) (*DeployResult, error)
-	OnReady   func(port int)
-	NoBrowser bool
+	OnSave       func(*types.AgentSpec) error
+	OnDeploy     func(*types.AgentSpec) (*DeployResult, error)
+	OnReady      func(port int)
+	NoBrowser    bool
 
 	// Desktop-only auth callbacks. All nil in the CLI (agent edit) path — the
 	// desktop app injects them, and their presence registers the /api/auth/*
@@ -65,6 +65,13 @@ type Options struct {
 	OnLogin     func() (LoginChallenge, error)
 	OnLoginPoll func() (AuthState, error)
 	OnLogout    func() error
+
+	// OnChat, if set, registers the streaming POST /api/chat proxy — the desktop
+	// test-chat panel POSTs a ChatRequest, this forwards it to conductor's /chat
+	// SSE and streams each raw frame back. emit writes one SSE data-frame to the
+	// client and errors when the downstream connection is gone (stop streaming).
+	// CLI leaves it nil, so /api/chat never exists there.
+	OnChat func(ctx context.Context, req ChatRequest, emit func(raw []byte) error) error
 }
 
 // Serve starts the local studio, opens the browser, and blocks until the KOL
@@ -290,6 +297,37 @@ func buildMux(opts Options, done chan error) *http.ServeMux {
 				return
 			}
 			writeJSON(w, map[string]string{"status": "logged_out"})
+		})
+	}
+
+	// Desktop-only streaming chat proxy — the test-chat panel POSTs a ChatRequest;
+	// this forwards to conductor's /chat and streams each raw SSE frame back. First
+	// non-writeJSON (flushed) handler in this package. CLI leaves OnChat nil, so the
+	// route never exists there.
+	if opts.OnChat != nil {
+		mux.HandleFunc("/api/chat", func(w http.ResponseWriter, r *http.Request) {
+			var req ChatRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				writeErr(w, err)
+				return
+			}
+			_ = r.Body.Close()
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			flusher, _ := w.(http.Flusher)
+			emit := func(raw []byte) error {
+				if _, err := fmt.Fprintf(w, "data: %s\n\n", raw); err != nil {
+					return err
+				}
+				if flusher != nil {
+					flusher.Flush()
+				}
+				return nil
+			}
+			if err := opts.OnChat(r.Context(), req, emit); err != nil {
+				// Best-effort error frame; if emit itself fails the client is already gone.
+				_ = emit([]byte(fmt.Sprintf(`{"type":"error","message":%q}`, err.Error())))
+			}
 		})
 	}
 

@@ -1169,6 +1169,7 @@
         <a id="doneLinkOpen" target="_blank" rel="noopener">Open group page</a>
         <button type="button" id="doneLinkCopy" onclick="copyGroupLink()">Copy link</button>
       </div>
+      <button type="button" id="doneChatBtn" class="act btn primary" hidden onclick="openChat()">Test chat</button>
       <button type="button" id="doneDismiss" class="done-dismiss" hidden onclick="closeDialog()">Continue</button>
       <p class="done-close" id="doneClose">You can close this tab.</p>
     </div>
@@ -1181,6 +1182,35 @@
       <button type="button" id="chooseFolderBtn" class="act btn primary" onclick="doScan()">Choose folder…</button>
       <button type="button" id="stopScanBtn" class="act btn" hidden onclick="stopScan()">Stop scanning</button>
       <p class="done-msg" id="scanStatus"></p>
+    </div>
+  </div>
+
+  <style>
+    .chat-card{background:#fff;border-radius:14px;width:min(560px,92vw);max-height:82vh;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,.18);overflow:hidden}
+    .chat-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #ece9df}
+    .chat-title{font-family:'Newsreader',Georgia,serif;font-size:18px;font-weight:600;color:#1f2b3a}
+    .chat-x{background:none;border:none;font-size:18px;color:#8a8577;cursor:pointer;line-height:1;padding:2px 6px}
+    .chat-log{flex:1;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:10px;min-height:220px}
+    .chat-msg{max-width:82%;padding:9px 13px;border-radius:12px;font-size:14px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word}
+    .chat-msg.user{align-self:flex-end;background:var(--accent,#2b4a6f);color:#fff;border-bottom-right-radius:4px}
+    .chat-msg.agent{align-self:flex-start;background:#f2f0e8;color:#26303c;border-bottom-left-radius:4px}
+    .chat-msg.err{align-self:flex-start;background:#fbeaea;color:#9b2c2c}
+    .chat-msg.typing{color:#8a8577}
+    .chat-form{display:flex;gap:8px;padding:12px 14px;border-top:1px solid #ece9df;align-items:flex-end}
+    .chat-form textarea{flex:1;resize:none;border:1px solid #ddd8c9;border-radius:10px;padding:9px 12px;font:inherit;font-size:14px;max-height:120px;background:#fdfcf8}
+    .chat-form textarea:focus{outline:none;border-color:var(--accent,#2b4a6f)}
+  </style>
+  <div id="chatOverlay" class="overlay" hidden>
+    <div class="chat-card">
+      <div class="chat-head">
+        <span class="chat-title">Test your agent</span>
+        <button type="button" class="chat-x" onclick="closeChat()" aria-label="Close">✕</button>
+      </div>
+      <div id="chatLog" class="chat-log"></div>
+      <form class="chat-form" onsubmit="sendChat(event)">
+        <textarea id="chatText" rows="1" placeholder="Message your agent…" onkeydown="chatKey(event)"></textarea>
+        <button type="submit" id="chatSend" class="act btn primary">Send</button>
+      </form>
     </div>
   </div>
 
@@ -1722,7 +1752,7 @@
         const j = await r.json();
         if (j.error) showDialog({ kind: 'error', title: failTitle, msg: j.error, terminal: false });
         else if (j.status === 'saved') showDialog({ kind: 'success', title: 'Draft saved', msg: 'askdao-agent.yml saved. Keep editing or deploy when ready.', terminal: false });
-        else if (j.status === 'deployed') { showDialog({ kind: 'success', title: 'Agent deployed', msg: j.message, link: j.group_link, terminal: true }); return; }
+        else if (j.status === 'deployed') { showDialog({ kind: 'success', title: 'Agent deployed', msg: j.message, link: j.group_link, terminal: true, agentId: j.agent_id }); return; }
         else { showDialog({ kind: 'success', title: 'Saved', msg: j.message || 'askdao-agent.yml saved.', terminal: true }); return; }
       } catch (e) { showDialog({ kind: 'error', title: failTitle, msg: String(e), terminal: false }); }
       finally { busy = false;['btnSaveDraft', 'btnBack', 'btnNext', 'btnDeploy', 'btnDone'].forEach(b => $(b).disabled = false); }
@@ -1734,8 +1764,8 @@
        no dismiss. terminal=false (Draft saved / any error): the server is still up, so
        offer a dismiss button (and click-outside) to return to editing. Deploy success
        carries the clickable group link, the subscriber entry point the KOL wants. */
-    let groupLink = '', dialogTerminal = false;
-    function showDialog({ kind, title, msg, link, terminal }) {
+    let groupLink = '', dialogTerminal = false, chatAgentID = '', chatSession = '';
+    function showDialog({ kind, title, msg, link, terminal, agentId }) {
       setStatus('');
       const ok = kind !== 'error';
       const chk = $('doneCheck'); chk.textContent = ok ? '✓' : '✕'; chk.classList.toggle('err', !ok);
@@ -1755,6 +1785,9 @@
       $('doneClose').textContent = data.desktop ? 'You can close the window, or keep editing.' : 'You can close this tab.';
       $('doneDismiss').hidden = noDismiss;
       $('doneDismiss').textContent = ok ? 'Continue' : 'Dismiss';
+      // Desktop-only: after a successful deploy, offer to test-chat the just-deployed agent.
+      chatAgentID = (data.desktop && ok && agentId) ? agentId : '';
+      $('doneChatBtn').hidden = !chatAgentID;
       $('doneOverlay').hidden = false;
     }
     function closeDialog() { $('doneOverlay').hidden = true; setStatus(''); }
@@ -1762,6 +1795,79 @@
     function copyGroupLink() {
       if (!groupLink) return;
       navigator.clipboard.writeText(groupLink).then(() => { const b = $('doneLinkCopy'), t = b.textContent; b.textContent = 'Copied ✓'; setTimeout(() => { b.textContent = t; }, 1500); });
+    }
+
+    // Desktop-only test chat: talk to the agent you just deployed. Streams
+    // conductor's /chat SSE through the local /api/chat proxy — the same
+    // fetch+getReader+TextDecoder pattern as ai-web, parsing raw `data:` frames
+    // by .type (text_delta appends / done carries session_id for multi-turn /
+    // error). The cli_ token never touches this page; the Go side holds it.
+    // Messages render via textContent (never innerHTML) so agent output can't
+    // inject markup.
+    function openChat() {
+      $('doneOverlay').hidden = true;
+      chatSession = '';
+      $('chatLog').innerHTML = '';
+      addChatMsg('agent', 'Your agent is live. Send a message to test it.');
+      $('chatOverlay').hidden = false;
+      $('chatText').focus();
+    }
+    function closeChat() { $('chatOverlay').hidden = true; }
+    function chatKey(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(e); } }
+    function addChatMsg(role, text) {
+      const el = document.createElement('div');
+      el.className = 'chat-msg ' + role;
+      el.textContent = text || '';
+      const log = $('chatLog'); log.appendChild(el); log.scrollTop = log.scrollHeight;
+      return el;
+    }
+    let chatBusy = false;
+    async function sendChat(e) {
+      if (e) e.preventDefault();
+      if (chatBusy) return;
+      const ta = $('chatText'), msg = ta.value.trim();
+      if (!msg || !chatAgentID) return;
+      addChatMsg('user', msg);
+      ta.value = '';
+      chatBusy = true; $('chatSend').disabled = true;
+      const bubble = addChatMsg('agent', '…'); bubble.classList.add('typing');
+      let full = '', started = false;
+      try {
+        const r = await fetch('/api/chat', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ message: msg, agent_id: chatAgentID, session_id: chatSession || undefined }),
+        });
+        if (!r.ok || !r.body) throw new Error('chat failed (' + r.status + ')');
+        const reader = r.body.getReader(), dec = new TextDecoder();
+        let buf = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const lines = buf.split('\n'); buf = lines.pop() || '';
+          for (const line of lines) {
+            const t = line.trim();
+            if (!t || t.startsWith(':') || !t.startsWith('data:')) continue;
+            let ev; try { ev = JSON.parse(t.slice(t.indexOf(':') + 1).trim()); } catch { continue; }
+            if (ev.type === 'text_delta' && ev.text) {
+              if (!started) { started = true; bubble.classList.remove('typing'); bubble.textContent = ''; }
+              full += ev.text; bubble.textContent = full;
+              $('chatLog').scrollTop = $('chatLog').scrollHeight;
+            } else if (ev.type === 'done') {
+              chatSession = ev.sdk_session_id || ev.ov_session_id || chatSession;
+            } else if (ev.type === 'error') {
+              bubble.classList.remove('typing'); bubble.classList.add('err');
+              bubble.textContent = 'Error: ' + (ev.message || 'unknown');
+            }
+          }
+        }
+        if (!started && !bubble.classList.contains('err')) { bubble.classList.remove('typing'); bubble.textContent = '(no response)'; }
+      } catch (err) {
+        bubble.classList.remove('typing'); bubble.classList.add('err');
+        bubble.textContent = 'Error: ' + (err.message || err);
+      } finally {
+        chatBusy = false; $('chatSend').disabled = false; $('chatText').focus();
+      }
     }
 
     // confidence tooltip — single fixed node near <body>, positioned by JS; immune

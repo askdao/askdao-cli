@@ -1,5 +1,5 @@
 // [INPUT]: 依赖 path/filepath；internal/types 的 AgentSpec / Detection / DetectedSkill / ReasoningDecision
-// [OUTPUT]: 对外提供 StudioData / SkillCandidate / MCPCandidate / ObservedData / AuthState / LoginChallenge / BuildStudioData
+// [OUTPUT]: 对外提供 StudioData / SkillCandidate / MCPCandidate / ObservedData / AuthState / LoginChallenge / ChatRequest / BuildStudioData
 // [POS]: webstudio 的数据契约层 —— 把 pipeline 产物（spec 草稿 + detection 候选）摊平成前端 JSON；
 //
 //	restorePrior=true（编辑已有 yaml）时勾选态以 spec.skills/mcp_servers 为唯一真相；
@@ -49,6 +49,16 @@ type DeployResult struct {
 	GroupLink string `json:"group_link,omitempty"`
 	AgentID   string `json:"agent_id,omitempty"`
 	Created   bool   `json:"created"`
+}
+
+// ChatRequest is the POST /api/chat body from the desktop test-chat panel — the
+// private-chat subset forwarded verbatim to conductor's /chat. SessionID is empty
+// on the first turn and carried back from the previous turn's done frame
+// (sdk_session_id / ov_session_id) for multi-turn continuity.
+type ChatRequest struct {
+	Message   string `json:"message"`
+	AgentID   string `json:"agent_id"`
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // AuthState is the desktop login status — the GET /api/auth/status payload and
