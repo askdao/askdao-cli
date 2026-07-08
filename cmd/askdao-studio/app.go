@@ -219,8 +219,9 @@ func (a *App) deploy(spec *types.AgentSpec) (*webstudio.DeployResult, error) {
 // frame to emit (webstudio's /api/chat handler re-wraps them for the frontend).
 // Auth + base URL come from auth.Load(), same as deploy — so the KOL tests the
 // agent they just deployed with the same cli_ token; agent_id is
-// DeployResult.AgentID (ACL: owner==caller). No timeout: the turn streams as long
-// as the agent runs, bounded by the Wails runtime ctx.
+// DeployResult.AgentID (ACL: owner==caller). No request timeout: the turn streams
+// as long as the agent runs; ctx is webstudio's /api/chat request context, so the
+// stream stops when the webview closes that fetch (e.g. the chat panel is dismissed).
 func (a *App) chat(ctx context.Context, req webstudio.ChatRequest, emit func(raw []byte) error) error {
 	creds, err := auth.Load()
 	if err != nil {

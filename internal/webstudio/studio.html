@@ -1831,7 +1831,7 @@
       ta.value = '';
       chatBusy = true; $('chatSend').disabled = true;
       const bubble = addChatMsg('agent', '…'); bubble.classList.add('typing');
-      let full = '', started = false;
+      let full = '', started = false, clarifyPaused = false;
       try {
         const r = await fetch('/api/chat', {
           method: 'POST', headers: { 'content-type': 'application/json' },
@@ -1853,15 +1853,28 @@
               if (!started) { started = true; bubble.classList.remove('typing'); bubble.textContent = ''; }
               full += ev.text; bubble.textContent = full;
               $('chatLog').scrollTop = $('chatLog').scrollHeight;
+            } else if (ev.type === 'text_delta_replacement') {
+              // Scaffolding rewrites the whole answer (conductor meta_skills): replace the
+              // buffer, don't append — test chat should show the final answer subscribers
+              // get, not the intermediate raw draft (matches ai-web fullText = event.text).
+              started = true; bubble.classList.remove('typing');
+              full = ev.text || ''; bubble.textContent = full;
+              $('chatLog').scrollTop = $('chatLog').scrollHeight;
             } else if (ev.type === 'done') {
               chatSession = ev.sdk_session_id || ev.ov_session_id || chatSession;
+              if (ev.awaiting_clarify) clarifyPaused = true;
             } else if (ev.type === 'error') {
               bubble.classList.remove('typing'); bubble.classList.add('err');
               bubble.textContent = 'Error: ' + (ev.message || 'unknown');
             }
           }
         }
-        if (!started && !bubble.classList.contains('err')) { bubble.classList.remove('typing'); bubble.textContent = '(no response)'; }
+        if (clarifyPaused && !started) {
+          bubble.classList.remove('typing');
+          bubble.textContent = "The agent is asking a clarifying question. Interactive questions aren't supported in test chat yet — try it in the live product to answer.";
+        } else if (!started && !bubble.classList.contains('err')) {
+          bubble.classList.remove('typing'); bubble.textContent = '(no response)';
+        }
       } catch (err) {
         bubble.classList.remove('typing'); bubble.classList.add('err');
         bubble.textContent = 'Error: ' + (err.message || err);

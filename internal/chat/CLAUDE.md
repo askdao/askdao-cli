@@ -11,7 +11,7 @@
 ## 设计约束
 
 - **stdlib only + dumb pipe**：与 `internal/deploy`（决策 9.1 HTTP 客户端域）一致，只 `net/http`/`bufio`/`encoding/json` 等，连 `internal/types` 都不 import；帧原样 `[]byte` 透传、不解析 `.type`（text_delta/done/error 分发在前端 studio.html，照 ai-web `chat/route.ts` parseConductorSSE 蓝本）。
-- **无 timeout 靠 ctx**：流式对话不能套 deploy 的 180s 固定超时；`http.Client{}` 无 Timeout，调用方（app.go chat 回调）用 Wails runtime ctx 取消。
+- **无 timeout 靠 ctx**：流式对话不能套 deploy 的 180s 固定超时；`http.Client{}` 无 Timeout，调用方（app.go chat 回调）拿到的是 webstudio `/api/chat` 的请求 ctx（`r.Context()`）—— WebView 关闭该 fetch 连接时流停。
 - **auth 同源 deploy**：`auth.Load()` → `creds.Server`（BaseURL）+ `creds.AccessToken`（Bearer），与刚 deploy 用同一 base URL + cli_ token；`agent_id` 传 `DeployResult.AgentID`（ACL owner==caller，KOL 自己刚部署的 agent 满足）。
 
 ## 与服务端契约的对齐点
