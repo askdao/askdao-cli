@@ -774,6 +774,82 @@
       background: var(--ivory);
     }
 
+    /* SKILL.md frontmatter validation (desktop): a custom_local skill missing
+       name/description would fail the deploy gate — flagged inline with a fix. */
+    .item.flag {
+      border-color: var(--warn-border);
+      background: var(--warn-bg);
+    }
+
+    .skill-flag {
+      margin-top: 8px;
+      font-family: var(--sans);
+      font-size: 12.5px;
+      color: var(--warn);
+      line-height: 1.5;
+    }
+
+    .skill-flag .fix-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+
+    .skill-flag input {
+      flex: 1;
+      min-width: 200px;
+      font-family: var(--sans);
+      font-size: 12.5px;
+      padding: 6px 9px;
+      border-radius: 7px;
+      border: 1px solid var(--warn-border);
+      background: var(--ivory);
+      color: var(--near-black);
+    }
+
+    .skill-flag button {
+      font-family: var(--sans);
+      font-size: 12px;
+      font-weight: 500;
+      padding: 6px 12px;
+      border-radius: 7px;
+      border: 1px solid var(--warn-border);
+      background: var(--ivory);
+      color: var(--warn);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .skill-flag button:hover {
+      background: var(--warn-bg);
+    }
+
+    .flagbar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      background: var(--warn-bg);
+      border: 1px solid var(--warn-border);
+      border-radius: 10px;
+      padding: 11px 15px;
+      margin-bottom: 14px;
+      font-family: var(--sans);
+      font-size: 13px;
+      color: var(--warn);
+    }
+
+    .flagbar span {
+      flex: 1;
+      min-width: 220px;
+    }
+
+    .flagbar button {
+      white-space: nowrap;
+    }
+
     /* vault rows */
     .vrow {
       display: flex;
@@ -1264,7 +1340,7 @@
       applyAccent(spec.metadata.theme_color);
       renderNav(); renderPanels(); go(0);
       startObservePolling();
-      if (data.desktop) { initAuth(); if (data.needs_scan) showScanPrompt(); }
+      if (data.desktop) { initAuth(); if (data.needs_scan) showScanPrompt(); else validateSkills(); }
     }
 
     // Desktop-only: the pre-scan placeholder shows a folder-picker overlay. POST
@@ -1441,7 +1517,7 @@
       <button type="button" class="tab" onclick="switchTab('mcp',this)">MCP servers <span class="cnt">${mc}</span></button>
       <button type="button" class="tab" onclick="switchTab('vault',this)">Secrets <span class="cnt" id="vaultCnt">${vault.length}</span></button>
     </div>
-    <div class="tabpane" data-pane="skills"><div class="card">${skillGroups()}</div></div>
+    <div class="tabpane" data-pane="skills">${skillFlagBar()}<div class="card">${skillGroups()}</div></div>
     <div class="tabpane" data-pane="mcp" hidden><div class="card">${mcpGroups()}</div></div>
     <div class="tabpane" data-pane="vault" hidden><div class="card">${vaultPaneHTML()}</div></div>
   </section>`;
@@ -1528,6 +1604,89 @@
       (data.skill_candidates || []).forEach((c, i) => { if (c.builtin) return; const el = $('skill-' + i); if (el) el.checked = usedSkills.has(c.name); });
       (data.mcp_candidates || []).forEach((c, i) => { const el = $('mcp-' + i); if (el) el.checked = usedMCP.has(c.name); });
       setStatus('Narrowed to observed skills/MCP — review, then deploy.');
+    }
+
+    /* SKILL.md frontmatter validation (desktop) — a custom_local skill missing
+       name/description in SKILL.md fails the deploy gate (PackageSkills), so flag
+       it inline in the Skills step with a one-tap fix instead of letting the KOL
+       hit the wall at deploy. Additive overlay, same shape as the observe layer. */
+    let skillFlags = {};
+    async function validateSkills() {
+      if (!data.desktop) return;
+      let res;
+      try { res = await (await fetch('/api/skill-validate', { method: 'POST' })).json(); }
+      catch (e) { return; }
+      if (!Array.isArray(res)) return;
+      skillFlags = {};
+      let nBad = 0;
+      res.forEach(v => { skillFlags[v.path] = v; if (!v.has_name || !v.has_description) nBad++; });
+      applySkillFlags();
+      updateFlagBar(nBad);
+    }
+    function applySkillFlags() {
+      (data.skill_candidates || []).forEach((c, i) => {
+        if (c.builtin || !c.path) return;
+        renderSkillFlag(i, c, skillFlags[c.path]);
+      });
+    }
+    function renderSkillFlag(i, c, v) {
+      const el = $('skill-' + i); if (!el) return;
+      const col = el.nextElementSibling, item = el.closest('.item'); if (!col || !item) return;
+      const prev = col.querySelector('.skill-flag'); if (prev) prev.remove();
+      item.classList.remove('flag');
+      if (!v || (v.has_name && v.has_description)) return; // complete — nothing to flag
+      item.classList.add('flag');
+      const missing = [];
+      if (!v.has_name) missing.push('name');
+      if (!v.has_description) missing.push('description');
+      const box = document.createElement('div');
+      box.className = 'skill-flag';
+      box.onclick = (e) => { e.preventDefault(); e.stopPropagation(); }; // the flag area shouldn't toggle the skill checkbox
+      const msg = document.createElement('div');
+      msg.textContent = '⚠ SKILL.md is missing ' + missing.join(' & ') + " — the model can't trigger this skill until it's set, and deploy will reject it.";
+      box.appendChild(msg);
+      const row = document.createElement('div');
+      row.className = 'fix-row';
+      if (!v.has_name) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.textContent = 'Use folder name "' + v.dir_name + '"';
+        b.onclick = (e) => { e.stopPropagation(); e.preventDefault(); fixSkill(c.path, { name: v.dir_name }); };
+        row.appendChild(b);
+      }
+      if (!v.has_description) {
+        const inp = document.createElement('input');
+        inp.type = 'text'; inp.placeholder = 'One line: when should the agent use this skill?';
+        inp.onclick = (e) => e.stopPropagation();
+        const b = document.createElement('button');
+        b.type = 'button'; b.textContent = 'Save description';
+        b.onclick = (e) => { e.stopPropagation(); e.preventDefault(); fixSkill(c.path, { description: inp.value }); };
+        row.appendChild(inp); row.appendChild(b);
+      }
+      box.appendChild(row);
+      col.appendChild(box);
+    }
+    async function fixSkill(path, fields) {
+      if (fields.description !== undefined && !fields.description.trim()) { setStatus('Enter a description first.'); return; }
+      try {
+        const r = await fetch('/api/skill-fix', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ path }, fields)) });
+        const j = await r.json();
+        if (j.error) { setStatus('Fix failed: ' + j.error); return; }
+        setStatus('SKILL.md updated.');
+        validateSkills(); // re-check — the fixed skill should clear its flag
+      } catch (e) { setStatus('Fix failed: ' + (e.message || e)); }
+    }
+    function skillFlagBar() { return '<div class="flagbar" id="skillFlagBar" hidden></div>'; }
+    function updateFlagBar(nBad) {
+      const bar = $('skillFlagBar'); if (!bar) return;
+      bar.innerHTML = '';
+      if (!nBad) { bar.hidden = true; return; }
+      bar.hidden = false;
+      const span = document.createElement('span');
+      span.textContent = '⚠ ' + nBad + ' skill' + (nBad === 1 ? '' : 's') + ' need a complete SKILL.md before deploy.';
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'act btn'; btn.textContent = 'Re-check';
+      btn.onclick = () => validateSkills();
+      bar.appendChild(span); bar.appendChild(btn);
     }
 
     /* vault / secrets */

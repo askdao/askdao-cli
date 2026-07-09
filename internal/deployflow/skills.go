@@ -1,5 +1,5 @@
 // [INPUT]: 依赖 fmt/os/path·filepath/strings；internal/scanner 的 ParseSkillFrontmatter、internal/types 的 AgentSpec/Skill、internal/deploy 的 ZipDir
-// [OUTPUT]: 对外提供 PackageSkills；包内 resolveSkillDir
+// [OUTPUT]: 对外提供 PackageSkills / ResolveSkillDir（custom_local skill path→磁盘目录四分支解析）/ UpsertSkillFrontmatter（补全 SKILL.md frontmatter name/description，行级 upsert 保留 body）；包内 quoteYAMLValue
 // [POS]: internal/deployflow 部署编排层 —— skill 打包（枚举 custom_local → frontmatter 前置校验 → deploy.ZipDir）。
 //
 //	CLI（cmd/askdao agent deploy）与桌面（cmd/askdao-studio）单源共用，杜绝双写漂移。
@@ -41,7 +41,7 @@ func PackageSkills(dir string, spec *types.AgentSpec) (map[string][]byte, error)
 		if skillName == "" || skillName == "." || skillName == "/" {
 			return nil, fmt.Errorf("custom_local skill path %q: cannot resolve a skill name", s.Path)
 		}
-		skillDir, err := resolveSkillDir(dir, s)
+		skillDir, err := ResolveSkillDir(dir, s)
 		if err != nil {
 			return nil, err
 		}
@@ -75,11 +75,12 @@ func PackageSkills(dir string, spec *types.AgentSpec) (map[string][]byte, error)
 	return skillZips, nil
 }
 
-// resolveSkillDir resolves a custom_local skill's on-disk directory. Project
+// ResolveSkillDir resolves a custom_local skill's on-disk directory. Project
 // scope (relative path) joins dir; user scope (Scope=="user", an absolute path,
 // or a ~-prefixed path) resolves against the home dir / filesystem so global
-// skills picked in the studio package correctly.
-func resolveSkillDir(dir string, s types.Skill) (string, error) {
+// skills picked in the studio package correctly. Exported so the studio's
+// skill-validate / skill-fix actions locate the same SKILL.md the deploy gate reads.
+func ResolveSkillDir(dir string, s types.Skill) (string, error) {
 	path := s.Path
 	if strings.HasPrefix(path, "~/") {
 		home, err := os.UserHomeDir()
@@ -92,4 +93,96 @@ func resolveSkillDir(dir string, s types.Skill) (string, error) {
 		return filepath.FromSlash(path), nil
 	}
 	return filepath.Join(dir, filepath.FromSlash(path)), nil
+}
+
+// UpsertSkillFrontmatter sets name and/or description in a SKILL.md's leading
+// `--- ... ---` YAML frontmatter, creating the block when absent. An empty name
+// or description is left untouched, so a caller can fix just the missing field.
+// It is a surgical line-level edit — the body and any other frontmatter keys are
+// preserved (no re-marshal) — used by the studio's one-tap skill-fix (and the
+// assistant's write-SKILL flow) to clear the same name+description gate
+// PackageSkills enforces at deploy time.
+func UpsertSkillFrontmatter(skillMDPath, name, description string) error {
+	if name == "" && description == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(skillMDPath)
+	if err != nil {
+		return err
+	}
+	text := string(raw)
+	lines := strings.Split(text, "\n")
+
+	// Locate an existing frontmatter block: first line "---" up to the next "---".
+	hasBlock := len(lines) > 0 && strings.TrimSpace(lines[0]) == "---"
+	end := -1
+	if hasBlock {
+		for i := 1; i < len(lines); i++ {
+			if strings.TrimSpace(lines[i]) == "---" {
+				end = i
+				break
+			}
+		}
+		if end < 0 {
+			hasBlock = false // unterminated "---" — treat as no frontmatter
+		}
+	}
+
+	if !hasBlock {
+		var b strings.Builder
+		b.WriteString("---\n")
+		if name != "" {
+			b.WriteString("name: " + quoteYAMLValue(name) + "\n")
+		}
+		if description != "" {
+			b.WriteString("description: " + quoteYAMLValue(description) + "\n")
+		}
+		b.WriteString("---\n\n")
+		b.WriteString(text)
+		return os.WriteFile(skillMDPath, []byte(b.String()), 0o644)
+	}
+
+	// Copy the frontmatter lines so append can't clobber the closing "---".
+	fm := append([]string(nil), lines[1:end]...)
+	set := func(key, val string) {
+		if val == "" {
+			return
+		}
+		line := key + ": " + quoteYAMLValue(val)
+		for i, ln := range fm {
+			if k, _, ok := strings.Cut(ln, ":"); ok && strings.TrimSpace(k) == key {
+				fm[i] = line
+				return
+			}
+		}
+		fm = append(fm, line)
+	}
+	set("name", name)
+	set("description", description)
+
+	out := append([]string{lines[0]}, fm...)
+	out = append(out, lines[end:]...)
+	return os.WriteFile(skillMDPath, []byte(strings.Join(out, "\n")), 0o644)
+}
+
+// quoteYAMLValue renders a scalar for a SKILL.md frontmatter line. It stays bare
+// when safe and quotes only when the value carries YAML-special characters (a
+// colon, '#', or an existing quote), matching the forgiving reader in
+// scanner.ParseSkillFrontmatter (which strips a single layer of surrounding
+// quotes). Newlines fold to spaces — frontmatter values are single-line.
+func quoteYAMLValue(v string) string {
+	v = strings.TrimSpace(strings.ReplaceAll(v, "\n", " "))
+	if v == "" {
+		return `""`
+	}
+	if !strings.ContainsAny(v, ":#\"'") {
+		return v
+	}
+	if !strings.Contains(v, `"`) {
+		return `"` + v + `"`
+	}
+	if !strings.Contains(v, `'`) {
+		return `'` + v + `'`
+	}
+	return `"` + strings.ReplaceAll(v, `"`, `'`) + `"`
 }
