@@ -1,6 +1,6 @@
-// [INPUT]: context/errors/fmt/net·url/os/path·filepath/sync + gopkg.in/yaml.v3 + wails runtime；internal/{auth,chat,deploy,deployflow,pipeline,recommender,types,webstudio}
+// [INPUT]: context/errors/fmt/net·url/os/path·filepath/sync + gopkg.in/yaml.v3 + wails runtime；internal/{auth,chat,deploy,deployflow,pipeline,recommender,scanner,types,webstudio}
 // [OUTPUT]: App（Wails bound-method 宿主 + 登录/项目态）+ StudioOptions（注入 webstudio 数据与桌面回调）
-// [POS]: cmd/askdao-studio 应用层 —— 桌面壳业务逻辑：登录(device flow)/扫描(pick 选文件夹→run 跑管线,Stop 可 cancel)/保存(写 yaml)/部署(deployflow.PackageSkills 单源 + deploy.Client)，全复用 internal 核心包
+// [POS]: cmd/askdao-studio 应用层 —— 桌面壳业务逻辑：登录(device flow)/扫描(pick 选文件夹→run 跑管线,Stop 可 cancel)/保存(写 yaml)/部署(deployflow.PackageSkills 单源 + deploy.Client)/测试聊天(chat 流式转发 conductor /chat)/SKILL 校验+补全(skillValidate/skillFix)/外链桥接(openExternal)，全复用 internal 核心包
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package main
 
@@ -24,6 +24,7 @@ import (
 	"github.com/askdao/askdao-cli/internal/deployflow"
 	"github.com/askdao/askdao-cli/internal/pipeline"
 	"github.com/askdao/askdao-cli/internal/recommender"
+	"github.com/askdao/askdao-cli/internal/scanner"
 	"github.com/askdao/askdao-cli/internal/types"
 	"github.com/askdao/askdao-cli/internal/webstudio"
 )
@@ -58,18 +59,20 @@ func (a *App) startup(ctx context.Context) { a.ctx = ctx }
 // register /api/auth/*. Desktop-only routes exist because these callbacks are set.
 func (a *App) StudioOptions() webstudio.Options {
 	return webstudio.Options{
-		OnSpec:         a.spec,
-		OnScanPick:     a.pickFolder,
-		OnScanRun:      a.runScan,
-		OnScanCancel:   a.cancelScan,
-		OnSave:         a.save,
-		OnDeploy:       a.deploy,
-		OnAuthState:    a.authState,
-		OnLogin:        a.startLogin,
-		OnLoginPoll:    a.loginPoll,
-		OnLogout:       a.logout,
-		OnChat:         a.chat,
-		OnOpenExternal: a.openExternal,
+		OnSpec:          a.spec,
+		OnScanPick:      a.pickFolder,
+		OnScanRun:       a.runScan,
+		OnScanCancel:    a.cancelScan,
+		OnSave:          a.save,
+		OnDeploy:        a.deploy,
+		OnAuthState:     a.authState,
+		OnLogin:         a.startLogin,
+		OnLoginPoll:     a.loginPoll,
+		OnLogout:        a.logout,
+		OnChat:          a.chat,
+		OnOpenExternal:  a.openExternal,
+		OnSkillValidate: a.skillValidate,
+		OnSkillFix:      a.skillFix,
 	}
 }
 
@@ -241,6 +244,67 @@ func (a *App) chat(ctx context.Context, req webstudio.ChatRequest, emit func(raw
 func (a *App) openExternal(url string) error {
 	openBrowser(url)
 	return nil
+}
+
+// skillValidate checks every custom_local skill in the current draft for a
+// complete SKILL.md frontmatter (name + description — the fields PackageSkills
+// requires at deploy time) and returns the per-skill result so the Skills step
+// flags the incomplete ones before deploy, not after. It reads live from disk,
+// so a KOL who edits a SKILL.md and re-validates sees the fresh state.
+func (a *App) skillValidate() ([]webstudio.SkillValidation, error) {
+	a.mu.Lock()
+	dir, data := a.dir, a.currentData
+	a.mu.Unlock()
+	if dir == "" || data == nil {
+		return nil, errors.New("no project scanned yet — choose a folder first")
+	}
+	var out []webstudio.SkillValidation
+	for _, c := range data.SkillCandidates {
+		if c.Builtin || c.Path == "" {
+			continue // builtins carry no SKILL.md; only custom_local has one
+		}
+		skillDir, err := deployflow.ResolveSkillDir(dir, types.Skill{Path: c.Path, Scope: c.Scope})
+		if err != nil {
+			return nil, err
+		}
+		name, desc := scanner.ParseSkillFrontmatter(filepath.Join(skillDir, "SKILL.md"))
+		out = append(out, webstudio.SkillValidation{
+			Path:           c.Path,
+			DirName:        filepath.Base(filepath.Clean(c.Path)),
+			HasName:        name != "",
+			HasDescription: desc != "",
+		})
+	}
+	return out, nil
+}
+
+// skillFix writes name/description into a skill's SKILL.md frontmatter so the KOL
+// clears a validation flag in place. The path MUST belong to a scanned skill
+// candidate — never an arbitrary path from the request — so the write stays
+// confined to the project (or its declared user-scope skills), the same boundary
+// the assistant's file writes will honor.
+func (a *App) skillFix(fix webstudio.SkillFix) error {
+	a.mu.Lock()
+	dir, data := a.dir, a.currentData
+	a.mu.Unlock()
+	if dir == "" || data == nil {
+		return errors.New("no project scanned yet — choose a folder first")
+	}
+	var cand *webstudio.SkillCandidate
+	for i := range data.SkillCandidates {
+		if c := &data.SkillCandidates[i]; !c.Builtin && c.Path == fix.Path {
+			cand = c
+			break
+		}
+	}
+	if cand == nil {
+		return fmt.Errorf("unknown skill %q", fix.Path)
+	}
+	skillDir, err := deployflow.ResolveSkillDir(dir, types.Skill{Path: cand.Path, Scope: cand.Scope})
+	if err != nil {
+		return err
+	}
+	return deployflow.UpsertSkillFrontmatter(filepath.Join(skillDir, "SKILL.md"), fix.Name, fix.Description)
 }
 
 // llmClient wires the recommend client: conductor when logged in, offline mock

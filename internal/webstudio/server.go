@@ -2,7 +2,7 @@
 // [OUTPUT]: 对外提供 Options / Serve / Handler；包内 buildMux / openBrowser / observed
 // [POS]: webstudio 的本地 HTTP server —— 绑 127.0.0.1:随机端口，serve go:embed 的 studio.html +
 //
-//	/api/spec(GET) /api/save /api/deploy /api/done /api/observe(GET 读名单 / POST 收 hook 上报) /api/chat(桌面流式代理→conductor /chat SSE) /api/open-external(桌面外链→系统浏览器)；
+//	/api/spec(GET) /api/save /api/deploy /api/done /api/observe(GET 读名单 / POST 收 hook 上报) /api/chat(桌面流式代理→conductor /chat SSE) /api/open-external(桌面外链→系统浏览器) /api/skill-validate(桌面 SKILL.md frontmatter 校验) /api/skill-fix(桌面 frontmatter 补全写回)；
 //	写 yaml / deploy 由 cmd 层注入 OnSave/OnDeploy 回调解耦，OnReady(port) 在 serve 后回调供 cmd 写 hook settings；
 //	阻塞至 KOL 在浏览器点 部署 或 完成。buildMux 抽出供 httptest 单测。
 //
@@ -78,6 +78,17 @@ type Options struct {
 	// external-link clicks (the group page, etc.) here and the Go side opens
 	// them in the real browser. CLI leaves it nil, so the route never exists.
 	OnOpenExternal func(url string) error
+
+	// OnSkillValidate, if set, registers POST /api/skill-validate — the desktop
+	// Skills step calls it to check every custom_local skill's SKILL.md
+	// frontmatter (name + description, the deploy gate's requirements) and flag
+	// the missing ones inline, before deploy rather than after. CLI leaves it nil.
+	OnSkillValidate func() ([]SkillValidation, error)
+
+	// OnSkillFix, if set, registers POST /api/skill-fix — writes name/description
+	// into a skill's SKILL.md frontmatter so the KOL clears a validation flag with
+	// one tap (folder name) or a short entry. CLI leaves it nil.
+	OnSkillFix func(SkillFix) error
 }
 
 // Serve starts the local studio, opens the browser, and blocks until the KOL
@@ -355,6 +366,34 @@ func buildMux(opts Options, done chan error) *http.ServeMux {
 				return
 			}
 			writeJSON(w, map[string]string{"status": "opened"})
+		})
+	}
+
+	// Desktop-only SKILL.md frontmatter validation + one-tap fix — surfaces the
+	// deploy gate's name/description requirement in the Skills step. CLI leaves
+	// both callbacks nil, so neither route exists there.
+	if opts.OnSkillValidate != nil {
+		mux.HandleFunc("/api/skill-validate", func(w http.ResponseWriter, r *http.Request) {
+			res, err := opts.OnSkillValidate()
+			if err != nil {
+				writeErr(w, err)
+				return
+			}
+			writeJSON(w, res)
+		})
+	}
+	if opts.OnSkillFix != nil {
+		mux.HandleFunc("/api/skill-fix", func(w http.ResponseWriter, r *http.Request) {
+			var fix SkillFix
+			if err := json.NewDecoder(r.Body).Decode(&fix); err != nil {
+				writeErr(w, err)
+				return
+			}
+			if err := opts.OnSkillFix(fix); err != nil {
+				writeErr(w, err)
+				return
+			}
+			writeJSON(w, map[string]string{"status": "fixed"})
 		})
 	}
 
