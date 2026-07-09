@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,7 +17,7 @@ import (
 func sseServer(t *testing.T, frames []string, check func(r *http.Request, body []byte)) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := readAll(r)
+		body, _ := io.ReadAll(r.Body)
 		if check != nil {
 			check(r, body)
 		}
@@ -29,18 +30,6 @@ func sseServer(t *testing.T, frames []string, check func(r *http.Request, body [
 			}
 		}
 	}))
-}
-
-func readAll(r *http.Request) ([]byte, error) {
-	buf := make([]byte, 0, 512)
-	tmp := make([]byte, 512)
-	for {
-		n, err := r.Body.Read(tmp)
-		buf = append(buf, tmp[:n]...)
-		if err != nil {
-			return buf, nil
-		}
-	}
 }
 
 func frameType(t *testing.T, raw []byte) map[string]any {
