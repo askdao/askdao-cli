@@ -1275,6 +1275,14 @@
     .chat-form{display:flex;gap:8px;padding:12px 14px;border-top:1px solid #ece9df;align-items:flex-end}
     .chat-form textarea{flex:1;resize:none;border:1px solid #ddd8c9;border-radius:10px;padding:9px 12px;font:inherit;font-size:14px;max-height:120px;background:#fdfcf8}
     .chat-form textarea:focus{outline:none;border-color:var(--accent,#2b4a6f)}
+    /* AI assistant (desktop-only) — right-side drawer + floating toggle. Reuses
+       .chat-log/.chat-msg/.chat-form; distinct from test-chat (that tests a live
+       agent, this helps build one). */
+    .assistant-fab{position:fixed;bottom:22px;right:22px;z-index:40;display:flex;align-items:center;gap:6px;padding:11px 17px;border:none;border-radius:24px;background:var(--accent,#2b4a6f);color:#fff;font:inherit;font-size:14px;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,.22);cursor:pointer}
+    .assistant-fab:hover{filter:brightness(1.06)}
+    .assistant-drawer{position:fixed;top:0;right:0;height:100vh;width:min(420px,94vw);background:#fff;box-shadow:-8px 0 32px rgba(0,0,0,.16);display:flex;flex-direction:column;transform:translateX(100%);transition:transform .22s ease;z-index:50}
+    .assistant-drawer.open{transform:translateX(0)}
+    .assistant-hint{padding:8px 18px 12px;font-size:12px;color:#8a8577;border-top:1px solid #f0ede3}
   </style>
   <div id="chatOverlay" class="overlay" hidden>
     <div class="chat-card">
@@ -1289,6 +1297,23 @@
       </form>
     </div>
   </div>
+
+  <!-- AI assistant (desktop-only) — the build helper, a right-side drawer opened by
+       a floating toggle. Streams /api/assistant (the official Studio assistant agent,
+       resolved Go-side). Hidden until data.desktop (load() reveals the toggle). -->
+  <button type="button" id="assistantFab" class="assistant-fab" hidden onclick="openAssistant()" aria-label="Open AI assistant">✨ Assistant</button>
+  <aside id="assistantDrawer" class="assistant-drawer" aria-hidden="true">
+    <div class="chat-head">
+      <span class="chat-title">AI Assistant</span>
+      <button type="button" class="chat-x" onclick="closeAssistant()" aria-label="Close">✕</button>
+    </div>
+    <div id="asstLog" class="chat-log"></div>
+    <form class="chat-form" onsubmit="sendAssistant(event)">
+      <textarea id="asstText" rows="1" placeholder="Ask about fields, prompts, skills, deploy errors…" onkeydown="assistantKey(event)"></textarea>
+      <button type="submit" id="asstSend" class="act btn primary">Send</button>
+    </form>
+    <p class="assistant-hint">Helps you build your agent — explain a field, suggest a system prompt, or draft a SKILL.md description.</p>
+  </aside>
 
   <script>
     const STEPS = [{ label: "Identity" }, { label: "Persona" }, { label: "Skills & Tools" }, { label: "Review & Deploy" }];
@@ -1340,7 +1365,7 @@
       applyAccent(spec.metadata.theme_color);
       renderNav(); renderPanels(); go(0);
       startObservePolling();
-      if (data.desktop) { initAuth(); if (data.needs_scan) showScanPrompt(); else validateSkills(); }
+      if (data.desktop) { initAuth(); $('assistantFab').hidden = false; if (data.needs_scan) showScanPrompt(); else validateSkills(); }
     }
 
     // Desktop-only: the pre-scan placeholder shows a folder-picker overlay. POST
@@ -2039,6 +2064,85 @@
         bubble.textContent = 'Error: ' + (err.message || err);
       } finally {
         chatBusy = false; $('chatSend').disabled = false; $('chatText').focus();
+      }
+    }
+
+    // AI assistant (desktop) — the build helper. Streams /api/assistant; the Go side
+    // forwards to the official Studio assistant agent, resolving its id (agent_id
+    // never touches this page). Same SSE frame parsing as sendChat, plus an
+    // "unavailable" frame (not logged in / no official assistant configured) →
+    // degrade to a static message instead of a wrong-agent chat. textContent only.
+    let asstSession = '', asstBusy = false;
+    function openAssistant() {
+      $('assistantDrawer').classList.add('open');
+      $('assistantDrawer').setAttribute('aria-hidden', 'false');
+      if (!$('asstLog').childElementCount) addAsstMsg('agent', "Hi! I can help you build this agent — explain a field, suggest a system prompt, or draft a SKILL.md description. What would you like?");
+      $('asstText').focus();
+    }
+    function closeAssistant() {
+      $('assistantDrawer').classList.remove('open');
+      $('assistantDrawer').setAttribute('aria-hidden', 'true');
+    }
+    function assistantKey(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAssistant(e); } }
+    function addAsstMsg(role, text) {
+      const el = document.createElement('div');
+      el.className = 'chat-msg ' + role;
+      el.textContent = text || '';
+      const log = $('asstLog'); log.appendChild(el); log.scrollTop = log.scrollHeight;
+      return el;
+    }
+    async function sendAssistant(e) {
+      if (e) e.preventDefault();
+      if (asstBusy) return;
+      const ta = $('asstText'), msg = ta.value.trim();
+      if (!msg) return;
+      addAsstMsg('user', msg);
+      ta.value = '';
+      asstBusy = true; $('asstSend').disabled = true;
+      const bubble = addAsstMsg('agent', '…'); bubble.classList.add('typing');
+      let full = '', started = false;
+      try {
+        const r = await fetch('/api/assistant', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ message: msg, session_id: asstSession || undefined }),
+        });
+        if (!r.ok || !r.body) throw new Error('assistant failed (' + r.status + ')');
+        const reader = r.body.getReader(), dec = new TextDecoder();
+        let buf = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const lines = buf.split('\n'); buf = lines.pop() || '';
+          for (const line of lines) {
+            const t = line.trim();
+            if (!t || t.startsWith(':') || !t.startsWith('data:')) continue;
+            let ev; try { ev = JSON.parse(t.slice(t.indexOf(':') + 1).trim()); } catch { continue; }
+            if (ev.type === 'text_delta' && ev.text) {
+              if (!started) { started = true; bubble.classList.remove('typing'); bubble.textContent = ''; }
+              full += ev.text; bubble.textContent = full;
+              $('asstLog').scrollTop = $('asstLog').scrollHeight;
+            } else if (ev.type === 'text_delta_replacement') {
+              started = true; bubble.classList.remove('typing');
+              full = ev.text || ''; bubble.textContent = full;
+              $('asstLog').scrollTop = $('asstLog').scrollHeight;
+            } else if (ev.type === 'done') {
+              asstSession = ev.sdk_session_id || ev.ov_session_id || asstSession;
+            } else if (ev.type === 'unavailable') {
+              started = true; bubble.classList.remove('typing');
+              bubble.textContent = ev.message || "The assistant isn't available right now.";
+            } else if (ev.type === 'error') {
+              started = true; bubble.classList.remove('typing'); bubble.classList.add('err');
+              bubble.textContent = 'Error: ' + (ev.message || 'unknown');
+            }
+          }
+        }
+        if (!started && !bubble.classList.contains('err')) { bubble.classList.remove('typing'); bubble.textContent = '(no response)'; }
+      } catch (err) {
+        bubble.classList.remove('typing'); bubble.classList.add('err');
+        bubble.textContent = 'Error: ' + (err.message || err);
+      } finally {
+        asstBusy = false; $('asstSend').disabled = false; $('asstText').focus();
       }
     }
 

@@ -1,6 +1,6 @@
 // [INPUT]: context/errors/fmt/net·url/os/path·filepath/sync + gopkg.in/yaml.v3 + wails runtime；internal/{auth,chat,deploy,deployflow,pipeline,recommender,scanner,types,webstudio}
 // [OUTPUT]: App（Wails bound-method 宿主 + 登录/项目态）+ StudioOptions（注入 webstudio 数据与桌面回调）
-// [POS]: cmd/askdao-studio 应用层 —— 桌面壳业务逻辑：登录(device flow)/扫描(pick 选文件夹→run 跑管线,Stop 可 cancel)/保存(写 yaml)/部署(deployflow.PackageSkills 单源 + deploy.Client)/测试聊天(chat 流式转发 conductor /chat)/SKILL 校验+补全(skillValidate/skillFix)/外链桥接(openExternal)，全复用 internal 核心包
+// [POS]: cmd/askdao-studio 应用层 —— 桌面壳业务逻辑：登录(device flow)/扫描(pick 选文件夹→run 跑管线,Stop 可 cancel)/保存(写 yaml)/部署(deployflow.PackageSkills 单源 + deploy.Client)/测试聊天(chat 流式转发 conductor /chat)/内嵌助手(assistant 流式转发官方 Studio 助手 agent,resolveOfficialAssistant 解析 id)/SKILL 校验+补全(skillValidate/skillFix)/外链桥接(openExternal)，全复用 internal 核心包
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package main
 
@@ -70,6 +70,7 @@ func (a *App) StudioOptions() webstudio.Options {
 		OnLoginPoll:     a.loginPoll,
 		OnLogout:        a.logout,
 		OnChat:          a.chat,
+		OnAssistant:     a.assistant,
 		OnOpenExternal:  a.openExternal,
 		OnSkillValidate: a.skillValidate,
 		OnSkillFix:      a.skillFix,
@@ -237,6 +238,48 @@ func (a *App) chat(ctx context.Context, req webstudio.ChatRequest, emit func(raw
 		AgentID:   req.AgentID,
 		SessionID: req.SessionID,
 	}, emit)
+}
+
+// assistant forwards one desktop-assistant turn to the official Studio assistant
+// agent and streams each raw SSE frame to emit — the same dumb-pipe shape as chat,
+// only the agent differs: it's resolved Go-side (resolveOfficialAssistant), not
+// chosen by the WebView, so the KOL always talks to the platform assistant. When
+// not logged in or no official assistant is configured, it emits a single
+// structured "unavailable" frame so the sidebar degrades to static help instead of
+// silently chatting with the wrong agent (conductor's DM fallback picks the
+// caller's own agent when the target isn't reachable).
+func (a *App) assistant(ctx context.Context, req webstudio.AssistantRequest, emit func(raw []byte) error) error {
+	creds, err := auth.Load()
+	if err != nil {
+		return emit([]byte(`{"type":"unavailable","message":"Sign in to AskDAO to use the assistant."}`))
+	}
+	agentID := a.resolveOfficialAssistant()
+	if agentID == "" {
+		return emit([]byte(`{"type":"unavailable","message":"The AI assistant isn't set up yet."}`))
+	}
+	msg := req.Message
+	if req.Context != "" {
+		msg = req.Context + "\n\n" + req.Message
+	}
+	cl := chat.NewClient(creds.Server)
+	cl.AuthToken = creds.AccessToken
+	return cl.Stream(ctx, chat.Request{
+		Message:   msg,
+		AgentID:   agentID,
+		SessionID: req.SessionID,
+	}, emit)
+}
+
+// resolveOfficialAssistant returns the agent_id of the platform's official Studio
+// assistant agent — the "brain" the sidebar chats with. It's a shared is_official
+// (⟹ public+approved) agent owned by ops, so any logged-in KOL can chat it via
+// /chat with no ownership or subscription (conductor's is_public_open path). An
+// empty return degrades the sidebar to static help — never a wrong-agent chat.
+//
+// Interim seam: reads ASKDAO_STUDIO_ASSISTANT_ID. Swapping this for a conductor
+// lookup or a /discover filter is a one-function change (see #67 plan).
+func (a *App) resolveOfficialAssistant() string {
+	return os.Getenv("ASKDAO_STUDIO_ASSISTANT_ID")
 }
 
 // openExternal opens url in the system browser. The desktop webview ignores

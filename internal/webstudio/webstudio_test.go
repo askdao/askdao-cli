@@ -276,6 +276,50 @@ func TestChatRouteAbsentForCLI(t *testing.T) {
 	}
 }
 
+func TestAssistantRoute(t *testing.T) {
+	var gotReq AssistantRequest
+	done := make(chan error, 1)
+	opts := Options{
+		OnAssistant: func(ctx context.Context, req AssistantRequest, emit func(raw []byte) error) error {
+			gotReq = req
+			_ = emit([]byte(`{"type":"text_delta","text":"Hi"}`))
+			_ = emit([]byte(`{"type":"done","sdk_session_id":"sesn_1"}`))
+			return nil
+		},
+	}
+	srv := httptest.NewServer(buildMux(opts, done))
+	defer srv.Close()
+
+	r, err := http.Post(srv.URL+"/api/assistant", "application/json", bytes.NewBufferString(`{"message":"help","context":"deploy error X","session_id":"sesn_0"}`))
+	if err != nil || r.StatusCode != 200 {
+		t.Fatalf("/api/assistant status=%v err=%v", r.StatusCode, err)
+	}
+	defer r.Body.Close()
+	if ct := r.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Errorf("content-type = %q, want text/event-stream", ct)
+	}
+	// each raw frame from OnAssistant is re-wrapped as an SSE data-frame for the browser.
+	respBody, _ := io.ReadAll(r.Body)
+	want := "data: {\"type\":\"text_delta\",\"text\":\"Hi\"}\n\ndata: {\"type\":\"done\",\"sdk_session_id\":\"sesn_1\"}\n\n"
+	if string(respBody) != want {
+		t.Errorf("stream body =\n%q\nwant\n%q", string(respBody), want)
+	}
+	if gotReq.Message != "help" || gotReq.Context != "deploy error X" || gotReq.SessionID != "sesn_0" {
+		t.Errorf("OnAssistant got req = %+v", gotReq)
+	}
+}
+
+// /api/assistant must NOT exist when OnAssistant is nil (the CLI agent-edit path).
+func TestAssistantRouteAbsentForCLI(t *testing.T) {
+	done := make(chan error, 1)
+	srv := httptest.NewServer(buildMux(Options{Data: &StudioData{}}, done))
+	defer srv.Close()
+	r, _ := http.Post(srv.URL+"/api/assistant", "application/json", bytes.NewBufferString(`{"message":"x"}`))
+	if r.StatusCode != 404 {
+		t.Errorf("/api/assistant should be 404 when OnAssistant nil, got %d", r.StatusCode)
+	}
+}
+
 func TestOpenExternalRoute(t *testing.T) {
 	var gotURL string
 	done := make(chan error, 1)
