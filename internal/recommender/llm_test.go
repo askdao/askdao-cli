@@ -293,6 +293,58 @@ func TestFetchModelClassesOrFallback_FallbackOnServerError(t *testing.T) {
 	}
 }
 
+func TestFetchAppConfig_HappyPath(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != DefaultAppConfigPath {
+			t.Errorf("path = %q, want %q", r.URL.Path, DefaultAppConfigPath)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
+			t.Errorf("auth header = %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(appConfigResponse{StudioAssistantAgentID: "agt_test123"})
+	}))
+	defer server.Close()
+
+	client := NewConductorClient(server.URL)
+	client.AuthToken = "test-token"
+	id, err := client.FetchAppConfig(context.Background())
+	if err != nil {
+		t.Fatalf("FetchAppConfig: %v", err)
+	}
+	if id != "agt_test123" {
+		t.Errorf("id = %q, want agt_test123", id)
+	}
+}
+
+func TestFetchStudioAssistantID_EmptyOnNoBaseURL(t *testing.T) {
+	// Not logged in / no server → empty so the desktop assistant degrades.
+	if id := FetchStudioAssistantID(context.Background(), "", ""); id != "" {
+		t.Errorf("no baseURL should return empty, got %q", id)
+	}
+}
+
+func TestFetchStudioAssistantID_EmptyOnServerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	if id := FetchStudioAssistantID(context.Background(), server.URL, "tok"); id != "" {
+		t.Errorf("server error should degrade to empty, got %q", id)
+	}
+}
+
+func TestFetchStudioAssistantID_HappyPath(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(appConfigResponse{StudioAssistantAgentID: "agt_xyz"})
+	}))
+	defer server.Close()
+	if id := FetchStudioAssistantID(context.Background(), server.URL, "tok"); id != "agt_xyz" {
+		t.Errorf("id = %q, want agt_xyz", id)
+	}
+}
+
 func TestDefaultMockRecommend_NoHardcodedModelID(t *testing.T) {
 	// Regression: the offline mock must set only model_class, never a hardcoded
 	// concrete model id — conductor resolves it from model_class at deploy time.
