@@ -196,3 +196,9 @@ func configDir() (string, error) {
 	}
 	return filepath.Join(base, "askdao"), nil
 }
+
+// ConfigDir exports the askdao config directory ($XDG_CONFIG_HOME/askdao or
+// os.UserConfigDir()/askdao) so sibling internal packages (e.g. recents) share
+// one platform-correct root for on-disk app state. Pure passthrough to the
+// package-private configDir — no behavior change to auth's own callers.
+func ConfigDir() (string, error) { return configDir() }

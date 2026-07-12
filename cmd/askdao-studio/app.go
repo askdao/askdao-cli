@@ -1,4 +1,4 @@
-// [INPUT]: context/errors/fmt/net·url/os/path·filepath/sync + gopkg.in/yaml.v3 + wails runtime；internal/{auth,chat,deploy,deployflow,pipeline,recommender,scanner,types,webstudio}
+// [INPUT]: context/errors/fmt/net·url/os/path·filepath/sync/time + gopkg.in/yaml.v3 + wails runtime；internal/{auth,chat,deploy,deployflow,pipeline,recents,recommender,scanner,types,webstudio}
 // [OUTPUT]: App（Wails bound-method 宿主 + 登录/项目态）+ StudioOptions（注入 webstudio 数据与桌面回调）
 // [POS]: cmd/askdao-studio 应用层 —— 桌面壳业务逻辑：登录(device flow)/扫描(pick 选文件夹→run 跑管线,Stop 可 cancel)/保存(写 yaml)/部署(deployflow.PackageSkills 单源 + deploy.Client)/测试聊天(chat 流式转发 conductor /chat)/内嵌助手(assistant 流式转发官方 Studio 助手 agent,resolveOfficialAssistant 从 conductor /cli/config 读回 agent id + 缓存 + env override)/SKILL 校验+补全(skillValidate/skillFix)/外链桥接(openExternal)，全复用 internal 核心包
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 	"gopkg.in/yaml.v3"
@@ -23,6 +24,7 @@ import (
 	"github.com/askdao/askdao-cli/internal/deploy"
 	"github.com/askdao/askdao-cli/internal/deployflow"
 	"github.com/askdao/askdao-cli/internal/pipeline"
+	"github.com/askdao/askdao-cli/internal/recents"
 	"github.com/askdao/askdao-cli/internal/recommender"
 	"github.com/askdao/askdao-cli/internal/scanner"
 	"github.com/askdao/askdao-cli/internal/types"
@@ -145,6 +147,7 @@ func (a *App) runScan() (*webstudio.StudioData, error) {
 	a.mu.Lock()
 	a.dir, a.currentData = dir, data
 	a.mu.Unlock()
+	a.touchRecents(dir, data.ProjectName)
 	return data, nil
 }
 
@@ -209,6 +212,15 @@ func (a *App) deploy(spec *types.AgentSpec) (*webstudio.DeployResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	a.recordDeploy(dir, recents.DeployRecord{
+		AgentID:                resp.AgentID,
+		MetadataName:           spec.Metadata.Name,
+		Created:                resp.Created,
+		PreviousManagedVersion: resp.PreviousManagedVersion,
+		GroupLink:              resp.GroupLink,
+		AnthropicAgentID:       resp.AnthropicAgentID,
+		LastDeployedAt:         time.Now().UTC(),
+	})
 	verb := "Updated"
 	if resp.Created {
 		verb = "Created"
@@ -219,6 +231,29 @@ func (a *App) deploy(spec *types.AgentSpec) (*webstudio.DeployResult, error) {
 		AgentID:   resp.AgentID,
 		Created:   resp.Created,
 	}, nil
+}
+
+// touchRecents records dir (with its display label) as the most-recently-opened
+// project in recent-projects.json. Best-effort: a persistence failure is logged
+// to stderr but never fails the scan/switch that triggered it — recents is a
+// convenience cache, not authoritative state.
+func (a *App) touchRecents(dir, label string) {
+	f, _ := recents.Load()
+	f.Touch(dir, label)
+	if err := recents.Save(f); err != nil {
+		fmt.Fprintf(os.Stderr, "askdao-studio: recents save: %v\n", err)
+	}
+}
+
+// recordDeploy stamps the last-deploy record onto dir's recents entry (creating
+// it if absent). Best-effort — a successful deploy must never fail because the
+// convenience cache could not be written.
+func (a *App) recordDeploy(dir string, rec recents.DeployRecord) {
+	f, _ := recents.Load()
+	f.SetDeploy(dir, rec)
+	if err := recents.Save(f); err != nil {
+		fmt.Fprintf(os.Stderr, "askdao-studio: recents save: %v\n", err)
+	}
 }
 
 // chat forwards one test-chat turn to conductor's /chat and streams each raw SSE
