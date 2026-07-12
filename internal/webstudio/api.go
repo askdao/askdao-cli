@@ -1,5 +1,5 @@
 // [INPUT]: 依赖 path/filepath；internal/types 的 AgentSpec / Detection / DetectedSkill / ReasoningDecision
-// [OUTPUT]: 对外提供 StudioData / SkillCandidate / MCPCandidate / ObservedData / AuthState / LoginChallenge / ChatRequest / SkillValidation / SkillFix / BuildStudioData
+// [OUTPUT]: 对外提供 StudioData / SkillCandidate / MCPCandidate / ObservedData / AuthState / LoginChallenge / ChatRequest / AssistantRequest / SkillValidation / SkillFix / BuildStudioData
 // [POS]: webstudio 的数据契约层 —— 把 pipeline 产物（spec 草稿 + detection 候选）摊平成前端 JSON；
 //
 //	restorePrior=true（编辑已有 yaml）时勾选态以 spec.skills/mcp_servers 为唯一真相；
@@ -59,6 +59,19 @@ type ChatRequest struct {
 	Message   string `json:"message"`
 	AgentID   string `json:"agent_id"`
 	SessionID string `json:"session_id,omitempty"`
+}
+
+// AssistantRequest is the POST /api/assistant body from the desktop assistant
+// sidebar. Unlike ChatRequest it carries no AgentID — the Go side resolves the
+// official Studio assistant agent (a shared is_official agent), so the WebView
+// never sees or chooses it. SessionID carries multi-turn continuity (same as
+// ChatRequest, from the previous turn's done frame). Context is an optional hint
+// the frontend attaches (a summary of the current spec draft, or the last deploy
+// error) so the assistant can explain fields / diagnose the failure.
+type AssistantRequest struct {
+	Message   string `json:"message"`
+	SessionID string `json:"session_id,omitempty"`
+	Context   string `json:"context,omitempty"`
 }
 
 // SkillValidation is one entry of the /api/skill-validate result — the desktop

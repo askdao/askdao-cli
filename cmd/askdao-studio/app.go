@@ -1,6 +1,6 @@
 // [INPUT]: context/errors/fmt/net·url/os/path·filepath/sync + gopkg.in/yaml.v3 + wails runtime；internal/{auth,chat,deploy,deployflow,pipeline,recommender,scanner,types,webstudio}
 // [OUTPUT]: App（Wails bound-method 宿主 + 登录/项目态）+ StudioOptions（注入 webstudio 数据与桌面回调）
-// [POS]: cmd/askdao-studio 应用层 —— 桌面壳业务逻辑：登录(device flow)/扫描(pick 选文件夹→run 跑管线,Stop 可 cancel)/保存(写 yaml)/部署(deployflow.PackageSkills 单源 + deploy.Client)/测试聊天(chat 流式转发 conductor /chat)/SKILL 校验+补全(skillValidate/skillFix)/外链桥接(openExternal)，全复用 internal 核心包
+// [POS]: cmd/askdao-studio 应用层 —— 桌面壳业务逻辑：登录(device flow)/扫描(pick 选文件夹→run 跑管线,Stop 可 cancel)/保存(写 yaml)/部署(deployflow.PackageSkills 单源 + deploy.Client)/测试聊天(chat 流式转发 conductor /chat)/内嵌助手(assistant 流式转发官方 Studio 助手 agent,resolveOfficialAssistant 从 conductor /cli/config 读回 agent id + 缓存 + env override)/SKILL 校验+补全(skillValidate/skillFix)/外链桥接(openExternal)，全复用 internal 核心包
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package main
 
@@ -44,6 +44,8 @@ type App struct {
 	currentData *webstudio.StudioData // served by OnSpec; placeholder until scan
 	pendingDir  string                // folder picked but not yet scanned (pick → run)
 	scanCancel  context.CancelFunc    // cancels the in-flight runScan; nil when idle
+
+	studioAssistantID string // cached assistant agent id from /cli/config; "" until first successful fetch
 }
 
 // NewApp constructs the desktop App with a placeholder StudioData so the
@@ -70,6 +72,7 @@ func (a *App) StudioOptions() webstudio.Options {
 		OnLoginPoll:     a.loginPoll,
 		OnLogout:        a.logout,
 		OnChat:          a.chat,
+		OnAssistant:     a.assistant,
 		OnOpenExternal:  a.openExternal,
 		OnSkillValidate: a.skillValidate,
 		OnSkillFix:      a.skillFix,
@@ -237,6 +240,67 @@ func (a *App) chat(ctx context.Context, req webstudio.ChatRequest, emit func(raw
 		AgentID:   req.AgentID,
 		SessionID: req.SessionID,
 	}, emit)
+}
+
+// assistant forwards one desktop-assistant turn to the official Studio assistant
+// agent and streams each raw SSE frame to emit — the same dumb-pipe shape as chat,
+// only the agent differs: it's resolved Go-side (resolveOfficialAssistant), not
+// chosen by the WebView, so the KOL always talks to the platform assistant. When
+// not logged in or no official assistant is configured, it emits a single
+// structured "unavailable" frame so the sidebar degrades to static help instead of
+// silently chatting with the wrong agent (conductor's DM fallback picks the
+// caller's own agent when the target isn't reachable).
+func (a *App) assistant(ctx context.Context, req webstudio.AssistantRequest, emit func(raw []byte) error) error {
+	creds, err := auth.Load()
+	if err != nil {
+		return emit([]byte(`{"type":"unavailable","message":"Sign in to AskDAO to use the assistant."}`))
+	}
+	agentID := a.resolveOfficialAssistant()
+	if agentID == "" {
+		return emit([]byte(`{"type":"unavailable","message":"The AI assistant isn't set up yet."}`))
+	}
+	msg := req.Message
+	if req.Context != "" {
+		msg = req.Context + "\n\n" + req.Message
+	}
+	cl := chat.NewClient(creds.Server)
+	cl.AuthToken = creds.AccessToken
+	return cl.Stream(ctx, chat.Request{
+		Message:   msg,
+		AgentID:   agentID,
+		SessionID: req.SessionID,
+	}, emit)
+}
+
+// resolveOfficialAssistant returns the agent_id of the platform's Studio
+// assistant agent — the "brain" the sidebar chats with. The id lives server-side
+// (conductor GET /cli/config), so swapping the assistant is a conductor redeploy,
+// not a client re-release. Resolution order: ASKDAO_STUDIO_ASSISTANT_ID env (a
+// dev override) → cached value → one lazy fetch from /cli/config (cached on
+// success). An empty return degrades the sidebar to static help — never a
+// wrong-agent chat (conductor's DM fallback would otherwise pick the caller's own
+// agent). Fetch failures aren't cached, so a transient outage retries next turn.
+func (a *App) resolveOfficialAssistant() string {
+	if v := os.Getenv("ASKDAO_STUDIO_ASSISTANT_ID"); v != "" {
+		return v
+	}
+	a.mu.Lock()
+	cached := a.studioAssistantID
+	a.mu.Unlock()
+	if cached != "" {
+		return cached
+	}
+	creds, err := auth.Load()
+	if err != nil {
+		return "" // not logged in → degrade to static help
+	}
+	id := recommender.FetchStudioAssistantID(a.reqCtx(), creds.Server, creds.AccessToken)
+	if id != "" {
+		a.mu.Lock()
+		a.studioAssistantID = id
+		a.mu.Unlock()
+	}
+	return id
 }
 
 // openExternal opens url in the system browser. The desktop webview ignores

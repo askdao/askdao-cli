@@ -24,6 +24,12 @@ const DefaultRecommendPath = "/api/v1/cli/recommend"
 // concrete model ids live only in conductor (zero client re-download on a swap).
 const DefaultModelClassesPath = "/api/v1/cli/model-classes"
 
+// DefaultAppConfigPath is the conductor REST path for server-driven client
+// config (currently the built-in assistant's agent id) the desktop app reads at
+// startup, so that id lives server-side (swap + redeploy conductor, no client
+// re-release) instead of a fragile client-side env var.
+const DefaultAppConfigPath = "/api/v1/cli/config"
+
 // DefaultTimeout caps any single conductor recommend call. Generous because
 // upstream LLM calls dominate latency.
 const DefaultTimeout = 90 * time.Second
@@ -199,6 +205,69 @@ func FetchModelClassesOrFallback(ctx context.Context, baseURL, token string) []t
 		}
 	}
 	return types.FallbackModelClasses()
+}
+
+// appConfigResponse is the GET /cli/config envelope.
+type appConfigResponse struct {
+	StudioAssistantAgentID string `json:"studio_assistant_agent_id"`
+}
+
+// FetchAppConfig GETs conductor's server-driven client config and returns the
+// Studio Assistant agent id (empty string if the server hasn't configured one).
+// Mirrors FetchModelClasses's request shape.
+func (c *ConductorClient) FetchAppConfig(ctx context.Context) (string, error) {
+	if c.BaseURL == "" {
+		return "", errors.New("recommender: ConductorClient.BaseURL is empty")
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		c.BaseURL+DefaultAppConfigPath, nil)
+	if err != nil {
+		return "", err
+	}
+	httpReq.Header.Set("Accept", "application/json")
+	if c.AuthToken != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.AuthToken)
+	}
+	client := c.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: DefaultTimeout}
+	}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("recommender: conductor unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("recommender: read response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("recommender: conductor returned %d: %s",
+			resp.StatusCode, truncate(string(respBody), 240))
+	}
+	var out appConfigResponse
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return "", fmt.Errorf("recommender: decode response: %w", err)
+	}
+	return out.StudioAssistantAgentID, nil
+}
+
+// FetchStudioAssistantID fetches the Studio Assistant agent id from conductor's
+// /cli/config, returning "" on ANY failure (unreachable / unconfigured / not
+// logged in) so the desktop assistant degrades to static help instead of a
+// wrong-agent chat. Mirrors FetchModelClassesOrFallback's graceful shape.
+func FetchStudioAssistantID(ctx context.Context, baseURL, token string) string {
+	if baseURL == "" {
+		return ""
+	}
+	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	c := NewConductorClient(baseURL)
+	c.AuthToken = token
+	if id, err := c.FetchAppConfig(fetchCtx); err == nil {
+		return id
+	}
+	return ""
 }
 
 // MockClient returns canned data without calling out. The default canned
