@@ -102,6 +102,26 @@
       color: var(--near-black);
     }
 
+    .proj-caret { cursor: pointer; margin-left: 3px; font-size: 10px; opacity: .55; }
+    .proj-caret:hover { opacity: 1; }
+    .proj-menu {
+      position: fixed; z-index: 60; min-width: 260px; max-width: 380px;
+      background: #fff; border: 1px solid var(--border-cream); border-radius: 12px;
+      box-shadow: 0 12px 34px rgba(0, 0, 0, .17); padding: 6px; font-family: var(--sans);
+    }
+    .pm-row { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 8px; }
+    .pm-row.cur, .pm-row:hover { background: var(--parchment); }
+    .pm-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: #b8b2a4; }
+    .pm-dot.deployed { background: #3f9b6b; }
+    .pm-dot.missing { background: #c65f5f; }
+    .pm-main { flex: 1; min-width: 0; cursor: pointer; }
+    .pm-name { font-size: 13px; font-weight: 600; color: var(--charcoal); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pm-sub { font-size: 11px; color: #8a8577; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pm-x { flex: none; border: none; background: none; color: #b0a99a; cursor: pointer; font-size: 13px; padding: 2px 5px; border-radius: 5px; line-height: 1; }
+    .pm-x:hover { background: #f0ede3; color: #c65f5f; }
+    .pm-add { border-top: 1px solid var(--border-cream); margin-top: 4px; padding: 9px 10px; font-size: 12px; font-weight: 600; color: var(--ink, #2b4a6f); cursor: pointer; }
+    .pm-add:hover { text-decoration: underline; }
+
     .proj {
       margin-left: auto;
       display: inline-flex;
@@ -1209,7 +1229,8 @@
     <div class="bar">
       <a class="brand" href="#" onclick="return false"><img src="/logo.png" alt="AskDAO"><span class="wordmark">AskDAO
           Agent</span></a>
-      <span class="proj">project · <b id="projName">…</b></span>
+      <span class="proj" id="projChip">project · <b id="projName">…</b><span id="projCaret" class="proj-caret" hidden onclick="toggleProjectMenu(event)">▾</span></span>
+      <div id="projMenu" class="proj-menu" hidden></div>
       <span id="loginbar" hidden style="margin-left:auto;display:flex;align-items:center;gap:8px;font:500 13px Inter,system-ui,sans-serif"></span>
     </div>
   </header>
@@ -1356,7 +1377,23 @@
       return `<span class="conf ${cls}" data-tip="${esc(r.reason)}">AI ${pct}%</span>`;
     }
 
+    // resetTransientState clears per-project transient UI — chat/assistant sessions
+    // + their logs + any open overlay + in-flight busy flags — so switching projects
+    // never carries project A's state into B. Called at the top of load(); a no-op on
+    // first load and in CLI mode (the overlays exist but stay hidden). Does NOT touch
+    // authPollTimer: login is app-global, not per-project, and an in-flight device
+    // flow must survive a switch.
+    function resetTransientState() {
+      closeDialog(); closeChat(); closeAssistant();
+      chatSession = ''; chatAgentID = '';
+      asstSession = '';
+      groupLink = ''; dialogTerminal = false;
+      busy = false; chatBusy = false; asstBusy = false;
+      const cl = $('chatLog'); if (cl) cl.innerHTML = '';
+      const al = $('asstLog'); if (al) al.innerHTML = '';
+    }
     async function load() {
+      resetTransientState();
       data = await (await fetch('/api/spec')).json();
       spec = data.spec || {}; spec.metadata = spec.metadata || {}; spec.persona = spec.persona || {};
       (data.palette || []).forEach(p => palette[p.token] = p.hex);
@@ -1365,8 +1402,78 @@
       applyAccent(spec.metadata.theme_color);
       renderNav(); renderPanels(); go(0);
       startObservePolling();
-      if (data.desktop) { initAuth(); $('assistantFab').hidden = false; if (data.needs_scan) showScanPrompt(); else validateSkills(); }
+      if (data.desktop) { initAuth(); $('assistantFab').hidden = false; renderProjectSwitcher(); if (data.needs_scan) showScanPrompt(); else validateSkills(); }
     }
+
+    // Desktop multi-project switcher — the .proj chip's caret opens a popover of
+    // recent projects (data.projects). Row → switch, ✕ → remove, "Open another
+    // folder…" → scan flow. Rows built with createElement/textContent (project
+    // names/dirs are user paths — never innerHTML; the clear-to-'' is safe).
+    function renderProjectSwitcher() {
+      const caret = $('projCaret');
+      if (caret) caret.hidden = !(data.desktop && (data.projects || []).length);
+    }
+    function toggleProjectMenu(e) {
+      if (e) e.stopPropagation();
+      const menu = $('projMenu');
+      if (!menu.hidden) { menu.hidden = true; return; }
+      renderProjectMenu();
+      const r = $('projChip').getBoundingClientRect();
+      menu.style.left = Math.round(r.left) + 'px';
+      menu.style.top = Math.round(r.bottom + 6) + 'px';
+      menu.hidden = false;
+    }
+    function closeProjectMenu() { const m = $('projMenu'); if (m) m.hidden = true; }
+    function renderProjectMenu() {
+      const menu = $('projMenu');
+      menu.innerHTML = '';
+      (data.projects || []).forEach(p => {
+        const row = document.createElement('div');
+        row.className = 'pm-row' + (p.current ? ' cur' : '');
+        const dot = document.createElement('span');
+        dot.className = 'pm-dot' + (p.missing ? ' missing' : (p.deployed ? ' deployed' : ''));
+        row.appendChild(dot);
+        const main = document.createElement('div');
+        main.className = 'pm-main';
+        const nm = document.createElement('div');
+        nm.className = 'pm-name'; nm.textContent = p.name || p.dir; main.appendChild(nm);
+        const sub = document.createElement('div');
+        sub.className = 'pm-sub';
+        sub.textContent = p.missing ? 'folder not found'
+          : (p.deployed ? ('deployed' + (p.deployed_name ? ' as ' + p.deployed_name : '') + (p.version ? ' · ' + p.version : '')) : p.dir);
+        main.appendChild(sub);
+        if (!p.missing) main.onclick = () => switchToProject(p.dir);
+        row.appendChild(main);
+        const x = document.createElement('button');
+        x.type = 'button'; x.className = 'pm-x'; x.textContent = '✕'; x.title = 'Remove from list';
+        x.onclick = (ev) => { ev.stopPropagation(); removeProjectFromList(p.dir); };
+        row.appendChild(x);
+        menu.appendChild(row);
+      });
+      const add = document.createElement('div');
+      add.className = 'pm-add'; add.textContent = '+ Open another folder…';
+      add.onclick = () => { closeProjectMenu(); doScan(); };
+      menu.appendChild(add);
+    }
+    async function switchToProject(dir) {
+      if (busy) return;
+      closeProjectMenu();
+      try {
+        const r = await (await fetch('/api/project/switch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir }) })).json();
+        if (r && r.error) throw new Error(r.error);
+        await load();
+      } catch (e) {
+        showDialog({ kind: 'error', title: 'Could not open project', msg: (e.message || String(e)), terminal: false });
+      }
+    }
+    async function removeProjectFromList(dir) {
+      try { await fetch('/api/project/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir }) }); } catch (e) { /* best-effort */ }
+      await load();
+    }
+    document.addEventListener('click', (e) => {
+      const m = $('projMenu');
+      if (m && !m.hidden && !m.contains(e.target) && e.target !== $('projCaret')) closeProjectMenu();
+    });
 
     // Desktop-only: the pre-scan placeholder shows a folder-picker overlay. POST
     // /api/scan opens a native picker (Go side), scans on-device, then we reload
@@ -1537,6 +1644,7 @@
     <h2>Choose its capabilities</h2>
     <p class="sub">Only what you tick travels with the agent.</p>
     ${observeBar()}
+    ${lightweightBar()}
     <div class="tabs">
       <button type="button" class="tab active" onclick="switchTab('skills',this)">Skills <span class="cnt">${sc}</span></button>
       <button type="button" class="tab" onclick="switchTab('mcp',this)">MCP servers <span class="cnt">${mc}</span></button>
@@ -1560,6 +1668,7 @@
       return `<label class="item"><input type="checkbox" id="skill-${i}" ${c.checked ? 'checked' : ''}><div><div class="nm">${esc(c.name)} ${sc}${hb}${og}</div>${c.description ? `<div class="ds">${esc(c.description)}</div>` : ''}</div></label>`;
     }
     function skillGroups() {
+      if (data.lightweight) return lightChips((spec.skills || []).map(s => s.id || (s.path ? s.path.split('/').pop() : (s.type || 'skill'))));
       const cs = data.skill_candidates || [];
       if (!cs.length) return '<p class="empty">No skills detected in this project.</p>';
       // Within each scope, cluster by harness (stable sort) so multi-harness lists read cleanly.
@@ -1578,12 +1687,40 @@
       return `<label class="item"><input type="checkbox" id="mcp-${i}" ${c.checked ? 'checked' : ''}><div><div class="nm">${esc(c.name)} ${sc}${hb}<span class="tag">${esc(c.type)}</span>${wb}</div></div></label>`;
     }
     function mcpGroups() {
+      if (data.lightweight) return lightChips((spec.mcp_servers || []).map(s => s.name || 'server'));
       const cs = data.mcp_candidates || [];
       if (!cs.length) return '<p class="empty">No MCP servers detected.</p>';
       const proj = [], user = [];
       cs.forEach((c, i) => { const h = mcpItem(c, i); c.scope === 'user' ? user.push(h) : proj.push(h); });
       return (proj.length ? `<div class="grp"><h3>Current directory</h3>${proj.join('')}</div>` : '')
         + (user.length ? `<div class="grp"><h3>User-level (global)</h3>${user.join('')}</div>` : '');
+    }
+
+    // Lightweight projects were parsed from saved yaml (no full scan), so the
+    // tick-through candidate lists don't exist. Show the yaml's declared skills/mcp
+    // read-only + a Re-scan to unlock editing; collect()'s data.lightweight guard
+    // keeps them intact through save/deploy (never silently wiped).
+    function lightweightBar() {
+      if (!data.lightweight) return '';
+      return `<div class="obsbar">
+    <div class="obsmsg"><b>Opened from saved config.</b> Skills &amp; tools are read-only. Re-scan this project to add or change them.</div>
+    <button type="button" class="act btn" onclick="rescanProject()">Re-scan</button>
+  </div>`;
+    }
+    function lightChips(names) {
+      if (!names.length) return '<p class="empty">None declared.</p>';
+      return '<div class="grp">' + names.map(n => `<div class="item" style="cursor:default"><div><div class="nm">${esc(n)}</div></div></div>`).join('') + '</div>';
+    }
+    async function rescanProject() {
+      setStatus('Re-scanning…');
+      try {
+        const r = await (await fetch('/api/project/rescan', { method: 'POST' })).json();
+        if (r && r.error) throw new Error(r.error);
+        await load(); // data.lightweight now false → full candidates editable
+      } catch (e) {
+        setStatus('');
+        showDialog({ kind: 'error', title: "Couldn't re-scan", msg: (e.message || String(e)), terminal: false });
+      }
     }
 
     /* observe overlay (--observe): poll /api/observe, highlight what a real claude
@@ -1598,11 +1735,13 @@
     <button type="button" class="act btn" onclick="narrowToObserved()">Keep only observed</button>
   </div>`;
     }
+    let observeTimer = null;
     function startObservePolling() {
+      if (observeTimer) { clearInterval(observeTimer); observeTimer = null; } // idempotent — load() re-runs on project switch
       if (!data.observe) return;
       const poll = async () => { try { applyObserved(await (await fetch('/api/observe')).json()); } catch (e) { } };
       poll();
-      setInterval(poll, 2000);
+      observeTimer = setInterval(poll, 2000);
     }
     function applyObserved(o) {
       lastObserved = o || { skills: [], mcp_servers: [] };
@@ -1898,17 +2037,24 @@
       // resolves the concrete id from model_class at deploy time.
       const mc = modelEntry(p.model_class);
       p.model_preferences = (mc && mc.model_id) ? [{ provider: 'anthropic', id: mc.model_id }] : [];
-      spec.skills = [];
-      (data.skill_candidates || []).forEach((c, i) => {
-        const el = $('skill-' + i); if (!el || !el.checked) return;
-        if (c.builtin) spec.skills.push({ type: 'builtin', provider: 'anthropic', id: c.builtin_id });
-        else { const s = { type: 'custom_local', path: c.path }; if (c.scope === 'user') s.scope = 'user'; spec.skills.push(s); }
-      });
-      spec.mcp_servers = [];
-      (data.mcp_candidates || []).forEach((c, i) => {
-        const el = $('mcp-' + i); if (!el || !el.checked) return;
-        const s = { name: c.name, type: c.type }; if (c.url) s.url = c.url; if (c.command) s.command = c.command; spec.mcp_servers.push(s);
-      });
+      // Lightweight projects (opened via yaml parse, det=nil) carry no candidate
+      // lists — rebuilding from them would wipe the skills/mcp the yaml already
+      // declares. Skip the rebuild; spec.skills/mcp_servers keep their loaded values.
+      // (Never key off candidates.length===0 — a real skill-less scan is also valid
+      // and must still rebuild to empty; only the explicit lightweight flag skips.)
+      if (!data.lightweight) {
+        spec.skills = [];
+        (data.skill_candidates || []).forEach((c, i) => {
+          const el = $('skill-' + i); if (!el || !el.checked) return;
+          if (c.builtin) spec.skills.push({ type: 'builtin', provider: 'anthropic', id: c.builtin_id });
+          else { const s = { type: 'custom_local', path: c.path }; if (c.scope === 'user') s.scope = 'user'; spec.skills.push(s); }
+        });
+        spec.mcp_servers = [];
+        (data.mcp_candidates || []).forEach((c, i) => {
+          const el = $('mcp-' + i); if (!el || !el.checked) return;
+          const s = { name: c.name, type: c.type }; if (c.url) s.url = c.url; if (c.command) s.command = c.command; spec.mcp_servers.push(s);
+        });
+      }
       syncVault();
       const pickedVault = vault.filter(c => c.name && c.checked);
       spec.vault_hints = {
