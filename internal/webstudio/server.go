@@ -96,6 +96,16 @@ type Options struct {
 	// into a skill's SKILL.md frontmatter so the KOL clears a validation flag with
 	// one tap (folder name) or a short entry. CLI leaves it nil.
 	OnSkillFix func(SkillFix) error
+
+	// OnProjectSwitch/OnProjectRemove/OnProjectRescan, if set, register the desktop
+	// multi-project routes POST /api/project/{switch,remove,rescan}: switch makes a
+	// recent project the current one (lightweight yaml load), remove drops it from
+	// the recents list, rescan runs a full pipeline scan on the current project.
+	// CLI (single-project agent edit) leaves all three nil, so none of the routes
+	// exist there — the same isolation as scan/auth/chat.
+	OnProjectSwitch func(dir string) error
+	OnProjectRemove func(dir string) error
+	OnProjectRescan func() (*StudioData, error)
 }
 
 // Serve starts the local studio, opens the browser, and blocks until the KOL
@@ -432,6 +442,51 @@ func buildMux(opts Options, done chan error) *http.ServeMux {
 				return
 			}
 			writeJSON(w, map[string]string{"status": "fixed"})
+		})
+	}
+
+	// Desktop-only multi-project routes — switch to / remove a recent project, or
+	// re-scan the current one. CLI leaves the callbacks nil, so none exist there.
+	if opts.OnProjectSwitch != nil {
+		mux.HandleFunc("/api/project/switch", func(w http.ResponseWriter, r *http.Request) {
+			var p struct {
+				Dir string `json:"dir"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+				writeErr(w, err)
+				return
+			}
+			if err := opts.OnProjectSwitch(p.Dir); err != nil {
+				writeErr(w, err)
+				return
+			}
+			writeJSON(w, map[string]string{"status": "switched"})
+		})
+	}
+	if opts.OnProjectRemove != nil {
+		mux.HandleFunc("/api/project/remove", func(w http.ResponseWriter, r *http.Request) {
+			var p struct {
+				Dir string `json:"dir"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+				writeErr(w, err)
+				return
+			}
+			if err := opts.OnProjectRemove(p.Dir); err != nil {
+				writeErr(w, err)
+				return
+			}
+			writeJSON(w, map[string]string{"status": "removed"})
+		})
+	}
+	if opts.OnProjectRescan != nil {
+		mux.HandleFunc("/api/project/rescan", func(w http.ResponseWriter, r *http.Request) {
+			d, err := opts.OnProjectRescan()
+			if err != nil {
+				writeErr(w, err)
+				return
+			}
+			writeJSON(w, d)
 		})
 	}
 

@@ -26,11 +26,29 @@ type StudioData struct {
 	Categories      []string                  `json:"categories"`
 	ProjectName     string                    `json:"project_name"`
 	Harness         string                    `json:"harness"`
-	Observe         bool                      `json:"observe"`       // --observe session: frontend shows the observe panel + polls /api/observe
-	Desktop         bool                      `json:"desktop"`       // desktop-app session: frontend shows desktop-only blocks (assistant sidebar / test chat); CLI edit leaves it false
-	NeedsScan       bool                      `json:"needs_scan"`    // desktop pre-scan placeholder: frontend shows the folder-picker prompt until POST /api/scan returns a scanned draft
-	Icons           []IconDef                 `json:"icons"`         // avatar icon 网格的 lucide 子集（AvatarIcons）
-	ModelCatalog    []types.ModelClassEntry   `json:"model_catalog"` // step-2 模型档（档名/concrete model/成本）从 conductor /cli/model-classes 拉，前端零硬编码 id
+	Observe         bool                      `json:"observe"`               // --observe session: frontend shows the observe panel + polls /api/observe
+	Desktop         bool                      `json:"desktop"`               // desktop-app session: frontend shows desktop-only blocks (assistant sidebar / test chat); CLI edit leaves it false
+	NeedsScan       bool                      `json:"needs_scan"`            // desktop pre-scan placeholder: frontend shows the folder-picker prompt until POST /api/scan returns a scanned draft
+	Icons           []IconDef                 `json:"icons"`                 // avatar icon 网格的 lucide 子集（AvatarIcons）
+	ModelCatalog    []types.ModelClassEntry   `json:"model_catalog"`         // step-2 模型档（档名/concrete model/成本）从 conductor /cli/model-classes 拉，前端零硬编码 id
+	Projects        []ProjectSummary          `json:"projects,omitempty"`    // desktop multi-project switcher list; CLI leaves nil → omitempty keeps it invisible
+	Lightweight     bool                      `json:"lightweight,omitempty"` // project opened via lightweight yaml parse (det=nil): collect() must NOT rebuild skills/mcp from (empty) candidates or it silently wipes the yaml's declared skills
+}
+
+// ProjectSummary is one row of the desktop multi-project switcher
+// (StudioData.Projects). It carries just enough to render the switcher entry +
+// its deploy-status glance; the full editable draft for the *current* project
+// rides in StudioData.Spec/candidates. Desktop-only (CLI leaves Projects nil).
+type ProjectSummary struct {
+	Dir            string `json:"dir"`
+	Name           string `json:"name"`                       // metadata.name (if materialized) or dir basename
+	Current        bool   `json:"current"`                    // the project currently loaded in the workbench
+	Deployed       bool   `json:"deployed"`                   // has a recorded deploy
+	DeployedName   string `json:"deployed_name,omitempty"`    // metadata.name at deploy time — reveals (owner,name) drift if the draft was renamed
+	AgentID        string `json:"agent_id,omitempty"`         // conductor agent id from the last deploy
+	Version        string `json:"version,omitempty"`          // e.g. "v2" (PreviousManagedVersion+1); only known on an update deploy
+	LastDeployedAt string `json:"last_deployed_at,omitempty"` // RFC3339
+	Missing        bool   `json:"missing,omitempty"`          // dir has vanished from disk since it was recorded
 }
 
 // ObservedData is the GET /api/observe payload: the skills and MCP servers seen

@@ -220,3 +220,7 @@ func normalize(dir string) string {
 	}
 	return c
 }
+
+// Normalize exposes the dedup-key normalization so callers (the desktop App's
+// in-memory project list) key projects the same way the on-disk list does.
+func Normalize(dir string) string { return normalize(dir) }

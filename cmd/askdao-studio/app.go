@@ -1,6 +1,6 @@
 // [INPUT]: context/errors/fmt/net·url/os/path·filepath/sync/time + gopkg.in/yaml.v3 + wails runtime；internal/{auth,chat,deploy,deployflow,pipeline,recents,recommender,scanner,types,webstudio}
-// [OUTPUT]: App（Wails bound-method 宿主 + 登录/项目态）+ StudioOptions（注入 webstudio 数据与桌面回调）
-// [POS]: cmd/askdao-studio 应用层 —— 桌面壳业务逻辑：登录(device flow)/扫描(pick 选文件夹→run 跑管线,Stop 可 cancel)/保存(写 yaml)/部署(deployflow.PackageSkills 单源 + deploy.Client)/测试聊天(chat 流式转发 conductor /chat)/内嵌助手(assistant 流式转发官方 Studio 助手 agent,resolveOfficialAssistant 从 conductor /cli/config 读回 agent id + 缓存 + env override)/SKILL 校验+补全(skillValidate/skillFix)/外链桥接(openExternal)，全复用 internal 核心包
+// [OUTPUT]: App（Wails bound-method 宿主 + 登录 + 多项目列表态 projects[]/currentIndex）+ Project（单项目内存态 dir/Data/Deploy/Full）+ StudioOptions（注入 webstudio 数据与桌面回调）
+// [POS]: cmd/askdao-studio 应用层 —— 桌面壳业务逻辑：登录(device flow)/扫描(pick 选文件夹→run 跑管线,Stop 可 cancel)/多项目(projects[] MRU + switchProject 轻量 yaml 载入·rescanCurrent full scan·removeProject,NewApp 从 recents 播种 + touchRecents/recordDeploy 持久化)/保存(写 yaml)/部署(deployflow.PackageSkills 单源 + deploy.Client)/测试聊天(chat 流式转发 conductor /chat)/内嵌助手(assistant 流式转发官方 Studio 助手 agent,resolveOfficialAssistant 从 conductor /cli/config 读回 agent id + 缓存 + env override)/SKILL 校验+补全(skillValidate/skillFix)/外链桥接(openExternal)，全复用 internal 核心包
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package main
 
@@ -34,25 +34,106 @@ import (
 const agentYAMLName = "askdao-agent.yml"
 
 // App hosts the desktop session context, the in-flight device-login state, the
-// scanned project dir + its StudioData, and the Wails-bound methods.
+// open project list + which one is current, and the Wails-bound methods.
 type App struct {
 	ctx context.Context
 
-	mu          sync.Mutex
-	df          *auth.DeviceFlow
-	deviceCode  string
-	server      string
-	dir         string                // scanned project dir ("" until a folder is scanned)
-	currentData *webstudio.StudioData // served by OnSpec; placeholder until scan
-	pendingDir  string                // folder picked but not yet scanned (pick → run)
-	scanCancel  context.CancelFunc    // cancels the in-flight runScan; nil when idle
+	mu           sync.Mutex
+	df           *auth.DeviceFlow
+	deviceCode   string
+	server       string
+	projects     []*Project         // MRU; front = most recently opened. Seeded from recents (Data=nil) at startup.
+	currentIndex int                // index into projects; -1 = placeholder (no project open)
+	pendingDir   string             // folder picked but not yet scanned (pick → run)
+	scanCancel   context.CancelFunc // cancels the in-flight runScan; nil when idle
 
 	studioAssistantID string // cached assistant agent id from /cli/config; "" until first successful fetch
 }
 
-// NewApp constructs the desktop App with a placeholder StudioData so the
-// workbench renders before any folder is scanned.
-func NewApp() *App { return &App{currentData: placeholderData()} }
+// Project is one open project's in-memory state: its dir, the StudioData served
+// to the workbench (nil until materialized — lazily via full scan or lightweight
+// yaml parse), and its last-deploy record mirrored from recents.
+type Project struct {
+	Dir    string
+	Data   *webstudio.StudioData
+	Deploy *recents.DeployRecord
+	Full   bool // Data came from a full pipeline scan (true) vs lightweight yaml parse (false)
+}
+
+// NewApp constructs the desktop App, seeding the project list from recents (paths
+// only — each project's StudioData is materialized lazily on first open/switch).
+// currentIndex = -1 means the workbench shows the placeholder until a project is
+// scanned or switched to.
+func NewApp() *App {
+	a := &App{currentIndex: -1}
+	if f, err := recents.Load(); err == nil {
+		for _, e := range f.Projects {
+			p := &Project{Dir: e.Dir}
+			if e.Deploy != nil {
+				d := *e.Deploy
+				p.Deploy = &d
+			}
+			a.projects = append(a.projects, p)
+		}
+	}
+	return a
+}
+
+// currentProjectLocked returns the current project, or nil at the placeholder.
+// Caller must hold a.mu.
+func (a *App) currentProjectLocked() *Project {
+	if a.currentIndex < 0 || a.currentIndex >= len(a.projects) {
+		return nil
+	}
+	return a.projects[a.currentIndex]
+}
+
+// findProjectLocked returns the project whose dir normalizes equal, or nil.
+// Caller must hold a.mu.
+func (a *App) findProjectLocked(dir string) *Project {
+	nd := recents.Normalize(dir)
+	for _, p := range a.projects {
+		if recents.Normalize(p.Dir) == nd {
+			return p
+		}
+	}
+	return nil
+}
+
+// upsertProjectLocked makes dir the current project (front of MRU), replacing its
+// Data if already present. Caller must hold a.mu.
+func (a *App) upsertProjectLocked(dir string, data *webstudio.StudioData, full bool) {
+	nd := recents.Normalize(dir)
+	for i, p := range a.projects {
+		if recents.Normalize(p.Dir) == nd {
+			p.Data, p.Full = data, full
+			a.projects = append(a.projects[:i], a.projects[i+1:]...)
+			a.projects = append([]*Project{p}, a.projects...)
+			a.currentIndex = 0
+			return
+		}
+	}
+	a.projects = append([]*Project{{Dir: nd, Data: data, Full: full}}, a.projects...)
+	a.currentIndex = 0
+}
+
+// removeProjectLocked drops dir; if it was current, fall back to the placeholder.
+// Caller must hold a.mu.
+func (a *App) removeProjectLocked(dir string) {
+	nd := recents.Normalize(dir)
+	for i, p := range a.projects {
+		if recents.Normalize(p.Dir) == nd {
+			a.projects = append(a.projects[:i], a.projects[i+1:]...)
+			switch {
+			case a.currentIndex == i:
+				a.currentIndex = -1
+			case a.currentIndex > i:
+				a.currentIndex--
+			}
+			return
+		}
+	}
+}
 
 // startup captures the Wails runtime context.
 func (a *App) startup(ctx context.Context) { a.ctx = ctx }
@@ -78,14 +159,59 @@ func (a *App) StudioOptions() webstudio.Options {
 		OnOpenExternal:  a.openExternal,
 		OnSkillValidate: a.skillValidate,
 		OnSkillFix:      a.skillFix,
+		OnProjectSwitch: a.switchProject,
+		OnProjectRemove: a.removeProject,
+		OnProjectRescan: a.rescanCurrent,
 	}
 }
 
-// spec returns the current StudioData (placeholder until a folder is scanned).
+// spec returns the StudioData for the current project (placeholder until one is
+// scanned/switched to), with the fresh project-list summary layered on. It
+// shallow-copies so the stored project.Data is never mutated by the summary set.
 func (a *App) spec() *webstudio.StudioData {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.currentData
+	d := placeholderData()
+	if p := a.currentProjectLocked(); p != nil && p.Data != nil {
+		d = p.Data
+	}
+	dc := *d
+	dc.Projects = a.projectSummariesLocked()
+	return &dc
+}
+
+// projectSummariesLocked builds the switcher list from a.projects. Caller must
+// hold a.mu. Name uses the materialized metadata.name when available, else the
+// dir basename; deploy fields come from the recents-mirrored Deploy record.
+func (a *App) projectSummariesLocked() []webstudio.ProjectSummary {
+	if len(a.projects) == 0 {
+		return nil
+	}
+	out := make([]webstudio.ProjectSummary, 0, len(a.projects))
+	for i, p := range a.projects {
+		s := webstudio.ProjectSummary{Dir: p.Dir, Current: i == a.currentIndex}
+		if p.Data != nil && p.Data.Spec != nil && p.Data.Spec.Metadata.Name != "" {
+			s.Name = p.Data.Spec.Metadata.Name
+		} else {
+			s.Name = filepath.Base(p.Dir)
+		}
+		if _, err := os.Stat(p.Dir); err != nil {
+			s.Missing = true
+		}
+		if p.Deploy != nil {
+			s.Deployed = true
+			s.DeployedName = p.Deploy.MetadataName
+			s.AgentID = p.Deploy.AgentID
+			if p.Deploy.PreviousManagedVersion != nil {
+				s.Version = fmt.Sprintf("v%d", *p.Deploy.PreviousManagedVersion+1)
+			}
+			if !p.Deploy.LastDeployedAt.IsZero() {
+				s.LastDeployedAt = p.Deploy.LastDeployedAt.Format(time.RFC3339)
+			}
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 // pickFolder opens the native folder picker and stores the choice as pending —
@@ -145,7 +271,7 @@ func (a *App) runScan() (*webstudio.StudioData, error) {
 	data.Desktop = true
 	data.ModelCatalog = a.modelCatalog(ctx)
 	a.mu.Lock()
-	a.dir, a.currentData = dir, data
+	a.upsertProjectLocked(dir, data, true /*full scan*/)
 	a.mu.Unlock()
 	a.touchRecents(dir, data.ProjectName)
 	return data, nil
@@ -162,15 +288,95 @@ func (a *App) cancelScan() error {
 	return nil
 }
 
+// loadProjectLight parses <dir>/askdao-agent.yml into StudioData without running
+// the pipeline (det=nil, Lightweight=true). The CLI's readSpec lives in another
+// package main, so the desktop parses yaml itself. Lightweight signals collect()
+// to preserve the loaded skills/mcp rather than rebuild them from empty candidates.
+func (a *App) loadProjectLight(dir string) (*webstudio.StudioData, error) {
+	raw, err := os.ReadFile(filepath.Join(dir, agentYAMLName))
+	if err != nil {
+		return nil, fmt.Errorf("no %s here — Re-scan to draft one", agentYAMLName)
+	}
+	var spec types.AgentSpec
+	if err := yaml.Unmarshal(raw, &spec); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", agentYAMLName, err)
+	}
+	if spec.Metadata.ThemeColor == "" {
+		spec.Metadata.ThemeColor = webstudio.DefaultThemeForCategory(spec.Metadata.Category)
+	}
+	if spec.Metadata.Avatar == "" {
+		spec.Metadata.Avatar = webstudio.DefaultAvatarForCategory(spec.Metadata.Category)
+	}
+	data := webstudio.BuildStudioData(&spec, nil, "Anthropic Managed Agents", true)
+	data.Desktop = true
+	data.Lightweight = true
+	data.ModelCatalog = a.modelCatalog(a.reqCtx())
+	return data, nil
+}
+
+// switchProject makes dir the current project. If already materialized its Data
+// is reused; otherwise a lightweight yaml load. The frontend re-GETs /api/spec
+// afterward to render the newly-current project.
+func (a *App) switchProject(dir string) error {
+	a.mu.Lock()
+	p := a.findProjectLocked(dir)
+	a.mu.Unlock()
+	var (
+		data *webstudio.StudioData
+		full bool
+	)
+	if p != nil && p.Data != nil {
+		data, full = p.Data, p.Full
+	} else if d, err := a.loadProjectLight(dir); err != nil {
+		return err
+	} else {
+		data = d
+	}
+	a.mu.Lock()
+	a.upsertProjectLocked(dir, data, full)
+	a.mu.Unlock()
+	a.touchRecents(dir, data.ProjectName)
+	return nil
+}
+
+// rescanCurrent runs a full pipeline scan on the current project (upgrading a
+// lightweight load or refreshing candidates), reusing runScan via pendingDir.
+func (a *App) rescanCurrent() (*webstudio.StudioData, error) {
+	a.mu.Lock()
+	p := a.currentProjectLocked()
+	if p == nil {
+		a.mu.Unlock()
+		return nil, errors.New("no project open — choose a folder first")
+	}
+	a.pendingDir = p.Dir
+	a.mu.Unlock()
+	return a.runScan()
+}
+
+// removeProject drops dir from the project list + recents. Removing the current
+// project falls back to the placeholder.
+func (a *App) removeProject(dir string) error {
+	a.mu.Lock()
+	a.removeProjectLocked(dir)
+	a.mu.Unlock()
+	f, _ := recents.Load()
+	f.Remove(dir)
+	if err := recents.Save(f); err != nil {
+		fmt.Fprintf(os.Stderr, "askdao-studio: recents save: %v\n", err)
+	}
+	return nil
+}
+
 // save writes the edited spec to <dir>/askdao-agent.yml (syncing networking from
 // mcp_servers, same as the CLI's writeAgentSpec).
 func (a *App) save(spec *types.AgentSpec) error {
 	a.mu.Lock()
-	dir := a.dir
+	p := a.currentProjectLocked()
 	a.mu.Unlock()
-	if dir == "" {
-		return errors.New("no project scanned yet — choose a folder first")
+	if p == nil {
+		return errors.New("no project open — choose a folder first")
 	}
+	dir := p.Dir
 	syncNetworking(spec)
 	yml, err := yaml.Marshal(spec)
 	if err != nil {
@@ -188,8 +394,12 @@ func (a *App) deploy(spec *types.AgentSpec) (*webstudio.DeployResult, error) {
 		return nil, err
 	}
 	a.mu.Lock()
-	dir := a.dir
+	p := a.currentProjectLocked()
 	a.mu.Unlock()
+	if p == nil {
+		return nil, errors.New("no project open — choose a folder first")
+	}
+	dir := p.Dir
 	agentYAML, err := os.ReadFile(filepath.Join(dir, agentYAMLName))
 	if err != nil {
 		return nil, err
@@ -212,7 +422,7 @@ func (a *App) deploy(spec *types.AgentSpec) (*webstudio.DeployResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	a.recordDeploy(dir, recents.DeployRecord{
+	rec := recents.DeployRecord{
 		AgentID:                resp.AgentID,
 		MetadataName:           spec.Metadata.Name,
 		Created:                resp.Created,
@@ -220,7 +430,11 @@ func (a *App) deploy(spec *types.AgentSpec) (*webstudio.DeployResult, error) {
 		GroupLink:              resp.GroupLink,
 		AnthropicAgentID:       resp.AnthropicAgentID,
 		LastDeployedAt:         time.Now().UTC(),
-	})
+	}
+	a.mu.Lock()
+	p.Deploy = &rec
+	a.mu.Unlock()
+	a.recordDeploy(dir, rec)
 	verb := "Updated"
 	if resp.Created {
 		verb = "Created"
@@ -353,11 +567,12 @@ func (a *App) openExternal(url string) error {
 // so a KOL who edits a SKILL.md and re-validates sees the fresh state.
 func (a *App) skillValidate() ([]webstudio.SkillValidation, error) {
 	a.mu.Lock()
-	dir, data := a.dir, a.currentData
+	p := a.currentProjectLocked()
 	a.mu.Unlock()
-	if dir == "" || data == nil {
+	if p == nil || p.Data == nil {
 		return nil, errors.New("no project scanned yet — choose a folder first")
 	}
+	dir, data := p.Dir, p.Data
 	var out []webstudio.SkillValidation
 	for _, c := range data.SkillCandidates {
 		if c.Builtin || c.Path == "" {
@@ -385,11 +600,12 @@ func (a *App) skillValidate() ([]webstudio.SkillValidation, error) {
 // the assistant's file writes will honor.
 func (a *App) skillFix(fix webstudio.SkillFix) error {
 	a.mu.Lock()
-	dir, data := a.dir, a.currentData
+	p := a.currentProjectLocked()
 	a.mu.Unlock()
-	if dir == "" || data == nil {
+	if p == nil || p.Data == nil {
 		return errors.New("no project scanned yet — choose a folder first")
 	}
+	dir, data := p.Dir, p.Data
 	var cand *webstudio.SkillCandidate
 	for i := range data.SkillCandidates {
 		if c := &data.SkillCandidates[i]; !c.Builtin && c.Path == fix.Path {
