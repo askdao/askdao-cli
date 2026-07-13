@@ -1385,6 +1385,10 @@
     // flow must survive a switch.
     function resetTransientState() {
       closeDialog(); closeChat(); closeAssistant();
+      // Hide the folder picker too — switching away from the startup placeholder
+      // (needs_scan) to a real project would otherwise strand it over the workbench.
+      // load()'s desktop branch re-opens it via showScanPrompt() when still needed.
+      { const so = $('scanOverlay'); if (so) so.hidden = true; }
       chatSession = ''; chatAgentID = '';
       asstSession = '';
       groupLink = ''; dialogTerminal = false;
