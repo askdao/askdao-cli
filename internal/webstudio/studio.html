@@ -1241,7 +1241,7 @@
       <a class="brand" href="#" onclick="return false"><img src="/logo.png" alt="AskDAO"><span class="wordmark">AskDAO
           Agent</span></a>
       <span class="proj" id="projChip">project · <b id="projName">…</b><span id="projCaret" class="proj-caret" hidden onclick="toggleProjectMenu(event)">▾</span></span>
-      <button type="button" id="openProjectBtn" class="open-proj" hidden onclick="doScan()">+ Open project</button>
+      <button type="button" id="openProjectBtn" class="open-proj" hidden onclick="openNewProject()">+ Open New Project</button>
       <div id="projMenu" class="proj-menu" hidden></div>
       <span id="loginbar" hidden style="margin-left:auto;display:flex;align-items:center;gap:8px;font:500 13px Inter,system-ui,sans-serif"></span>
     </div>
@@ -1290,6 +1290,7 @@
       <p class="done-msg">Choose a local folder with your AI project (skills, MCP config, etc.). AskDAO Studio scans it on your machine and drafts an agent — nothing leaves your computer.</p>
       <button type="button" id="chooseFolderBtn" class="act btn primary" onclick="doScan()">Choose folder…</button>
       <button type="button" id="stopScanBtn" class="act btn" hidden onclick="stopScan()">Stop scanning</button>
+      <button type="button" id="scanCancelBtn" class="act btn" hidden onclick="cancelOpenProject()">Cancel</button>
       <p class="done-msg" id="scanStatus"></p>
     </div>
   </div>
@@ -1422,9 +1423,9 @@
     }
 
     // Desktop multi-project switcher — the .proj chip's caret opens a popover of
-    // recent projects (data.projects). Row → switch, ✕ → remove, "Open another
-    // folder…" → scan flow. Rows built with createElement/textContent (project
-    // names/dirs are user paths — never innerHTML; the clear-to-'' is safe).
+    // recent projects (data.projects). Row → switch, ✕ → remove, "Open New Project"
+    // → openNewProject scan flow (same label as the topbar entry). Rows built with
+    // createElement/textContent (project names/dirs are user paths — never innerHTML).
     function renderProjectSwitcher() {
       const caret = $('projCaret');
       if (caret) caret.hidden = !(data.desktop && (data.projects || []).length);
@@ -1467,8 +1468,8 @@
         menu.appendChild(row);
       });
       const add = document.createElement('div');
-      add.className = 'pm-add'; add.textContent = '+ Open another folder…';
-      add.onclick = () => { closeProjectMenu(); doScan(); };
+      add.className = 'pm-add'; add.textContent = '+ Open New Project';
+      add.onclick = () => openNewProject();
       menu.appendChild(add);
     }
     async function switchToProject(dir) {
@@ -1503,27 +1504,68 @@
     // Desktop-only: the pre-scan placeholder shows a folder-picker overlay. POST
     // /api/scan opens a native picker (Go side), scans on-device, then we reload
     // the workbench with the scanned draft.
-    function showScanPrompt() { $('scanOverlay').hidden = false; }
+    // The scan overlay is reused for two flows, distinguished by scanFromWorkbench:
+    //  - placeholder (false): first-run / no project open — the user MUST pick a
+    //    folder, so cancel leaves the picker up (nowhere to go back to).
+    //  - workbench (true): "Open New Project" while a project is already open — a
+    //    Cancel button aborts any in-flight scan and returns to the current project
+    //    (cancelling the native dialog also returns), so the user is never stranded.
+    let scanFromWorkbench = false;
+    function showScanPrompt() {
+      scanFromWorkbench = false;
+      $('scanCancelBtn').hidden = true;
+      $('scanStatus').textContent = '';
+      resetScanPrompt();
+      $('scanOverlay').hidden = false;
+    }
+    // Open New Project from the topbar/switcher while a project is open: show the scan
+    // overlay so pick→scan has visible Scanning…/Cancel feedback (the bare native dialog
+    // left the workbench unresponsive during the long scan), with Cancel back to the
+    // current project.
+    function openNewProject() {
+      closeProjectMenu();
+      scanFromWorkbench = true;
+      $('scanStatus').textContent = '';
+      resetScanPrompt();
+      $('scanCancelBtn').hidden = false;
+      $('scanOverlay').hidden = false;
+      doScan();
+    }
+    function closeScanOverlay() {
+      $('scanOverlay').hidden = true;
+      $('scanStatus').textContent = '';
+      $('scanCancelBtn').hidden = true;
+      resetScanPrompt();
+    }
+    async function cancelOpenProject() {
+      try { await fetch('/api/scan/cancel', { method: 'POST' }); } catch (e) { /* best-effort */ }
+      closeScanOverlay();
+    }
     // Split scan: pick opens the native dialog and returns the path immediately, so we
-    // show it + a Stop button before the (cancellable) run. Stop → /api/scan/cancel
-    // aborts the pipeline mid-flight and the run fetch rejects back to the picker.
+    // show it + a Stop button (placeholder) / the Cancel button (workbench) before the
+    // (cancellable) run. Stop/Cancel → /api/scan/cancel aborts the pipeline mid-flight.
     async function doScan() {
       let dir;
       try {
         const p = await (await fetch('/api/scan/pick', { method: 'POST' })).json();
         if (p && p.error) throw new Error(p.error);
         dir = p && p.dir;
-      } catch (e) { $('scanStatus').textContent = 'Could not open the folder picker: ' + (e.message || e); return; }
-      if (!dir) return; // user cancelled the dialog — leave the picker as-is
+      } catch (e) {
+        if (scanFromWorkbench) return closeScanOverlay();
+        $('scanStatus').textContent = 'Could not open the folder picker: ' + (e.message || e);
+        return;
+      }
+      if (!dir) { // user cancelled the native dialog
+        if (scanFromWorkbench) closeScanOverlay(); // back to the current project
+        return;                                    // placeholder: leave the picker as-is
+      }
       $('chooseFolderBtn').hidden = true;
-      $('stopScanBtn').hidden = false;
+      if (!scanFromWorkbench) $('stopScanBtn').hidden = false; // workbench uses Cancel instead
       $('scanStatus').textContent = 'Scanning ' + dir + ' …';
       try {
         const r = await (await fetch('/api/scan/run', { method: 'POST' })).json();
         if (r && r.error) throw new Error(r.error);
-        $('scanOverlay').hidden = true;
-        $('scanStatus').textContent = '';
-        resetScanPrompt();
+        closeScanOverlay();
         await load();
       } catch (e) {
         resetScanPrompt();
