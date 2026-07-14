@@ -117,7 +117,8 @@ func (a *App) upsertProjectLocked(dir string, data *webstudio.StudioData, full b
 	a.currentIndex = 0
 }
 
-// removeProjectLocked drops dir; if it was current, fall back to the placeholder.
+// removeProjectLocked drops dir; if it was current, currentIndex becomes -1
+// (placeholder) and the caller (removeProject) re-opens a sibling if any remain.
 // Caller must hold a.mu.
 func (a *App) removeProjectLocked(dir string) {
 	nd := recents.Normalize(dir)
@@ -354,11 +355,32 @@ func (a *App) rescanCurrent() (*webstudio.StudioData, error) {
 }
 
 // removeProject drops dir from the project list + recents. Removing the current
-// project falls back to the placeholder.
+// project falls back to the new MRU front (tab-close semantics) rather than the
+// placeholder — only an emptied list drops to the "Open a project" folder picker.
+// removeProjectLocked sets currentIndex=-1 when the removed project was current;
+// when siblings remain we re-open the new front through switchProject so it gets
+// materialized (loadProjectLight for a lazily-seeded sibling). A bare currentIndex
+// reset is not enough: spec() renders the placeholder unless the project's Data is
+// non-nil, so removing the current project would otherwise strand the user on the
+// folder picker.
 func (a *App) removeProject(dir string) error {
 	a.mu.Lock()
 	a.removeProjectLocked(dir)
+	var fallbackDir string
+	if a.currentIndex < 0 && len(a.projects) > 0 {
+		fallbackDir = a.projects[0].Dir
+	}
 	a.mu.Unlock()
+
+	if fallbackDir != "" {
+		// Best-effort: if the sibling's yaml is gone/corrupt, switchProject errors
+		// and we keep the placeholder — that project is unusable anyway, so the
+		// folder picker is then the right prompt.
+		if err := a.switchProject(fallbackDir); err != nil {
+			fmt.Fprintf(os.Stderr, "askdao-studio: fall back to %s: %v\n", fallbackDir, err)
+		}
+	}
+
 	f, _ := recents.Load()
 	f.Remove(dir)
 	if err := recents.Save(f); err != nil {

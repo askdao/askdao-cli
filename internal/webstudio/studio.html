@@ -141,6 +141,17 @@
       font-weight: 600;
     }
 
+    /* Desktop-only topbar entry to open/add a project — surfaced out of the
+       switcher dropdown (where it was buried) so it is always reachable. */
+    .open-proj {
+      display: inline-flex; align-items: center; gap: 5px; line-height: 1;
+      font-family: var(--sans); font-size: 12px; font-weight: 600;
+      color: var(--ink, #2b4a6f); background: #fff;
+      border: 1px solid var(--border-cream); border-radius: 20px;
+      padding: 5px 13px; cursor: pointer;
+    }
+    .open-proj:hover { background: var(--parchment); border-color: #d8d2c4; }
+
     .wrap {
       flex: 1;
       overflow-y: auto;
@@ -1230,6 +1241,7 @@
       <a class="brand" href="#" onclick="return false"><img src="/logo.png" alt="AskDAO"><span class="wordmark">AskDAO
           Agent</span></a>
       <span class="proj" id="projChip">project · <b id="projName">…</b><span id="projCaret" class="proj-caret" hidden onclick="toggleProjectMenu(event)">▾</span></span>
+      <button type="button" id="openProjectBtn" class="open-proj" hidden onclick="doScan()">+ Open project</button>
       <div id="projMenu" class="proj-menu" hidden></div>
       <span id="loginbar" hidden style="margin-left:auto;display:flex;align-items:center;gap:8px;font:500 13px Inter,system-ui,sans-serif"></span>
     </div>
@@ -1406,7 +1418,7 @@
       applyAccent(spec.metadata.theme_color);
       renderNav(); renderPanels(); go(0);
       startObservePolling();
-      if (data.desktop) { initAuth(); $('assistantFab').hidden = false; renderProjectSwitcher(); if (data.needs_scan) showScanPrompt(); else validateSkills(); }
+      if (data.desktop) { initAuth(); $('assistantFab').hidden = false; $('openProjectBtn').hidden = false; renderProjectSwitcher(); if (data.needs_scan) showScanPrompt(); else validateSkills(); }
     }
 
     // Desktop multi-project switcher — the .proj chip's caret opens a popover of
@@ -1473,6 +1485,15 @@
     async function removeProjectFromList(dir) {
       try { await fetch('/api/project/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir }) }); } catch (e) { /* best-effort */ }
       await load();
+      // Refresh the still-open popover so the removed row disappears — otherwise
+      // removing a non-current project looks like a no-op (load() re-renders the
+      // same current workbench and never touches #projMenu, leaving a stale list).
+      // Close it once the list empties (load() then shows the folder picker).
+      const m = $('projMenu');
+      if (m && !m.hidden) {
+        if ((data.projects || []).length) renderProjectMenu();
+        else closeProjectMenu();
+      }
     }
     document.addEventListener('click', (e) => {
       const m = $('projMenu');
