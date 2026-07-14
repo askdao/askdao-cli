@@ -62,8 +62,9 @@ type Project struct {
 
 // NewApp constructs the desktop App, seeding the project list from recents (paths
 // only — each project's StudioData is materialized lazily on first open/switch).
-// currentIndex = -1 means the workbench shows the placeholder until a project is
-// scanned or switched to.
+// currentIndex = -1 is the placeholder; the first spec() auto-opens the MRU recent
+// project (autoOpenMRU), so a returning user lands on their last project rather than
+// the blank folder picker. It stays the placeholder only when recents is empty.
 func NewApp() *App {
 	a := &App{currentIndex: -1}
 	if f, err := recents.Load(); err == nil {
@@ -166,10 +167,43 @@ func (a *App) StudioOptions() webstudio.Options {
 	}
 }
 
+// autoOpenMRU opens the most-recently-used seeded project when the app sits at the
+// placeholder but recents supplied a list — so a returning user lands on their last
+// project instead of a blank folder picker. Tries entries front-to-back until one
+// materializes (an entry's folder/yaml may be gone), reusing switchProject so the
+// project's Data is actually loaded: a bare currentIndex reset would still render
+// placeholderData (Data==nil), the same trap as removeProject's fallback. No-op once
+// a project is current — post-startup that state is unreachable (removing the last
+// project also empties recents, and there is no "close project" action), so it can
+// never hijack a deliberate placeholder. Called at the head of spec() rather than in
+// startup(ctx) so the (possibly networked) loadProjectLight runs while the window is
+// already up showing "Loading…", not as a synchronous launch freeze.
+func (a *App) autoOpenMRU() {
+	a.mu.Lock()
+	if a.currentIndex >= 0 || len(a.projects) == 0 {
+		a.mu.Unlock()
+		return
+	}
+	dirs := make([]string, len(a.projects))
+	for i, p := range a.projects {
+		dirs[i] = p.Dir
+	}
+	a.mu.Unlock()
+	for _, dir := range dirs {
+		if err := a.switchProject(dir); err == nil {
+			return
+		} else {
+			fmt.Fprintf(os.Stderr, "askdao-studio: auto-open %s: %v\n", dir, err)
+		}
+	}
+}
+
 // spec returns the StudioData for the current project (placeholder until one is
 // scanned/switched to), with the fresh project-list summary layered on. It
 // shallow-copies so the stored project.Data is never mutated by the summary set.
+// A first spec() at the placeholder auto-opens the MRU recent project.
 func (a *App) spec() *webstudio.StudioData {
+	a.autoOpenMRU()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	d := placeholderData()
