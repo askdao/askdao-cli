@@ -43,6 +43,15 @@
       --wrap: 920px;
       --accent: #1b365d;
       --accent-soft: #e8eff8;
+      --accent-2: #274a78;
+      --accent-tint: #f2f6fb;
+      --paper: #ffffff;
+      --line: #eceae1;
+      --ok-soft: #e7f4ec;
+      /* agent theme_color, decoupled from chrome — set by applyAccent, used only
+         where the agent's own brand shows (avatar/swatch), never the UI accent */
+      --agent-tone: #1b365d;
+      --agent-tone-soft: rgba(27, 54, 93, .13);
     }
 
     * {
@@ -102,6 +111,26 @@
       color: var(--near-black);
     }
 
+    .proj-caret { cursor: pointer; margin-left: 3px; font-size: 10px; opacity: .55; }
+    .proj-caret:hover { opacity: 1; }
+    .proj-menu {
+      position: fixed; z-index: 60; min-width: 260px; max-width: 380px;
+      background: #fff; border: 1px solid var(--border-cream); border-radius: 12px;
+      box-shadow: 0 12px 34px rgba(0, 0, 0, .17); padding: 6px; font-family: var(--sans);
+    }
+    .pm-row { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 8px; }
+    .pm-row.cur, .pm-row:hover { background: var(--parchment); }
+    .pm-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: #b8b2a4; }
+    .pm-dot.deployed { background: #3f9b6b; }
+    .pm-dot.missing { background: #c65f5f; }
+    .pm-main { flex: 1; min-width: 0; cursor: pointer; }
+    .pm-name { font-size: 13px; font-weight: 600; color: var(--charcoal); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pm-sub { font-size: 11px; color: #8a8577; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pm-x { flex: none; border: none; background: none; color: #b0a99a; cursor: pointer; font-size: 13px; padding: 2px 5px; border-radius: 5px; line-height: 1; }
+    .pm-x:hover { background: #f0ede3; color: #c65f5f; }
+    .pm-add { border-top: 1px solid var(--border-cream); margin-top: 4px; padding: 9px 10px; font-size: 12px; font-weight: 600; color: var(--ink, #2b4a6f); cursor: pointer; }
+    .pm-add:hover { text-decoration: underline; }
+
     .proj {
       margin-left: auto;
       display: inline-flex;
@@ -120,6 +149,17 @@
       color: var(--near-black);
       font-weight: 600;
     }
+
+    /* Desktop-only topbar entry to open/add a project — surfaced out of the
+       switcher dropdown (where it was buried) so it is always reachable. */
+    .open-proj {
+      display: inline-flex; align-items: center; gap: 5px; line-height: 1;
+      font-family: var(--sans); font-size: 12px; font-weight: 600;
+      color: var(--ink, #2b4a6f); background: #fff;
+      border: 1px solid var(--border-cream); border-radius: 20px;
+      padding: 5px 13px; cursor: pointer;
+    }
+    .open-proj:hover { background: var(--parchment); border-color: #d8d2c4; }
 
     .wrap {
       flex: 1;
@@ -1205,36 +1245,49 @@
 </head>
 
 <body>
-  <header>
-    <div class="bar">
-      <a class="brand" href="#" onclick="return false"><img src="/logo.png" alt="AskDAO"><span class="wordmark">AskDAO
-          Agent</span></a>
-      <span class="proj">project · <b id="projName">…</b></span>
-      <span id="loginbar" hidden style="margin-left:auto;display:flex;align-items:center;gap:8px;font:500 13px Inter,system-ui,sans-serif"></span>
-    </div>
+  <header class="topbar">
+    <a class="brand" href="#" onclick="return false"><img src="/logo.png" alt="AskDAO"><span class="wordmark">AskDAO Studio</span></a>
+    <button type="button" id="tgProjects" class="toolbtn" hidden title="Toggle projects panel" onclick="toggleSide('no-left','tgProjects')" aria-label="Toggle projects panel">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="2.5" width="13" height="11" rx="2" stroke="currentColor" stroke-width="1.3"/><rect x="1.5" y="3" width="4" height="10" fill="currentColor" opacity=".3"/><line x1="6" y1="2.5" x2="6" y2="13.5" stroke="currentColor" stroke-width="1.3"/></svg>
+    </button>
+    <span class="topbar-sp"></span>
+    <span id="loginbar" hidden style="display:flex;align-items:center;gap:8px;font:500 13px Inter,system-ui,sans-serif"></span>
   </header>
 
-  <div class="wrap">
-    <div class="shell">
-      <aside>
-        <ol class="step-nav" id="stepNav"></ol>
-      </aside>
-      <main id="panels">
-        <p class="empty">Loading…</p>
-      </main>
-    </div>
-  </div>
+  <!-- 2-zone workspace: projects rail | wizard workspace. The rail is desktop-only
+       (data.desktop) and collapsible; CLI edit keeps only the centre (desk starts
+       no-left; load() opens the rail on desktop). -->
+  <div class="desk no-left" id="desk">
+    <nav class="rail" id="railPanel" hidden>
+      <div class="rail-head">
+        <span class="rail-t">Projects</span>
+        <button type="button" id="openProjectBtn" class="newbtn" hidden onclick="openNewProject()">+ New</button>
+        <button type="button" class="chev" title="Collapse" onclick="toggleSide('no-left','tgProjects')">‹</button>
+      </div>
+      <ul class="plist" id="projList"></ul>
+      <div class="rail-foot" id="railFoot"></div>
+      <div class="splitter s-left" onmousedown="startDrag(event,'left')" title="Drag to resize"></div>
+    </nav>
 
-  <footer>
-    <div class="fbar">
-      <span class="status" id="status"></span>
-      <button class="act btn" id="btnSaveDraft" onclick="submit('/api/save')">Save draft</button>
-      <button class="act btn" id="btnBack" onclick="go(step-1)">Back</button>
-      <button class="act btn primary" id="btnNext" onclick="go(step+1)">Next</button>
-      <button class="act btn primary" id="btnDeploy" hidden onclick="submit('/api/deploy')">Deploy agent</button>
-      <button class="act btn" id="btnDone" hidden onclick="submit('/api/done')">Save &amp; finish</button>
-    </div>
-  </footer>
+    <main class="work">
+      <div class="work-head">
+        <ol class="step-nav" id="stepNav"></ol>
+      </div>
+      <div class="work-body">
+        <div id="panels"><p class="empty">Loading…</p></div>
+      </div>
+      <footer class="work-foot">
+        <div class="deploy" id="deployStrip" hidden></div>
+        <span class="status" id="status"></span>
+        <button class="act btn" id="btnSaveDraft" onclick="submit('/api/save')">Save draft</button>
+        <span class="foot-sp"></span>
+        <button class="act btn" id="btnBack" onclick="go(step-1)">Back</button>
+        <button class="act btn primary" id="btnNext" onclick="go(step+1)">Next</button>
+        <button class="act btn primary" id="btnDeploy" hidden onclick="submit('/api/deploy')">Deploy agent</button>
+        <button class="act btn" id="btnDone" hidden onclick="submit('/api/done')">Save &amp; finish</button>
+      </footer>
+    </main>
+  </div>
   <div id="tip" class="tip"></div>
   <div id="doneOverlay" class="overlay" hidden onclick="overlayClick(event)">
     <div class="done-card">
@@ -1257,6 +1310,7 @@
       <p class="done-msg">Choose a local folder with your AI project (skills, MCP config, etc.). AskDAO Studio scans it on your machine and drafts an agent — nothing leaves your computer.</p>
       <button type="button" id="chooseFolderBtn" class="act btn primary" onclick="doScan()">Choose folder…</button>
       <button type="button" id="stopScanBtn" class="act btn" hidden onclick="stopScan()">Stop scanning</button>
+      <button type="button" id="scanCancelBtn" class="act btn" hidden onclick="cancelOpenProject()">Cancel</button>
       <p class="done-msg" id="scanStatus"></p>
     </div>
   </div>
@@ -1275,14 +1329,113 @@
     .chat-form{display:flex;gap:8px;padding:12px 14px;border-top:1px solid #ece9df;align-items:flex-end}
     .chat-form textarea{flex:1;resize:none;border:1px solid #ddd8c9;border-radius:10px;padding:9px 12px;font:inherit;font-size:14px;max-height:120px;background:#fdfcf8}
     .chat-form textarea:focus{outline:none;border-color:var(--accent,#2b4a6f)}
-    /* AI assistant (desktop-only) — right-side drawer + floating toggle. Reuses
-       .chat-log/.chat-msg/.chat-form; distinct from test-chat (that tests a live
-       agent, this helps build one). */
-    .assistant-fab{position:fixed;bottom:22px;right:22px;z-index:40;display:flex;align-items:center;gap:6px;padding:11px 17px;border:none;border-radius:24px;background:var(--accent,#2b4a6f);color:#fff;font:inherit;font-size:14px;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,.22);cursor:pointer}
-    .assistant-fab:hover{filter:brightness(1.06)}
-    .assistant-drawer{position:fixed;top:0;right:0;height:100vh;width:min(420px,94vw);background:#fff;box-shadow:-8px 0 32px rgba(0,0,0,.16);display:flex;flex-direction:column;transform:translateX(100%);transition:transform .22s ease;z-index:50}
-    .assistant-drawer.open{transform:translateX(0)}
-    .assistant-hint{padding:8px 18px 12px;font-size:12px;color:#8a8577;border-top:1px solid #f0ede3}
+  </style>
+  <style>
+    /* ============================================================
+       Redesign: multi-project workspace shell. Wraps the existing
+       wizard (#panels / renderPanels) + switcher in a
+       2-zone app shell. Appended last so component tweaks win the
+       cascade; the wizard panel builders are untouched. ========= */
+    .empty{color:var(--stone);font-size:14px;padding:6px 2px}
+
+    /* topbar */
+    .topbar{height:52px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--ivory);border-bottom:1px solid var(--border-cream)}
+    .topbar .brand{display:inline-flex;align-items:center;gap:10px;text-decoration:none}
+    .topbar .brand img{width:26px;height:26px;border-radius:7px;object-fit:contain}
+    .topbar .wordmark{font-family:var(--sans);font-weight:600;font-size:15px;letter-spacing:.01em;color:var(--near-black)}
+    .topbar-sp{flex:1}
+    .toolbtn{width:30px;height:27px;border-radius:7px;border:1px solid transparent;background:none;color:var(--silver);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+    .toolbtn:hover{background:var(--warm-sand);color:var(--charcoal)}
+    .toolbtn.on{color:var(--accent)}
+
+    /* 2-zone desk — the rail width is a CSS var so the splitter resizes by
+       writing --rail-w (not the grid longhand); that keeps inline drag from
+       clobbering the responsive media queries below, which set the longhand
+       literally and therefore still win when a breakpoint matches. */
+    .desk{flex:1;min-height:0;display:grid;--rail-w:230px;grid-template-columns:var(--rail-w) 1fr;transition:grid-template-columns .22s ease}
+    .desk.no-left{grid-template-columns:0 1fr}
+    .desk.dragging{transition:none;cursor:col-resize;user-select:none}
+    /* resize handles hug the inner edge of each side (rail overflow:hidden clips
+       anything past 0px, so a collapsed side auto-hides its handle) */
+    .splitter{position:absolute;top:0;bottom:0;width:6px;z-index:6;cursor:col-resize}
+    .splitter.s-left{right:0}
+    .splitter:hover{background:var(--accent-tint)}
+    .desk.no-left .rail .splitter{display:none}
+
+    /* left: projects rail */
+    /* explicit grid-column pins each zone to its track: in CLI edit the rail &
+       assist are display:none, and without this the lone in-flow .work would
+       auto-place into track 1 (0px) and collapse to min-content */
+    .rail{grid-column:1;position:relative;background:var(--parchment);border-right:1px solid var(--border-cream);display:flex;flex-direction:column;min-width:0;overflow:hidden}
+    .rail-head{display:flex;align-items:center;gap:8px;height:53px;box-sizing:border-box;padding:0 10px 0 16px;border-bottom:1px solid var(--line);white-space:nowrap}
+    .rail-t{font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.7px;text-transform:uppercase;color:var(--stone);flex:1}
+    .newbtn{font-family:var(--sans);font-size:12px;font-weight:600;color:var(--accent);background:var(--paper);border:1px solid var(--border-warm);border-radius:7px;padding:4px 9px;cursor:pointer}
+    .newbtn:hover{background:var(--accent-tint);border-color:#cdd8e6}
+    .chev{width:24px;height:24px;border:none;background:none;color:var(--silver);cursor:pointer;font-size:16px;line-height:1;border-radius:6px;padding:0}
+    .chev:hover{background:var(--warm-sand);color:var(--charcoal)}
+    .plist{list-style:none;margin:0;padding:2px 8px;overflow-y:auto;font-family:var(--sans)}
+    .prow{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:9px;cursor:pointer;position:relative;white-space:nowrap}
+    .prow:hover{background:var(--warm-sand)}
+    .prow.cur{background:var(--paper);box-shadow:0 0 0 1px var(--border-warm),0 2px 6px rgba(0,0,0,.04)}
+    .prow.cur::before{content:"";position:absolute;left:-8px;top:8px;bottom:8px;width:3px;border-radius:3px;background:var(--accent)}
+    .prow .pmain{flex:1;min-width:0}
+    .prow .pname{font-size:13.5px;font-weight:550;color:var(--near-black);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .prow .psub{font-size:11.5px;color:var(--stone);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+    .prow .pstat{width:7px;height:7px;border-radius:50%;flex:none;background:var(--silver)}
+    .prow .pstat.on{background:var(--ok)} .prow .pstat.miss{background:var(--err)}
+    .prow .prm{flex:none;border:none;background:none;color:var(--silver);cursor:pointer;font-size:13px;padding:2px 5px;border-radius:5px;line-height:1;opacity:0}
+    .prow:hover .prm{opacity:1}
+    .prow .prm:hover{background:#efe7e3;color:var(--err)}
+    .rail-foot{margin-top:auto;padding:11px 16px;border-top:1px solid var(--border-cream);font-family:var(--sans);font-size:11.5px;color:var(--stone);white-space:nowrap}
+
+    /* center: workspace */
+    /* padding:0/border-left:0 override the stale bare-tag `main{}` (old stepper
+       layout) that otherwise injects 34/44px padding + a left border here */
+    .work{grid-column:2;background:var(--ivory);display:flex;flex-direction:column;min-height:0;min-width:0;padding:0;border-left:0}
+    .work-head{flex:none;height:53px;box-sizing:border-box;padding:0 26px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:16px}
+    .deploy{display:flex;align-items:center;gap:12px;font-family:var(--sans);font-size:12.5px;color:var(--olive);flex:none}
+    .deploy .live{display:inline-flex;align-items:center;gap:6px;color:var(--ok);font-weight:600}
+    .deploy .live .d{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft)}
+    .deploy .draft{color:var(--stone)}
+    .deploy .testbtn{font-family:var(--sans);font-size:12.5px;font-weight:600;color:var(--accent);background:var(--paper);border:1px solid #cdd8e6;border-radius:8px;padding:6px 13px;cursor:pointer}
+    .deploy .testbtn:hover{background:var(--accent-tint)}
+    .work-body{flex:1;overflow-y:auto;padding:26px 30px 22px}
+    .work-body .panel{max-width:680px}
+    .work-foot{flex:none;min-height:78px;box-sizing:border-box;display:flex;align-items:center;gap:10px;padding:12px 26px;border-top:1px solid var(--line);background:var(--ivory)}
+    .work-foot .foot-sp{flex:1}
+    .work-foot .status{font-family:var(--sans);font-size:12.5px;color:var(--stone)}
+
+    /* step tabs — override the vertical stepper into a horizontal tab row */
+    .work-head .step-nav{display:flex;height:100%;gap:0;margin:0;padding:0;list-style:none;min-width:0;overflow-x:auto}
+    .work-head .step-nav li{position:static;display:flex;align-items:center;gap:6px;height:100%;padding:0;margin:0 15px 0 0;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;color:var(--stone)}
+    .work-head .step-nav li::before{display:none}
+    .work-head .step-nav li .dot{position:static;top:auto;left:auto;width:19px;height:19px;border:none;background:var(--warm-sand);color:var(--stone);font-family:var(--sans);font-size:11px;font-weight:600;box-shadow:none}
+    .work-head .step-nav li .st{display:none}
+    .work-head .step-nav li .lb{font-family:var(--sans);font-size:13px;color:inherit}
+    .work-head .step-nav li.active{color:var(--near-black);border-bottom-color:var(--accent)}
+    .work-head .step-nav li.active .dot{background:var(--accent);color:#fff}
+    .work-head .step-nav li.active .lb{font-weight:600;color:var(--near-black)}
+    .work-head .step-nav li.done .dot{background:var(--ok-soft);color:var(--ok)}
+
+    /* ---- component polish (one place → all 4 steps) ---- */
+    input[type=text],textarea,select{background:var(--paper);border-color:var(--border-warm);font-family:var(--sans);font-size:13.5px;border-radius:8px}
+    textarea.prompt{font-family:var(--mono)}
+    select{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235e5d59' stroke-width='2.5'><path d='M6 9l6 6 6-6'/></svg>");background-repeat:no-repeat;background-position:right 11px center;padding-right:32px;cursor:pointer}
+    label.f>span{font-family:var(--sans);font-size:12px;font-weight:550;letter-spacing:0;text-transform:none;color:var(--charcoal)}
+    .card{background:var(--paper);border-color:var(--border-warm);box-shadow:0 1px 2px rgba(0,0,0,.03);padding:18px 20px}
+    .eyebrow{color:var(--accent)}
+    .panel h2{font-weight:500}
+    /* tamed AI confidence badge — neutral, no green/amber/red shouting */
+    .conf,.conf.hi,.conf.mid,.conf.lo{color:var(--stone);background:var(--warm-sand);border:none;font-weight:600;padding:1px 7px}
+    /* buttons */
+    .act.btn{font-family:var(--sans);border-radius:9px}
+    .act.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+    .act.btn.primary:hover{background:var(--accent-2)}
+
+    /* responsive floor: collapse a side automatically on narrow windows */
+    @media (max-width:1080px){.desk{grid-template-columns:0 1fr}}
+    @media (max-width:820px){.desk,.desk.no-left{grid-template-columns:0 1fr}}
+    @media (prefers-reduced-motion:reduce){.desk{transition:none}}
   </style>
   <div id="chatOverlay" class="overlay" hidden>
     <div class="chat-card">
@@ -1298,22 +1451,6 @@
     </div>
   </div>
 
-  <!-- AI assistant (desktop-only) — the build helper, a right-side drawer opened by
-       a floating toggle. Streams /api/assistant (the official Studio assistant agent,
-       resolved Go-side). Hidden until data.desktop (load() reveals the toggle). -->
-  <button type="button" id="assistantFab" class="assistant-fab" hidden onclick="openAssistant()" aria-label="Open AI assistant">✨ Assistant</button>
-  <aside id="assistantDrawer" class="assistant-drawer" aria-hidden="true">
-    <div class="chat-head">
-      <span class="chat-title">AI Assistant</span>
-      <button type="button" class="chat-x" onclick="closeAssistant()" aria-label="Close">✕</button>
-    </div>
-    <div id="asstLog" class="chat-log"></div>
-    <form class="chat-form" onsubmit="sendAssistant(event)">
-      <textarea id="asstText" rows="1" placeholder="Ask about fields, prompts, skills, deploy errors…" onkeydown="assistantKey(event)"></textarea>
-      <button type="submit" id="asstSend" class="act btn primary">Send</button>
-    </form>
-    <p class="assistant-hint">Helps you build your agent — explain a field, suggest a system prompt, or draft a SKILL.md description.</p>
-  </aside>
 
   <script>
     const STEPS = [{ label: "Identity" }, { label: "Persona" }, { label: "Skills & Tools" }, { label: "Review & Deploy" }];
@@ -1356,42 +1493,272 @@
       return `<span class="conf ${cls}" data-tip="${esc(r.reason)}">AI ${pct}%</span>`;
     }
 
+    // resetTransientState clears per-project transient UI — the test-chat session
+    // + its log + any open overlay + in-flight busy flags — so switching projects
+    // never carries project A's state into B. Called at the top of load(); a no-op on
+    // first load and in CLI mode (the overlays exist but stay hidden). Does NOT touch
+    // authPollTimer: login is app-global, not per-project, and an in-flight device
+    // flow must survive a switch.
+    function resetTransientState() {
+      closeDialog(); closeChat();
+      // Hide the folder picker too — switching away from the startup placeholder
+      // (needs_scan) to a real project would otherwise strand it over the workbench.
+      // load()'s desktop branch re-opens it via showScanPrompt() when still needed.
+      { const so = $('scanOverlay'); if (so) so.hidden = true; }
+      chatSession = ''; chatAgentID = '';
+      groupLink = ''; dialogTerminal = false;
+      busy = false; chatBusy = false;
+      const cl = $('chatLog'); if (cl) cl.innerHTML = '';
+    }
     async function load() {
+      resetTransientState();
       data = await (await fetch('/api/spec')).json();
       spec = data.spec || {}; spec.metadata = spec.metadata || {}; spec.persona = spec.persona || {};
       (data.palette || []).forEach(p => palette[p.token] = p.hex);
       initVault();
-      $('projName').textContent = data.project_name || 'agent';
       applyAccent(spec.metadata.theme_color);
       renderNav(); renderPanels(); go(0);
       startObservePolling();
-      if (data.desktop) { initAuth(); $('assistantFab').hidden = false; if (data.needs_scan) showScanPrompt(); else validateSkills(); }
+      if (data.desktop) { initAuth(); openWorkbench(); renderProjectSwitcher(); renderDeployStrip(); if (data.needs_scan) showScanPrompt(); else validateSkills(); }
     }
+
+    // Desktop multi-project switcher — the .proj chip's caret opens a popover of
+    // recent projects (data.projects). Row → switch, ✕ → remove, "Open New Project"
+    // → openNewProject scan flow (same label as the topbar entry). Rows built with
+    // createElement/textContent (project names/dirs are user paths — never innerHTML).
+    // Multi-project rail (desktop) — render data.projects as the persistent left
+    // list (status dot + name + deploy sub + ✕ remove). Rows built with
+    // createElement/textContent (project names/dirs are user paths, never innerHTML).
+    function renderProjectSwitcher() {
+      const list = $('projList'); if (!list) return;
+      list.innerHTML = '';
+      const projs = data.projects || [];
+      projs.forEach(p => {
+        const row = document.createElement('div');
+        row.className = 'prow' + (p.current ? ' cur' : '');
+        const main = document.createElement('div'); main.className = 'pmain';
+        const nm = document.createElement('div'); nm.className = 'pname'; nm.textContent = p.name || p.dir; main.appendChild(nm);
+        const sub = document.createElement('div'); sub.className = 'psub';
+        sub.textContent = p.missing ? 'folder not found'
+          : (p.deployed ? ('deployed' + (p.deployed_name ? ' as ' + p.deployed_name : '') + (p.version ? ' · ' + p.version : '')) : 'draft · not deployed');
+        main.appendChild(sub);
+        if (!p.missing && !p.current) main.onclick = () => switchToProject(p.dir);
+        const stat = document.createElement('span');
+        stat.className = 'pstat' + (p.missing ? ' miss' : (p.deployed ? ' on' : ''));
+        stat.title = p.missing ? 'Folder not found' : (p.deployed ? 'Deployed' : 'Not deployed');
+        const rm = document.createElement('button');
+        rm.type = 'button'; rm.className = 'prm'; rm.textContent = '✕'; rm.title = 'Remove from list';
+        rm.onclick = (ev) => { ev.stopPropagation(); removeProjectFromList(p.dir); };
+        row.appendChild(main); row.appendChild(stat); row.appendChild(rm);
+        list.appendChild(row);
+      });
+      const foot = $('railFoot');
+      if (foot) foot.textContent = projs.length ? (projs.length + (projs.length === 1 ? ' project' : ' projects')) : 'No recent projects';
+    }
+    // Deploy/usage strip in the workspace header — surfaces the current project's
+    // live status + a persistent Test chat (usage is first-class, not buried).
+    function renderDeployStrip() {
+      const el = $('deployStrip'); if (!el) return;
+      const cur = (data.projects || []).find(p => p.current);
+      el.innerHTML = '';
+      if (!cur) { el.hidden = true; return; }
+      el.hidden = false;
+      if (cur.deployed) {
+        const live = document.createElement('span'); live.className = 'live';
+        const d = document.createElement('span'); d.className = 'd'; live.appendChild(d);
+        live.appendChild(document.createTextNode(' Live' + (cur.version ? ' · ' + cur.version : '')));
+        el.appendChild(live);
+        if (cur.agent_id) {
+          const b = document.createElement('button'); b.type = 'button'; b.className = 'testbtn'; b.textContent = 'Test chat';
+          b.onclick = () => { chatAgentID = cur.agent_id; openChat(); };
+          el.appendChild(b);
+        }
+      } else {
+        const s = document.createElement('span'); s.className = 'draft';
+        s.textContent = cur.missing ? 'Folder not found' : 'Draft · not deployed';
+        el.appendChild(s);
+      }
+    }
+    // Reveal + open the desktop workbench (rail + toggle). The desk starts
+    // collapsed (no-left) so CLI edit shows only the centre; opening the rail
+    // runs once so a later project switch keeps the user's collapse choice
+    // (workbenchReady guards the reset).
+    let workbenchReady = false;
+    function openWorkbench() {
+      ['railPanel', 'tgProjects', 'openProjectBtn'].forEach(id => { const e = $(id); if (e) e.hidden = false; });
+      if (workbenchReady) return;
+      workbenchReady = true;
+      const desk = $('desk'); if (desk) desk.classList.remove('no-left');
+      syncToggle('tgProjects', 'no-left');
+    }
+    function toggleSide(cls, btnId) {
+      const desk = $('desk'); if (!desk) return;
+      desk.classList.toggle(cls);
+      syncToggle(btnId, cls);
+    }
+    function syncToggle(btnId, cls) {
+      const b = $(btnId), desk = $('desk'); if (!b || !desk) return;
+      b.classList.toggle('on', !desk.classList.contains(cls));
+    }
+    // Splitter drag — resize the rail by writing its CSS var (not the grid
+    // longhand) so the responsive media queries still win when they match. A
+    // collapsed rail's handle is display:none, so its drag can't start.
+    let railW = 230;
+    function startDrag(e, side) {
+      const desk = $('desk'); if (!desk) return;
+      if (side === 'left' && desk.classList.contains('no-left')) return;
+      e.preventDefault();
+      const startX = e.clientX, sw = railW;
+      const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+      desk.classList.add('dragging');
+      function move(ev) {
+        const dx = ev.clientX - startX;
+        railW = clamp(sw + dx, 170, 380); desk.style.setProperty('--rail-w', railW + 'px');
+      }
+      function up() {
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        desk.classList.remove('dragging');
+      }
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+    }
+    function toggleProjectMenu(e) {
+      if (e) e.stopPropagation();
+      const menu = $('projMenu');
+      if (!menu.hidden) { menu.hidden = true; return; }
+      renderProjectMenu();
+      const r = $('projChip').getBoundingClientRect();
+      menu.style.left = Math.round(r.left) + 'px';
+      menu.style.top = Math.round(r.bottom + 6) + 'px';
+      menu.hidden = false;
+    }
+    function closeProjectMenu() { const m = $('projMenu'); if (m) m.hidden = true; }
+    function renderProjectMenu() {
+      const menu = $('projMenu');
+      menu.innerHTML = '';
+      (data.projects || []).forEach(p => {
+        const row = document.createElement('div');
+        row.className = 'pm-row' + (p.current ? ' cur' : '');
+        const dot = document.createElement('span');
+        dot.className = 'pm-dot' + (p.missing ? ' missing' : (p.deployed ? ' deployed' : ''));
+        row.appendChild(dot);
+        const main = document.createElement('div');
+        main.className = 'pm-main';
+        const nm = document.createElement('div');
+        nm.className = 'pm-name'; nm.textContent = p.name || p.dir; main.appendChild(nm);
+        const sub = document.createElement('div');
+        sub.className = 'pm-sub';
+        sub.textContent = p.missing ? 'folder not found'
+          : (p.deployed ? ('deployed' + (p.deployed_name ? ' as ' + p.deployed_name : '') + (p.version ? ' · ' + p.version : '')) : p.dir);
+        main.appendChild(sub);
+        if (!p.missing) main.onclick = () => switchToProject(p.dir);
+        row.appendChild(main);
+        const x = document.createElement('button');
+        x.type = 'button'; x.className = 'pm-x'; x.textContent = '✕'; x.title = 'Remove from list';
+        x.onclick = (ev) => { ev.stopPropagation(); removeProjectFromList(p.dir); };
+        row.appendChild(x);
+        menu.appendChild(row);
+      });
+      const add = document.createElement('div');
+      add.className = 'pm-add'; add.textContent = '+ Open New Project';
+      add.onclick = () => openNewProject();
+      menu.appendChild(add);
+    }
+    async function switchToProject(dir) {
+      if (busy) return;
+      closeProjectMenu();
+      try {
+        const r = await (await fetch('/api/project/switch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir }) })).json();
+        if (r && r.error) throw new Error(r.error);
+        await load();
+      } catch (e) {
+        showDialog({ kind: 'error', title: 'Could not open project', msg: (e.message || String(e)), terminal: false });
+      }
+    }
+    async function removeProjectFromList(dir) {
+      try { await fetch('/api/project/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir }) }); } catch (e) { /* best-effort */ }
+      await load();
+      // Refresh the still-open popover so the removed row disappears — otherwise
+      // removing a non-current project looks like a no-op (load() re-renders the
+      // same current workbench and never touches #projMenu, leaving a stale list).
+      // Close it once the list empties (load() then shows the folder picker).
+      const m = $('projMenu');
+      if (m && !m.hidden) {
+        if ((data.projects || []).length) renderProjectMenu();
+        else closeProjectMenu();
+      }
+    }
+    document.addEventListener('click', (e) => {
+      const m = $('projMenu');
+      if (m && !m.hidden && !m.contains(e.target) && e.target !== $('projCaret')) closeProjectMenu();
+    });
 
     // Desktop-only: the pre-scan placeholder shows a folder-picker overlay. POST
     // /api/scan opens a native picker (Go side), scans on-device, then we reload
     // the workbench with the scanned draft.
-    function showScanPrompt() { $('scanOverlay').hidden = false; }
+    // The scan overlay is reused for two flows, distinguished by scanFromWorkbench:
+    //  - placeholder (false): first-run / no project open — the user MUST pick a
+    //    folder, so cancel leaves the picker up (nowhere to go back to).
+    //  - workbench (true): "Open New Project" while a project is already open — a
+    //    Cancel button aborts any in-flight scan and returns to the current project
+    //    (cancelling the native dialog also returns), so the user is never stranded.
+    let scanFromWorkbench = false;
+    function showScanPrompt() {
+      scanFromWorkbench = false;
+      $('scanCancelBtn').hidden = true;
+      $('scanStatus').textContent = '';
+      resetScanPrompt();
+      $('scanOverlay').hidden = false;
+    }
+    // Open New Project from the topbar/switcher while a project is open: show the scan
+    // overlay so pick→scan has visible Scanning…/Cancel feedback (the bare native dialog
+    // left the workbench unresponsive during the long scan), with Cancel back to the
+    // current project.
+    function openNewProject() {
+      closeProjectMenu();
+      scanFromWorkbench = true;
+      $('scanStatus').textContent = '';
+      resetScanPrompt();
+      $('scanCancelBtn').hidden = false;
+      $('scanOverlay').hidden = false;
+      doScan();
+    }
+    function closeScanOverlay() {
+      $('scanOverlay').hidden = true;
+      $('scanStatus').textContent = '';
+      $('scanCancelBtn').hidden = true;
+      resetScanPrompt();
+    }
+    async function cancelOpenProject() {
+      try { await fetch('/api/scan/cancel', { method: 'POST' }); } catch (e) { /* best-effort */ }
+      closeScanOverlay();
+    }
     // Split scan: pick opens the native dialog and returns the path immediately, so we
-    // show it + a Stop button before the (cancellable) run. Stop → /api/scan/cancel
-    // aborts the pipeline mid-flight and the run fetch rejects back to the picker.
+    // show it + a Stop button (placeholder) / the Cancel button (workbench) before the
+    // (cancellable) run. Stop/Cancel → /api/scan/cancel aborts the pipeline mid-flight.
     async function doScan() {
       let dir;
       try {
         const p = await (await fetch('/api/scan/pick', { method: 'POST' })).json();
         if (p && p.error) throw new Error(p.error);
         dir = p && p.dir;
-      } catch (e) { $('scanStatus').textContent = 'Could not open the folder picker: ' + (e.message || e); return; }
-      if (!dir) return; // user cancelled the dialog — leave the picker as-is
+      } catch (e) {
+        if (scanFromWorkbench) return closeScanOverlay();
+        $('scanStatus').textContent = 'Could not open the folder picker: ' + (e.message || e);
+        return;
+      }
+      if (!dir) { // user cancelled the native dialog
+        if (scanFromWorkbench) closeScanOverlay(); // back to the current project
+        return;                                    // placeholder: leave the picker as-is
+      }
       $('chooseFolderBtn').hidden = true;
-      $('stopScanBtn').hidden = false;
+      if (!scanFromWorkbench) $('stopScanBtn').hidden = false; // workbench uses Cancel instead
       $('scanStatus').textContent = 'Scanning ' + dir + ' …';
       try {
         const r = await (await fetch('/api/scan/run', { method: 'POST' })).json();
         if (r && r.error) throw new Error(r.error);
-        $('scanOverlay').hidden = true;
-        $('scanStatus').textContent = '';
-        resetScanPrompt();
+        closeScanOverlay();
         await load();
       } catch (e) {
         resetScanPrompt();
@@ -1537,6 +1904,7 @@
     <h2>Choose its capabilities</h2>
     <p class="sub">Only what you tick travels with the agent.</p>
     ${observeBar()}
+    ${lightweightBar()}
     <div class="tabs">
       <button type="button" class="tab active" onclick="switchTab('skills',this)">Skills <span class="cnt">${sc}</span></button>
       <button type="button" class="tab" onclick="switchTab('mcp',this)">MCP servers <span class="cnt">${mc}</span></button>
@@ -1560,6 +1928,7 @@
       return `<label class="item"><input type="checkbox" id="skill-${i}" ${c.checked ? 'checked' : ''}><div><div class="nm">${esc(c.name)} ${sc}${hb}${og}</div>${c.description ? `<div class="ds">${esc(c.description)}</div>` : ''}</div></label>`;
     }
     function skillGroups() {
+      if (data.lightweight) return lightChips((spec.skills || []).map(s => s.id || (s.path ? s.path.split('/').pop() : (s.type || 'skill'))));
       const cs = data.skill_candidates || [];
       if (!cs.length) return '<p class="empty">No skills detected in this project.</p>';
       // Within each scope, cluster by harness (stable sort) so multi-harness lists read cleanly.
@@ -1578,12 +1947,40 @@
       return `<label class="item"><input type="checkbox" id="mcp-${i}" ${c.checked ? 'checked' : ''}><div><div class="nm">${esc(c.name)} ${sc}${hb}<span class="tag">${esc(c.type)}</span>${wb}</div></div></label>`;
     }
     function mcpGroups() {
+      if (data.lightweight) return lightChips((spec.mcp_servers || []).map(s => s.name || 'server'));
       const cs = data.mcp_candidates || [];
       if (!cs.length) return '<p class="empty">No MCP servers detected.</p>';
       const proj = [], user = [];
       cs.forEach((c, i) => { const h = mcpItem(c, i); c.scope === 'user' ? user.push(h) : proj.push(h); });
       return (proj.length ? `<div class="grp"><h3>Current directory</h3>${proj.join('')}</div>` : '')
         + (user.length ? `<div class="grp"><h3>User-level (global)</h3>${user.join('')}</div>` : '');
+    }
+
+    // Lightweight projects were parsed from saved yaml (no full scan), so the
+    // tick-through candidate lists don't exist. Show the yaml's declared skills/mcp
+    // read-only + a Re-scan to unlock editing; collect()'s data.lightweight guard
+    // keeps them intact through save/deploy (never silently wiped).
+    function lightweightBar() {
+      if (!data.lightweight) return '';
+      return `<div class="obsbar">
+    <div class="obsmsg"><b>Opened from saved config.</b> Skills &amp; tools are read-only. Re-scan this project to add or change them.</div>
+    <button type="button" class="act btn" onclick="rescanProject()">Re-scan</button>
+  </div>`;
+    }
+    function lightChips(names) {
+      if (!names.length) return '<p class="empty">None declared.</p>';
+      return '<div class="grp">' + names.map(n => `<div class="item" style="cursor:default"><div><div class="nm">${esc(n)}</div></div></div>`).join('') + '</div>';
+    }
+    async function rescanProject() {
+      setStatus('Re-scanning…');
+      try {
+        const r = await (await fetch('/api/project/rescan', { method: 'POST' })).json();
+        if (r && r.error) throw new Error(r.error);
+        await load(); // data.lightweight now false → full candidates editable
+      } catch (e) {
+        setStatus('');
+        showDialog({ kind: 'error', title: "Couldn't re-scan", msg: (e.message || String(e)), terminal: false });
+      }
     }
 
     /* observe overlay (--observe): poll /api/observe, highlight what a real claude
@@ -1598,11 +1995,13 @@
     <button type="button" class="act btn" onclick="narrowToObserved()">Keep only observed</button>
   </div>`;
     }
+    let observeTimer = null;
     function startObservePolling() {
+      if (observeTimer) { clearInterval(observeTimer); observeTimer = null; } // idempotent — load() re-runs on project switch
       if (!data.observe) return;
       const poll = async () => { try { applyObserved(await (await fetch('/api/observe')).json()); } catch (e) { } };
       poll();
-      setInterval(poll, 2000);
+      observeTimer = setInterval(poll, 2000);
     }
     function applyObserved(o) {
       lastObserved = o || { skills: [], mcp_servers: [] };
@@ -1848,10 +2247,15 @@
       if (event && event.target) event.target.classList.add('sel');
       renderAvatar();
     }
+    // Chrome accent is fixed (navy --accent); the agent's theme_color is DECOUPLED
+    // from the UI — it only lives where the agent's brand actually shows (avatar
+    // preview + swatch selection, which read the palette hex directly). So this
+    // sets --agent-tone (for any tone-following accents) and never overrides the
+    // chrome --accent, which kept the whole UI tinted to one loud color before.
     function applyAccent(tok) {
       const hex = palette[tok] || '#1b365d';
-      document.documentElement.style.setProperty('--accent', hex);
-      document.documentElement.style.setProperty('--accent-soft', hex + '22');
+      document.documentElement.style.setProperty('--agent-tone', hex);
+      document.documentElement.style.setProperty('--agent-tone-soft', hex + '22');
     }
     /* avatar: ""=initial / "icon:<name>"=lucide+theme_color circle. 颜色复用 theme_color. */
     function avatarInner(value) {
@@ -1898,17 +2302,24 @@
       // resolves the concrete id from model_class at deploy time.
       const mc = modelEntry(p.model_class);
       p.model_preferences = (mc && mc.model_id) ? [{ provider: 'anthropic', id: mc.model_id }] : [];
-      spec.skills = [];
-      (data.skill_candidates || []).forEach((c, i) => {
-        const el = $('skill-' + i); if (!el || !el.checked) return;
-        if (c.builtin) spec.skills.push({ type: 'builtin', provider: 'anthropic', id: c.builtin_id });
-        else { const s = { type: 'custom_local', path: c.path }; if (c.scope === 'user') s.scope = 'user'; spec.skills.push(s); }
-      });
-      spec.mcp_servers = [];
-      (data.mcp_candidates || []).forEach((c, i) => {
-        const el = $('mcp-' + i); if (!el || !el.checked) return;
-        const s = { name: c.name, type: c.type }; if (c.url) s.url = c.url; if (c.command) s.command = c.command; spec.mcp_servers.push(s);
-      });
+      // Lightweight projects (opened via yaml parse, det=nil) carry no candidate
+      // lists — rebuilding from them would wipe the skills/mcp the yaml already
+      // declares. Skip the rebuild; spec.skills/mcp_servers keep their loaded values.
+      // (Never key off candidates.length===0 — a real skill-less scan is also valid
+      // and must still rebuild to empty; only the explicit lightweight flag skips.)
+      if (!data.lightweight) {
+        spec.skills = [];
+        (data.skill_candidates || []).forEach((c, i) => {
+          const el = $('skill-' + i); if (!el || !el.checked) return;
+          if (c.builtin) spec.skills.push({ type: 'builtin', provider: 'anthropic', id: c.builtin_id });
+          else { const s = { type: 'custom_local', path: c.path }; if (c.scope === 'user') s.scope = 'user'; spec.skills.push(s); }
+        });
+        spec.mcp_servers = [];
+        (data.mcp_candidates || []).forEach((c, i) => {
+          const el = $('mcp-' + i); if (!el || !el.checked) return;
+          const s = { name: c.name, type: c.type }; if (c.url) s.url = c.url; if (c.command) s.command = c.command; spec.mcp_servers.push(s);
+        });
+      }
       syncVault();
       const pickedVault = vault.filter(c => c.name && c.checked);
       spec.vault_hints = {
@@ -2064,85 +2475,6 @@
         bubble.textContent = 'Error: ' + (err.message || err);
       } finally {
         chatBusy = false; $('chatSend').disabled = false; $('chatText').focus();
-      }
-    }
-
-    // AI assistant (desktop) — the build helper. Streams /api/assistant; the Go side
-    // forwards to the official Studio assistant agent, resolving its id (agent_id
-    // never touches this page). Same SSE frame parsing as sendChat, plus an
-    // "unavailable" frame (not logged in / no official assistant configured) →
-    // degrade to a static message instead of a wrong-agent chat. textContent only.
-    let asstSession = '', asstBusy = false;
-    function openAssistant() {
-      $('assistantDrawer').classList.add('open');
-      $('assistantDrawer').setAttribute('aria-hidden', 'false');
-      if (!$('asstLog').childElementCount) addAsstMsg('agent', "Hi! I can help you build this agent — explain a field, suggest a system prompt, or draft a SKILL.md description. What would you like?");
-      $('asstText').focus();
-    }
-    function closeAssistant() {
-      $('assistantDrawer').classList.remove('open');
-      $('assistantDrawer').setAttribute('aria-hidden', 'true');
-    }
-    function assistantKey(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAssistant(e); } }
-    function addAsstMsg(role, text) {
-      const el = document.createElement('div');
-      el.className = 'chat-msg ' + role;
-      el.textContent = text || '';
-      const log = $('asstLog'); log.appendChild(el); log.scrollTop = log.scrollHeight;
-      return el;
-    }
-    async function sendAssistant(e) {
-      if (e) e.preventDefault();
-      if (asstBusy) return;
-      const ta = $('asstText'), msg = ta.value.trim();
-      if (!msg) return;
-      addAsstMsg('user', msg);
-      ta.value = '';
-      asstBusy = true; $('asstSend').disabled = true;
-      const bubble = addAsstMsg('agent', '…'); bubble.classList.add('typing');
-      let full = '', started = false;
-      try {
-        const r = await fetch('/api/assistant', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ message: msg, session_id: asstSession || undefined }),
-        });
-        if (!r.ok || !r.body) throw new Error('assistant failed (' + r.status + ')');
-        const reader = r.body.getReader(), dec = new TextDecoder();
-        let buf = '';
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buf += dec.decode(value, { stream: true });
-          const lines = buf.split('\n'); buf = lines.pop() || '';
-          for (const line of lines) {
-            const t = line.trim();
-            if (!t || t.startsWith(':') || !t.startsWith('data:')) continue;
-            let ev; try { ev = JSON.parse(t.slice(t.indexOf(':') + 1).trim()); } catch { continue; }
-            if (ev.type === 'text_delta' && ev.text) {
-              if (!started) { started = true; bubble.classList.remove('typing'); bubble.textContent = ''; }
-              full += ev.text; bubble.textContent = full;
-              $('asstLog').scrollTop = $('asstLog').scrollHeight;
-            } else if (ev.type === 'text_delta_replacement') {
-              started = true; bubble.classList.remove('typing');
-              full = ev.text || ''; bubble.textContent = full;
-              $('asstLog').scrollTop = $('asstLog').scrollHeight;
-            } else if (ev.type === 'done') {
-              asstSession = ev.sdk_session_id || ev.ov_session_id || asstSession;
-            } else if (ev.type === 'unavailable') {
-              started = true; bubble.classList.remove('typing');
-              bubble.textContent = ev.message || "The assistant isn't available right now.";
-            } else if (ev.type === 'error') {
-              started = true; bubble.classList.remove('typing'); bubble.classList.add('err');
-              bubble.textContent = 'Error: ' + (ev.message || 'unknown');
-            }
-          }
-        }
-        if (!started && !bubble.classList.contains('err')) { bubble.classList.remove('typing'); bubble.textContent = '(no response)'; }
-      } catch (err) {
-        bubble.classList.remove('typing'); bubble.classList.add('err');
-        bubble.textContent = 'Error: ' + (err.message || err);
-      } finally {
-        asstBusy = false; $('asstSend').disabled = false; $('asstText').focus();
       }
     }
 

@@ -2,7 +2,7 @@
 // [OUTPUT]: 对外提供 Options / Serve / Handler；包内 buildMux / openBrowser / observed
 // [POS]: webstudio 的本地 HTTP server —— 绑 127.0.0.1:随机端口，serve go:embed 的 studio.html +
 //
-//	/api/spec(GET) /api/save /api/deploy /api/done /api/observe(GET 读名单 / POST 收 hook 上报) /api/chat(桌面流式代理→conductor /chat SSE) /api/assistant(桌面助手流式代理→官方 Studio 助手 agent) /api/open-external(桌面外链→系统浏览器) /api/skill-validate(桌面 SKILL.md frontmatter 校验) /api/skill-fix(桌面 frontmatter 补全写回)；
+//	/api/spec(GET) /api/save /api/deploy /api/done /api/observe(GET 读名单 / POST 收 hook 上报) /api/chat(桌面流式代理→conductor /chat SSE) /api/open-external(桌面外链→系统浏览器) /api/skill-validate(桌面 SKILL.md frontmatter 校验) /api/skill-fix(桌面 frontmatter 补全写回)；
 //	写 yaml / deploy 由 cmd 层注入 OnSave/OnDeploy 回调解耦，OnReady(port) 在 serve 后回调供 cmd 写 hook settings；
 //	阻塞至 KOL 在浏览器点 部署 或 完成。buildMux 抽出供 httptest 单测。
 //
@@ -73,13 +73,6 @@ type Options struct {
 	// CLI leaves it nil, so /api/chat never exists there.
 	OnChat func(ctx context.Context, req ChatRequest, emit func(raw []byte) error) error
 
-	// OnAssistant, if set, registers the streaming POST /api/assistant proxy — the
-	// desktop assistant sidebar POSTs an AssistantRequest, and this forwards it to
-	// the official Studio assistant agent via conductor's /chat, streaming each raw
-	// SSE frame back (same shape as OnChat). The agent is resolved Go-side, never
-	// chosen by the WebView. CLI leaves it nil, so /api/assistant never exists there.
-	OnAssistant func(ctx context.Context, req AssistantRequest, emit func(raw []byte) error) error
-
 	// OnOpenExternal, if set, registers POST /api/open-external — the desktop
 	// webview swallows target=_blank / window.open, so the frontend routes
 	// external-link clicks (the group page, etc.) here and the Go side opens
@@ -96,6 +89,16 @@ type Options struct {
 	// into a skill's SKILL.md frontmatter so the KOL clears a validation flag with
 	// one tap (folder name) or a short entry. CLI leaves it nil.
 	OnSkillFix func(SkillFix) error
+
+	// OnProjectSwitch/OnProjectRemove/OnProjectRescan, if set, register the desktop
+	// multi-project routes POST /api/project/{switch,remove,rescan}: switch makes a
+	// recent project the current one (lightweight yaml load), remove drops it from
+	// the recents list, rescan runs a full pipeline scan on the current project.
+	// CLI (single-project agent edit) leaves all three nil, so none of the routes
+	// exist there — the same isolation as scan/auth/chat.
+	OnProjectSwitch func(dir string) error
+	OnProjectRemove func(dir string) error
+	OnProjectRescan func() (*StudioData, error)
 }
 
 // Serve starts the local studio, opens the browser, and blocks until the KOL
@@ -355,37 +358,6 @@ func buildMux(opts Options, done chan error) *http.ServeMux {
 		})
 	}
 
-	// Desktop-only streaming assistant proxy — the sidebar POSTs an AssistantRequest;
-	// this forwards to the official Studio assistant agent (resolved Go-side) via
-	// conductor's /chat and streams each raw SSE frame back, same shape as /api/chat.
-	// CLI leaves OnAssistant nil, so the route never exists there.
-	if opts.OnAssistant != nil {
-		mux.HandleFunc("/api/assistant", func(w http.ResponseWriter, r *http.Request) {
-			var req AssistantRequest
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				writeErr(w, err)
-				return
-			}
-			_ = r.Body.Close()
-			w.Header().Set("Content-Type", "text/event-stream")
-			w.Header().Set("Cache-Control", "no-cache")
-			flusher, _ := w.(http.Flusher)
-			emit := func(raw []byte) error {
-				if _, err := fmt.Fprintf(w, "data: %s\n\n", raw); err != nil {
-					return err
-				}
-				if flusher != nil {
-					flusher.Flush()
-				}
-				return nil
-			}
-			if err := opts.OnAssistant(r.Context(), req, emit); err != nil {
-				// Best-effort error frame; if emit itself fails the client is already gone.
-				_ = emit([]byte(fmt.Sprintf(`{"type":"error","message":%q}`, err.Error())))
-			}
-		})
-	}
-
 	// Desktop-only /api/open-external — the webview swallows target=_blank /
 	// window.open, so the frontend POSTs external-link clicks here and the Go
 	// side opens them in the real browser. CLI leaves OnOpenExternal nil, so the
@@ -432,6 +404,51 @@ func buildMux(opts Options, done chan error) *http.ServeMux {
 				return
 			}
 			writeJSON(w, map[string]string{"status": "fixed"})
+		})
+	}
+
+	// Desktop-only multi-project routes — switch to / remove a recent project, or
+	// re-scan the current one. CLI leaves the callbacks nil, so none exist there.
+	if opts.OnProjectSwitch != nil {
+		mux.HandleFunc("/api/project/switch", func(w http.ResponseWriter, r *http.Request) {
+			var p struct {
+				Dir string `json:"dir"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+				writeErr(w, err)
+				return
+			}
+			if err := opts.OnProjectSwitch(p.Dir); err != nil {
+				writeErr(w, err)
+				return
+			}
+			writeJSON(w, map[string]string{"status": "switched"})
+		})
+	}
+	if opts.OnProjectRemove != nil {
+		mux.HandleFunc("/api/project/remove", func(w http.ResponseWriter, r *http.Request) {
+			var p struct {
+				Dir string `json:"dir"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+				writeErr(w, err)
+				return
+			}
+			if err := opts.OnProjectRemove(p.Dir); err != nil {
+				writeErr(w, err)
+				return
+			}
+			writeJSON(w, map[string]string{"status": "removed"})
+		})
+	}
+	if opts.OnProjectRescan != nil {
+		mux.HandleFunc("/api/project/rescan", func(w http.ResponseWriter, r *http.Request) {
+			d, err := opts.OnProjectRescan()
+			if err != nil {
+				writeErr(w, err)
+				return
+			}
+			writeJSON(w, d)
 		})
 	}
 

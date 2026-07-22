@@ -1,5 +1,5 @@
 // [INPUT]: 依赖 path/filepath；internal/types 的 AgentSpec / Detection / DetectedSkill / ReasoningDecision
-// [OUTPUT]: 对外提供 StudioData / SkillCandidate / MCPCandidate / ObservedData / AuthState / LoginChallenge / ChatRequest / AssistantRequest / SkillValidation / SkillFix / BuildStudioData
+// [OUTPUT]: 对外提供 StudioData / SkillCandidate / MCPCandidate / ObservedData / AuthState / LoginChallenge / ChatRequest / SkillValidation / SkillFix / BuildStudioData
 // [POS]: webstudio 的数据契约层 —— 把 pipeline 产物（spec 草稿 + detection 候选）摊平成前端 JSON；
 //
 //	restorePrior=true（编辑已有 yaml）时勾选态以 spec.skills/mcp_servers 为唯一真相；
@@ -26,11 +26,29 @@ type StudioData struct {
 	Categories      []string                  `json:"categories"`
 	ProjectName     string                    `json:"project_name"`
 	Harness         string                    `json:"harness"`
-	Observe         bool                      `json:"observe"`       // --observe session: frontend shows the observe panel + polls /api/observe
-	Desktop         bool                      `json:"desktop"`       // desktop-app session: frontend shows desktop-only blocks (assistant sidebar / test chat); CLI edit leaves it false
-	NeedsScan       bool                      `json:"needs_scan"`    // desktop pre-scan placeholder: frontend shows the folder-picker prompt until POST /api/scan returns a scanned draft
-	Icons           []IconDef                 `json:"icons"`         // avatar icon 网格的 lucide 子集（AvatarIcons）
-	ModelCatalog    []types.ModelClassEntry   `json:"model_catalog"` // step-2 模型档（档名/concrete model/成本）从 conductor /cli/model-classes 拉，前端零硬编码 id
+	Observe         bool                      `json:"observe"`               // --observe session: frontend shows the observe panel + polls /api/observe
+	Desktop         bool                      `json:"desktop"`               // desktop-app session: frontend shows desktop-only blocks (test chat); CLI edit leaves it false
+	NeedsScan       bool                      `json:"needs_scan"`            // desktop pre-scan placeholder: frontend shows the folder-picker prompt until POST /api/scan returns a scanned draft
+	Icons           []IconDef                 `json:"icons"`                 // avatar icon 网格的 lucide 子集（AvatarIcons）
+	ModelCatalog    []types.ModelClassEntry   `json:"model_catalog"`         // step-2 模型档（档名/concrete model/成本）从 conductor /cli/model-classes 拉，前端零硬编码 id
+	Projects        []ProjectSummary          `json:"projects,omitempty"`    // desktop multi-project switcher list; CLI leaves nil → omitempty keeps it invisible
+	Lightweight     bool                      `json:"lightweight,omitempty"` // project opened via lightweight yaml parse (det=nil): collect() must NOT rebuild skills/mcp from (empty) candidates or it silently wipes the yaml's declared skills
+}
+
+// ProjectSummary is one row of the desktop multi-project switcher
+// (StudioData.Projects). It carries just enough to render the switcher entry +
+// its deploy-status glance; the full editable draft for the *current* project
+// rides in StudioData.Spec/candidates. Desktop-only (CLI leaves Projects nil).
+type ProjectSummary struct {
+	Dir            string `json:"dir"`
+	Name           string `json:"name"`                       // metadata.name (if materialized) or dir basename
+	Current        bool   `json:"current"`                    // the project currently loaded in the workbench
+	Deployed       bool   `json:"deployed"`                   // has a recorded deploy
+	DeployedName   string `json:"deployed_name,omitempty"`    // metadata.name at deploy time — reveals (owner,name) drift if the draft was renamed
+	AgentID        string `json:"agent_id,omitempty"`         // conductor agent id from the last deploy
+	Version        string `json:"version,omitempty"`          // e.g. "v2" (PreviousManagedVersion+1); only known on an update deploy
+	LastDeployedAt string `json:"last_deployed_at,omitempty"` // RFC3339
+	Missing        bool   `json:"missing,omitempty"`          // dir has vanished from disk since it was recorded
 }
 
 // ObservedData is the GET /api/observe payload: the skills and MCP servers seen
@@ -59,19 +77,6 @@ type ChatRequest struct {
 	Message   string `json:"message"`
 	AgentID   string `json:"agent_id"`
 	SessionID string `json:"session_id,omitempty"`
-}
-
-// AssistantRequest is the POST /api/assistant body from the desktop assistant
-// sidebar. Unlike ChatRequest it carries no AgentID — the Go side resolves the
-// official Studio assistant agent (a shared is_official agent), so the WebView
-// never sees or chooses it. SessionID carries multi-turn continuity (same as
-// ChatRequest, from the previous turn's done frame). Context is an optional hint
-// the frontend attaches (a summary of the current spec draft, or the last deploy
-// error) so the assistant can explain fields / diagnose the failure.
-type AssistantRequest struct {
-	Message   string `json:"message"`
-	SessionID string `json:"session_id,omitempty"`
-	Context   string `json:"context,omitempty"`
 }
 
 // SkillValidation is one entry of the /api/skill-validate result — the desktop

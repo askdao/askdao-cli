@@ -5,7 +5,7 @@ askdao-cli 身份层 —— OAuth 2.0 Device Code Flow（RFC 8628）客户端 + 
 
 ## 成员清单
 
-- **credentials.go** — `Credentials{}` 结构 + `Save` / `Load` / `Delete` / `Path` + `DefaultServerURL` / `ErrNoCredentials` sentinel。XDG-aware 路径解析（`$XDG_CONFIG_HOME/askdao/credentials.json` → `os.UserConfigDir()/askdao/`）；POSIX 上文件 0600 + 父目录 0700；原子写入（write-to-temp + rename）防止半写。schema version 1 锁字段顺序与必填项。
+- **credentials.go** — `Credentials{}` 结构 + `Save` / `Load` / `Delete` / `Path` / `ConfigDir`（导出配置目录，供兄弟包 `recents` 共用同一路径真相源；纯 passthrough 到 package-private `configDir`，不改 auth 自身行为）+ `DefaultServerURL` / `ErrNoCredentials` sentinel。XDG-aware 路径解析（`$XDG_CONFIG_HOME/askdao/credentials.json` → `os.UserConfigDir()/askdao/`）；POSIX 上文件 0600 + 父目录 0700；原子写入（write-to-temp + rename）防止半写。schema version 1 锁字段顺序与必填项。
 - **credentials_test.go** — Save/Load roundtrip / 缺失文件返 `ErrNoCredentials` / 损坏 JSON / future schema version 拒绝 / 0600 模式不变量（POSIX）/ Delete 幂等。所有用例用 `t.Setenv("XDG_CONFIG_HOME", t.TempDir())` 隔离配置目录。
 - **device.go** — `DeviceFlow{}` HTTP 客户端：`Start` / `Poll` / `PollUntilApproved`；OAuth `error` 字段映射到 5 个 sentinel（`ErrAuthorizationPending` / `ErrExpiredToken` / `ErrAccessDenied` / `ErrAlreadyConsumed` / `ErrInvalidDeviceCode`）；轮询循环遇 `pending` 等下一 tick，遇任何 terminal 错误立即返回；deadline 既覆盖 select 间隙也覆盖 in-flight Poll（两者都规整化成 `ErrExpiredToken`，UX 一致）。
 - **device_test.go** — `httptest.Server` mock conductor：Start happy/502 / Poll 5 个错误码全覆盖 + Success / `PollUntilApproved` 多次 pending → token / 超时变 `ErrExpiredToken` / terminal 错误立即上抛。
