@@ -45,6 +45,8 @@ type AgentSpec struct {
 
 	Memory     *Memory     `json:"memory,omitempty"     yaml:"memory,omitempty"`
 	Guardrails *Guardrails `json:"guardrails,omitempty" yaml:"guardrails,omitempty"`
+	Outcomes   *Outcomes   `json:"outcomes,omitempty"   yaml:"outcomes,omitempty"`
+	Schedule   *Schedule   `json:"schedule,omitempty"   yaml:"schedule,omitempty"`
 	Provenance *Provenance `json:"provenance,omitempty" yaml:"provenance,omitempty"`
 	Status     *Status     `json:"status,omitempty"     yaml:"status,omitempty"`
 }
@@ -289,6 +291,31 @@ type Memory struct {
 type Guardrails struct {
 	CredentialFilter string `json:"credential_filter,omitempty" yaml:"credential_filter,omitempty"`
 	KOLMemoryRedact  string `json:"kol_memory_redact,omitempty" yaml:"kol_memory_redact,omitempty"`
+}
+
+// Outcomes is the conductor-side delivery-acceptance policy (#303 Define
+// Outcomes; never reaches harness API). When enabled with a rubric, conductor
+// auto-runs a grader acceptance cycle (user.define_outcome) after the agent
+// delivers files via askdao_deliver_done, iterating up to MaxIterations
+// (server clamps to 1-5, default 3).
+type Outcomes struct {
+	Enabled       *bool  `json:"enabled,omitempty"        yaml:"enabled,omitempty"` // nil = true
+	Rubric        string `json:"rubric"                   yaml:"rubric"`
+	MaxIterations int    `json:"max_iterations,omitempty" yaml:"max_iterations,omitempty"` // 1-5, 0 = server default 3
+}
+
+// Schedule is the conductor-side recurring-run policy (#303 Scheduled Runs;
+// never reaches harness API). Standard 5-field POSIX cron interpreted in
+// Timezone wall-clock; Task is the instruction each run starts with.
+// NotifyChannel picks the IM channel for run-result delivery
+// (telegram | whatsapp | imessage | feishu | dingtalk); empty = owner's most
+// recent binding.
+type Schedule struct {
+	Enabled       *bool  `json:"enabled,omitempty"        yaml:"enabled,omitempty"` // nil = true
+	Cron          string `json:"cron"                     yaml:"cron"`
+	Timezone      string `json:"timezone,omitempty"       yaml:"timezone,omitempty"` // IANA, empty = UTC
+	Task          string `json:"task"                     yaml:"task"`
+	NotifyChannel string `json:"notify_channel,omitempty" yaml:"notify_channel,omitempty"`
 }
 
 // Provenance carries the why-trail for transparency: which detection report,

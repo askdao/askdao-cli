@@ -491,3 +491,37 @@ func TestDeploy_KolProfileRequired_UsesServerSetupURL(t *testing.T) {
 		t.Errorf("output should use the server-handed setup_url\n--- output ---\n%s", got)
 	}
 }
+
+func TestDeploy_ScheduleWarning_Printed(t *testing.T) {
+	// #303: conductor's schedule_warning (frequent cron cost hint) must surface
+	// prominently in the terminal; the deploy itself stays successful.
+	root := withWorkdir(t)
+	writeAgentDirWithSkill(t, root, "kol-agent", "my-skill")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, deploy.DeployResponse{
+			AgentID:                "agt_abc",
+			AnthropicAgentID:       "agent_x",
+			AnthropicEnvironmentID: "env_x",
+			TranslationReport:      deploy.TranslationReport{Harness: "anthropic_managed_agents"},
+			Created:                true,
+			ScheduleWarning:        "schedule fires as often as every 5 min ('*/5 * * * *'); each run consumes credits — frequent schedules can be expensive",
+		})
+	}))
+	defer srv.Close()
+	t.Setenv("ASKDAO_CONDUCTOR_URL", srv.URL)
+	t.Setenv("ASKDAO_CONDUCTOR_TOKEN", "tok")
+
+	out, restore := captureStdout(t)
+	defer restore()
+	code := runDeploy(context.Background(), []string{"--dir", "kol-agent"})
+	got := out()
+	if code != 0 {
+		t.Fatalf("deploy exit = %d\n--- output ---\n%s", code, got)
+	}
+	for _, want := range []string{"SCHEDULE COST WARNING", "every 5 min", "✓ Deploy complete."} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output missing %q\n--- output ---\n%s", want, got)
+		}
+	}
+}

@@ -1460,7 +1460,7 @@
       $('stepNav').innerHTML = STEPS.map((s, i) =>
         `<li data-i="${i}" onclick="go(${i})"><span class="dot">${i + 1}</span><span class="st">Step ${i + 1}</span><span class="lb">${s.label}</span></li>`).join('');
     }
-    function renderPanels() { $('panels').innerHTML = panelIdentity() + panelPersona() + panelSkills() + panelReview(); renderIconGrid(); renderAvatar(); }
+    function renderPanels() { $('panels').innerHTML = panelIdentity() + panelPersona() + panelSkills() + panelReview(); renderIconGrid(); renderAvatar(); updateCronWarn(); }
 
     /* Step 1 · Identity */
     function panelIdentity() {
@@ -1541,11 +1541,97 @@
       <button type="button" class="tab active" onclick="switchTab('skills',this)">Skills <span class="cnt">${sc}</span></button>
       <button type="button" class="tab" onclick="switchTab('mcp',this)">MCP servers <span class="cnt">${mc}</span></button>
       <button type="button" class="tab" onclick="switchTab('vault',this)">Secrets <span class="cnt" id="vaultCnt">${vault.length}</span></button>
+      <button type="button" class="tab" onclick="switchTab('automation',this)">Automation <span class="cnt">${(spec.outcomes ? 1 : 0) + (spec.schedule ? 1 : 0)}</span></button>
     </div>
     <div class="tabpane" data-pane="skills">${skillFlagBar()}<div class="card">${skillGroups()}</div></div>
     <div class="tabpane" data-pane="mcp" hidden><div class="card">${mcpGroups()}</div></div>
     <div class="tabpane" data-pane="vault" hidden><div class="card">${vaultPaneHTML()}</div></div>
+    <div class="tabpane" data-pane="automation" hidden><div class="card">${automationPaneHTML()}</div></div>
   </section>`;
+    }
+    /* Automation tab (#303): outcomes (delivery-acceptance rubric) + schedule
+       (recurring run). Both optional; values restore from spec on edit. */
+    const NOTIFY_CHANNELS = ['', 'telegram', 'whatsapp', 'imessage', 'feishu', 'dingtalk'];
+    const TZ_PRESETS = ['UTC', 'Asia/Shanghai', 'Asia/Tokyo', 'Asia/Singapore', 'Europe/London', 'Europe/Paris', 'America/New_York', 'America/Los_Angeles'];
+    function automationPaneHTML() {
+      const o = spec.outcomes || {}, s = spec.schedule || {};
+      const oOn = !!spec.outcomes && o.enabled !== false;
+      const sOn = !!spec.schedule && s.enabled !== false;
+      const tz = s.timezone || 'UTC';
+      const tzList = TZ_PRESETS.includes(tz) ? TZ_PRESETS : [tz].concat(TZ_PRESETS);
+      const tzOpts = tzList.map(z => `<option value="${esc(z)}"${z === tz ? ' selected' : ''}>${esc(z)}</option>`).join('');
+      const nOpts = NOTIFY_CHANNELS.map(c => `<option value="${c}"${c === (s.notify_channel || '') ? ' selected' : ''}>${c || 'Most recent IM binding (default)'}</option>`).join('');
+      return `<div class="grp"><h3>Delivery acceptance (Outcomes)</h3>
+    <label class="item"><input type="checkbox" id="f_oc_on" ${oOn ? 'checked' : ''} onchange="toggleAutomation()"><div><div class="nm">Grade deliverables against a rubric</div><div class="ds">After the agent delivers files, a grader checks them against your rubric and drives revisions (billed like extra turns).</div></div></label>
+    <div id="ocFields" ${oOn ? '' : 'hidden'}>
+      <label class="lbl" for="f_oc_rubric">Acceptance rubric (markdown, one criterion per line)</label>
+      <textarea id="f_oc_rubric" rows="6" placeholder="- Covers all merged PRs this week&#10;- Output is a single xlsx file">${esc(o.rubric || '')}</textarea>
+      <div class="field-err" id="err_oc_rubric"></div>
+      <label class="lbl" for="f_oc_iters">Max grader iterations (1-5)</label>
+      <input id="f_oc_iters" type="number" min="1" max="5" value="${o.max_iterations || 3}" style="width:90px">
+    </div></div>
+    <div class="grp"><h3>Recurring run (Schedule)</h3>
+    <label class="item"><input type="checkbox" id="f_sc_on" ${sOn ? 'checked' : ''} onchange="toggleAutomation()"><div><div class="nm">Run this agent on a schedule</div><div class="ds">Each run starts a fresh session, bills your credit, and pushes the result to your IM.</div></div></label>
+    <div id="scFields" ${sOn ? '' : 'hidden'}>
+      <label class="lbl" for="f_sc_cron">Cron expression (5 fields: minute hour day month weekday)</label>
+      <input id="f_sc_cron" type="text" placeholder="0 9 * * 1" value="${esc(s.cron || '')}" oninput="updateCronWarn()" style="font-family:monospace">
+      <div class="field-err" id="err_sc_cron"></div>
+      <div id="cronWarn" hidden style="color:#b42318;font-weight:600;font-size:13px;margin:6px 0">⚠️ This schedule fires more often than every 15 minutes — every run consumes credits, frequent schedules can be expensive.</div>
+      <label class="lbl" for="f_sc_tz">Timezone</label>
+      <select id="f_sc_tz">${tzOpts}</select>
+      <label class="lbl" for="f_sc_task">Task instruction (what each run should do)</label>
+      <textarea id="f_sc_task" rows="4" placeholder="Generate last week's report and deliver it as xlsx">${esc(s.task || '')}</textarea>
+      <div class="field-err" id="err_sc_task"></div>
+      <label class="lbl" for="f_sc_notify">Send results to</label>
+      <select id="f_sc_notify">${nOpts}</select>
+    </div></div>`;
+    }
+    function toggleAutomation() {
+      const oc = $('f_oc_on'), sc = $('f_sc_on');
+      if ($('ocFields')) $('ocFields').hidden = !(oc && oc.checked);
+      if ($('scFields')) $('scFields').hidden = !(sc && sc.checked);
+      updateCronWarn();
+    }
+    /* Best-effort min-interval estimator for the <15min cost warning. Covers the
+       common shapes ( * , *\/N, comma lists, ranges in the minute field). Unknown
+       shapes stay silent — conductor's deploy response schedule_warning is the
+       authoritative second check. */
+    function cronMinIntervalSeconds(expr) {
+      const parts = (expr || '').trim().split(/\s+/);
+      if (parts.length !== 5) return null;
+      const [min, hour] = parts;
+      const minuteGaps = (field) => {
+        if (field === '*') return 60;
+        let m = field.match(/^\*\/(\d+)$/);
+        if (m) return parseInt(m[1], 10) * 60;
+        if (/^[\d,\-]+$/.test(field)) {
+          let vals = [];
+          for (const seg of field.split(',')) {
+            const r = seg.match(/^(\d+)-(\d+)$/);
+            if (r) { for (let v = +r[1]; v <= +r[2]; v++) vals.push(v); }
+            else if (/^\d+$/.test(seg)) vals.push(+seg);
+            else return null;
+          }
+          vals = [...new Set(vals)].sort((a, b) => a - b);
+          if (vals.length <= 1) return null; // single minute → gap governed by hour field
+          let gap = Infinity;
+          for (let i = 1; i < vals.length; i++) gap = Math.min(gap, vals[i] - vals[i - 1]);
+          return gap * 60;
+        }
+        return null;
+      };
+      const g = minuteGaps(min);
+      if (g === null) return null;
+      // minute field repeats within every matching hour; hour="*" or any hour
+      // spec keeps the intra-hour gap as the tightest interval.
+      if (g < 3600 && (hour === '*' || /^[\d,\-*\/]+$/.test(hour))) return g;
+      return g;
+    }
+    function updateCronWarn() {
+      const el = $('f_sc_cron'), warn = $('cronWarn'), on = $('f_sc_on');
+      if (!el || !warn) return;
+      const iv = (on && on.checked) ? cronMinIntervalSeconds(el.value) : null;
+      warn.hidden = !(iv !== null && iv < 900);
     }
     function switchTab(name, btn) {
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -1775,14 +1861,16 @@
     <dt>System prompt</dt><dd>${spHTML}</dd>
     <dt>Skills (${skillNames.length})</dt><dd class="chips">${chips(skillNames)}</dd>
     <dt>MCP servers (${mcpNames.length})</dt><dd class="chips">${chips(mcpNames)}</dd>
-    <dt>Secrets (${secretNames.length})</dt><dd class="chips">${chips(secretNames, true)}</dd>`;
+    <dt>Secrets (${secretNames.length})</dt><dd class="chips">${chips(secretNames, true)}</dd>
+    <dt>Outcomes</dt><dd>${spec.outcomes && spec.outcomes.enabled !== false ? `rubric · max ${spec.outcomes.max_iterations || 3} grader iterations` : '<span class="empty">off</span>'}</dd>
+    <dt>Schedule</dt><dd>${spec.schedule && spec.schedule.enabled !== false ? `<span class="rtag mono">${esc(spec.schedule.cron)}</span> ${esc(spec.schedule.timezone || 'UTC')}${spec.schedule.notify_channel ? ' → ' + esc(spec.schedule.notify_channel) : ''}${cronMinIntervalSeconds(spec.schedule.cron) !== null && cronMinIntervalSeconds(spec.schedule.cron) < 900 ? ' <span style="color:#b42318;font-weight:600">⚠️ frequent — cost risk</span>' : ''}` : '<span class="empty">off</span>'}</dd>`;
     }
 
     /* validation — required fields + slug name format; gates Next + Deploy. Draft stays
        lenient (name only). Mirrors conductor's required set (name/model_class) plus the
        product-required fields (display_name/description/system_prompt/secret name). */
     const NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-    const FIELD_INPUT = { name: 'f_name', display: 'f_display', desc: 'f_desc', prompt: 'f_prompt' };
+    const FIELD_INPUT = { name: 'f_name', display: 'f_display', desc: 'f_desc', prompt: 'f_prompt', oc_rubric: 'f_oc_rubric', sc_cron: 'f_sc_cron', sc_task: 'f_sc_task' };
     function validateStep(n) {
       collect();
       const m = spec.metadata, p = spec.persona, errs = [];
@@ -1799,6 +1887,15 @@
       } else if (n === 2) {
         syncVault();
         vault.forEach((c, i) => { if (!(c.name || '').trim() && (c.purpose || '').trim()) errs.push({ id: 'v-name-' + i, vault: true }); });
+        // Automation (#303): only validate what's switched on.
+        if ($('f_oc_on') && $('f_oc_on').checked && !($('f_oc_rubric').value || '').trim())
+          errs.push({ id: 'oc_rubric', msg: 'A rubric is required when outcomes are enabled', automation: true });
+        if ($('f_sc_on') && $('f_sc_on').checked) {
+          const cron = ($('f_sc_cron').value || '').trim();
+          if (!cron) errs.push({ id: 'sc_cron', msg: 'A cron expression is required', automation: true });
+          else if (cron.split(/\s+/).length !== 5) errs.push({ id: 'sc_cron', msg: 'Cron needs exactly 5 fields, e.g. 0 9 * * 1', automation: true });
+          if (!($('f_sc_task').value || '').trim()) errs.push({ id: 'sc_task', msg: 'A task instruction is required', automation: true });
+        }
       }
       return errs;
     }
@@ -1812,8 +1909,9 @@
     }
     function showErrors(errs) {
       clearErrors();
-      let first = null, vaultErr = false;
+      let first = null, vaultErr = false, automationErr = false;
       errs.forEach(e => {
+        if (e.automation) automationErr = true;
         if (e.vault) { vaultErr = true; const inp = $(e.id); if (inp) { inp.classList.add('invalid'); if (!first) first = inp; } return; }
         const box = $('err_' + e.id); if (box) box.textContent = e.msg;
         const inp = FIELD_INPUT[e.id] && $(FIELD_INPUT[e.id]);
@@ -1823,6 +1921,8 @@
       if (vaultErr) {
         const vb = $('err_vault'); if (vb) vb.textContent = 'Every secret needs a name (or remove the empty row)';
         const sb = document.querySelectorAll('.tab')[2]; if (sb) switchTab('vault', sb);
+      } else if (automationErr) {
+        const ab = document.querySelectorAll('.tab')[3]; if (ab) switchTab('automation', ab);
       }
       setStatus('✗ Please fix the highlighted fields');
       if (first) first.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -1915,6 +2015,29 @@
         required_credentials: pickedVault.filter(c => c.required).map(c => ({ name: c.name, purpose: c.purpose, required: true })),
         optional_credentials: pickedVault.filter(c => !c.required).map(c => ({ name: c.name, purpose: c.purpose, required: false })),
       };
+      // Automation (#303): only persist a block when it carries content —
+      // an untouched pane leaves the yaml free of outcomes/schedule keys.
+      if ($('f_oc_on')) {
+        const on = $('f_oc_on').checked, rubric = ($('f_oc_rubric') ? $('f_oc_rubric').value : '').trim();
+        if (on || rubric) {
+          const o = { enabled: on, rubric: rubric };
+          const it = parseInt($('f_oc_iters') && $('f_oc_iters').value, 10);
+          if (it >= 1 && it <= 5) o.max_iterations = it;
+          spec.outcomes = o;
+        } else delete spec.outcomes;
+      }
+      if ($('f_sc_on')) {
+        const on = $('f_sc_on').checked, cron = ($('f_sc_cron') ? $('f_sc_cron').value : '').trim();
+        const task = ($('f_sc_task') ? $('f_sc_task').value : '').trim();
+        if (on || cron || task) {
+          const s = { enabled: on, cron: cron, task: task };
+          const tz = $('f_sc_tz') && $('f_sc_tz').value;
+          if (tz && tz !== 'UTC') s.timezone = tz;
+          const nc = $('f_sc_notify') && $('f_sc_notify').value;
+          if (nc) s.notify_channel = nc;
+          spec.schedule = s;
+        } else delete spec.schedule;
+      }
       return spec;
     }
     let busy = false;

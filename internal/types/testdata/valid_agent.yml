@@ -108,6 +108,21 @@ guardrails:
   credential_filter: enabled
   kol_memory_redact: enabled
 
+outcomes:
+  enabled: true
+  rubric: |
+    # 周报验收标准
+    - 覆盖本周全部已合并 PR
+    - 产出为单一 xlsx 文件
+  max_iterations: 2
+
+schedule:
+  enabled: true
+  cron: "0 9 * * 1"
+  timezone: Asia/Shanghai
+  task: "生成上周工作周报并交付 xlsx"
+  notify_channel: telegram
+
 provenance:
   detection_report: .askdao/detection.json
   reasoning_summary: |

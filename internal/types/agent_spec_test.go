@@ -80,6 +80,8 @@ func diagnoseSpecDiff(t *testing.T, a, b AgentSpec) {
 		{"HarnessSpecific", a.HarnessSpecific, b.HarnessSpecific},
 		{"Memory", a.Memory, b.Memory},
 		{"Guardrails", a.Guardrails, b.Guardrails},
+		{"Outcomes", a.Outcomes, b.Outcomes},
+		{"Schedule", a.Schedule, b.Schedule},
 		{"Provenance", a.Provenance, b.Provenance},
 		{"Status", a.Status, b.Status},
 	}
