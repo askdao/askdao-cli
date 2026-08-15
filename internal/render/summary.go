@@ -54,6 +54,7 @@ func RenderSummary(r *Renderer, in SummaryInput) {
 	r.println("")
 	renderRuntime(r, in)
 	r.println("")
+	renderAutomation(r, in.Spec)
 	renderSubscriberOnboarding(r, in.Spec.VaultHints)
 	r.println("")
 	if len(in.Warnings) > 0 {
@@ -238,6 +239,51 @@ func renderRuntime(r *Renderer, in SummaryInput) {
 	if wd := in.Spec.Workspace.Workdir; wd != "" {
 		r.printf("  Workdir: %s\n", wd)
 	}
+}
+
+// renderAutomation prints the #303 outcomes / schedule blocks. Both are
+// optional — the whole section is skipped when neither block is present, so
+// pre-#303 specs render byte-identical (golden safety).
+func renderAutomation(r *Renderer, spec *types.AgentSpec) {
+	if spec.Outcomes == nil && spec.Schedule == nil {
+		return
+	}
+	r.section("AUTOMATION  (Outcomes & Schedule)")
+	r.println("")
+	if o := spec.Outcomes; o != nil {
+		state := "enabled"
+		if o.Enabled != nil && !*o.Enabled {
+			state = "disabled"
+		}
+		iters := o.MaxIterations
+		if iters <= 0 {
+			iters = 3
+		}
+		r.printf("  Outcomes: %s — rubric %d chars, max %d grader iterations\n",
+			state, len(o.Rubric), iters)
+	}
+	if s := spec.Schedule; s != nil {
+		state := "enabled"
+		if s.Enabled != nil && !*s.Enabled {
+			state = "disabled"
+		}
+		tz := s.Timezone
+		if tz == "" {
+			tz = "UTC"
+		}
+		r.printf("  Schedule: %s — cron %q (%s)\n", state, s.Cron, tz)
+		if s.Task != "" {
+			task := s.Task
+			if runes := []rune(task); len(runes) > 72 {
+				task = string(runes[:72]) + "…"
+			}
+			r.printf("    Task: %s\n", task)
+		}
+		if s.NotifyChannel != "" {
+			r.printf("    Notify: %s\n", s.NotifyChannel)
+		}
+	}
+	r.println("")
 }
 
 func renderSubscriberOnboarding(r *Renderer, hints types.VaultHints) {

@@ -68,6 +68,10 @@ type DeployResponse struct {
 	TranslationReport      TranslationReport        `json:"translation_report"`
 	Created                bool                     `json:"created"`
 	PreviousManagedVersion *int                     `json:"previous_managed_version,omitempty"`
+	// ScheduleWarning (#303): non-empty when the schedule block fires more
+	// often than every 15 minutes — a cost-risk hint, never a deploy blocker.
+	// cmd layer must surface it prominently.
+	ScheduleWarning string `json:"schedule_warning,omitempty"`
 }
 
 // TranslationReport mirrors conductor's app.agents.adapters.TranslationReport

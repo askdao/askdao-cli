@@ -67,7 +67,51 @@ func DiffAgentSpec(a, b *types.AgentSpec) []FieldDiff {
 	out = appendMCPDiff(out, a.MCPServers, b.MCPServers)
 
 	out = appendScalarDiff(out, "preferred_harness", a.PreferredHarness, b.PreferredHarness)
+
+	// #303 automation blocks (nil-safe: zero-value view when the block is absent)
+	oa, ob := outcomesView(a.Outcomes), outcomesView(b.Outcomes)
+	out = appendScalarDiff(out, "outcomes.enabled", oa.enabled, ob.enabled)
+	out = appendScalarDiff(out, "outcomes.rubric", oa.rubric, ob.rubric)
+	out = appendScalarDiff(out, "outcomes.max_iterations", oa.maxIter, ob.maxIter)
+	sa, sb := scheduleView(a.Schedule), scheduleView(b.Schedule)
+	out = appendScalarDiff(out, "schedule.enabled", sa.enabled, sb.enabled)
+	out = appendScalarDiff(out, "schedule.cron", sa.cron, sb.cron)
+	out = appendScalarDiff(out, "schedule.timezone", sa.timezone, sb.timezone)
+	out = appendScalarDiff(out, "schedule.task", sa.task, sb.task)
+	out = appendScalarDiff(out, "schedule.notify_channel", sa.notify, sb.notify)
 	return out
+}
+
+type outcomesFields struct{ enabled, rubric, maxIter string }
+
+func outcomesView(o *types.Outcomes) outcomesFields {
+	if o == nil {
+		return outcomesFields{}
+	}
+	v := outcomesFields{enabled: "true", rubric: o.Rubric}
+	if o.Enabled != nil && !*o.Enabled {
+		v.enabled = "false"
+	}
+	if o.MaxIterations > 0 {
+		v.maxIter = fmt.Sprintf("%d", o.MaxIterations)
+	}
+	return v
+}
+
+type scheduleFields struct{ enabled, cron, timezone, task, notify string }
+
+func scheduleView(s *types.Schedule) scheduleFields {
+	if s == nil {
+		return scheduleFields{}
+	}
+	v := scheduleFields{
+		enabled: "true", cron: s.Cron, timezone: s.Timezone,
+		task: s.Task, notify: s.NotifyChannel,
+	}
+	if s.Enabled != nil && !*s.Enabled {
+		v.enabled = "false"
+	}
+	return v
 }
 
 func appendCapabilityDiff(out []FieldDiff, name string, a, b types.Capability) []FieldDiff {

@@ -268,6 +268,13 @@ func printDeployResult(resp *deploy.DeployResponse) {
 			fmt.Printf("    • %s\n", formatSkillRef(sk))
 		}
 	}
+	// #303: frequent-schedule cost warning — advisory only, never blocks the
+	// deploy (product decision: no hard frequency floor, guardrail lives in
+	// the UI). Printed prominently so a "*/5 * * * *" doesn't slip by unseen.
+	if resp.ScheduleWarning != "" {
+		fmt.Println()
+		fmt.Printf("⚠️  SCHEDULE COST WARNING: %s\n", resp.ScheduleWarning)
+	}
 	if warnings := toRenderWarnings(resp.TranslationReport); len(warnings) > 0 {
 		fmt.Println()
 		// Prelude so the ⚠️ section is not mistaken for a deploy failure.
