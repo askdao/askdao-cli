@@ -214,10 +214,11 @@ func (a *App) deploy(spec *types.AgentSpec) (*webstudio.DeployResult, error) {
 		verb = "Created"
 	}
 	return &webstudio.DeployResult{
-		Message:   fmt.Sprintf("%s agent %s", verb, resp.AgentID),
-		GroupLink: resp.GroupLink,
-		AgentID:   resp.AgentID,
-		Created:   resp.Created,
+		Message:         fmt.Sprintf("%s agent %s", verb, resp.AgentID),
+		GroupLink:       resp.GroupLink,
+		AgentID:         resp.AgentID,
+		Created:         resp.Created,
+		ScheduleWarning: resp.ScheduleWarning,
 	}, nil
 }
 
