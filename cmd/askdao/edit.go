@@ -130,10 +130,11 @@ func runEdit(ctx context.Context, args []string) int {
 				return nil, studioDeployError(derr)
 			}
 			return &webstudio.DeployResult{
-				Message:   deployResultLine(resp),
-				GroupLink: resp.GroupLink,
-				AgentID:   resp.AgentID,
-				Created:   resp.Created,
+				Message:         deployResultLine(resp),
+				GroupLink:       resp.GroupLink,
+				AgentID:         resp.AgentID,
+				Created:         resp.Created,
+				ScheduleWarning: resp.ScheduleWarning,
 			}, nil
 		},
 	})

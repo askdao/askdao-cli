@@ -206,7 +206,7 @@ func buildMux(opts Options, done chan error) *http.ServeMux {
 				return
 			}
 		}
-		writeJSON(w, map[string]interface{}{"status": "deployed", "message": res.Message, "group_link": res.GroupLink, "agent_id": res.AgentID, "created": res.Created})
+		writeJSON(w, map[string]interface{}{"status": "deployed", "message": res.Message, "group_link": res.GroupLink, "agent_id": res.AgentID, "created": res.Created, "schedule_warning": res.ScheduleWarning})
 		signal(done)
 	})
 
