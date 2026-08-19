@@ -44,6 +44,7 @@ type AgentSpec struct {
 	HarnessSpecific   *HarnessSpecific `json:"harness_specific,omitempty"   yaml:"harness_specific,omitempty"`
 
 	Memory     *Memory     `json:"memory,omitempty"     yaml:"memory,omitempty"`
+	Wiki       *Wiki       `json:"wiki,omitempty"       yaml:"wiki,omitempty"`
 	Guardrails *Guardrails `json:"guardrails,omitempty" yaml:"guardrails,omitempty"`
 	Outcomes   *Outcomes   `json:"outcomes,omitempty"   yaml:"outcomes,omitempty"`
 	Schedule   *Schedule   `json:"schedule,omitempty"   yaml:"schedule,omitempty"`
@@ -282,9 +283,28 @@ type Compaction struct {
 }
 
 // Memory is conductor-side memory policy (never reaches harness API).
+//
+// InjectUserProfile / InjectAgentProfile are FIRST-DEPLOY INITIAL VALUES for
+// the agent_spec.user_profile_enabled / user_agent_profile_enabled columns:
+// conductor writes them on the create path only, never on redeploy. Day-to-day
+// flipping belongs to the web dashboard (PATCH /agents/{id}/memory-injection),
+// so a KOL's toggle there is never clobbered by a later deploy. nil = not
+// declared (server default: off).
 type Memory struct {
-	FactExtraction string `json:"fact_extraction,omitempty" yaml:"fact_extraction,omitempty"` // enabled | disabled
-	EpisodeSummary string `json:"episode_summary,omitempty" yaml:"episode_summary,omitempty"`
+	FactExtraction     string `json:"fact_extraction,omitempty"      yaml:"fact_extraction,omitempty"` // enabled | disabled
+	EpisodeSummary     string `json:"episode_summary,omitempty"      yaml:"episode_summary,omitempty"`
+	InjectUserProfile  *bool  `json:"inject_user_profile,omitempty"  yaml:"inject_user_profile,omitempty"`
+	InjectAgentProfile *bool  `json:"inject_agent_profile,omitempty" yaml:"inject_agent_profile,omitempty"`
+}
+
+// Wiki is the conductor-side Agent Wiki switch block (never reaches harness
+// API). Same create-only semantics as Memory.Inject*: these seed
+// agent_spec.wiki_enabled / wiki_evolution_enabled on first deploy, after which
+// the web dashboard owns them. Evolution depends on Enabled, but the two
+// columns are stored independently (no server-side cascade). nil = not declared.
+type Wiki struct {
+	Enabled   *bool `json:"enabled,omitempty"   yaml:"enabled,omitempty"`
+	Evolution *bool `json:"evolution,omitempty" yaml:"evolution,omitempty"`
 }
 
 // Guardrails is conductor-side filtering policy (never reaches harness API).

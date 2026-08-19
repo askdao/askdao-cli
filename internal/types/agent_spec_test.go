@@ -16,7 +16,9 @@ package types
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -79,6 +81,7 @@ func diagnoseSpecDiff(t *testing.T, a, b AgentSpec) {
 		{"FallbackHarnesses", a.FallbackHarnesses, b.FallbackHarnesses},
 		{"HarnessSpecific", a.HarnessSpecific, b.HarnessSpecific},
 		{"Memory", a.Memory, b.Memory},
+		{"Wiki", a.Wiki, b.Wiki},
 		{"Guardrails", a.Guardrails, b.Guardrails},
 		{"Outcomes", a.Outcomes, b.Outcomes},
 		{"Schedule", a.Schedule, b.Schedule},
@@ -95,6 +98,61 @@ func diagnoseSpecDiff(t *testing.T, a, b AgentSpec) {
 // TestAgentSpecRejectInvalid loads testdata/invalid_agent.yml under strict
 // decoding (KnownFields true). The fixture carries an unknown top-level key
 // the decoder MUST flag.
+// TestAgentSpecToggleBlocksSurvive pins the first-deploy toggle seeds
+// (memory.inject_* + wiki.*) through a yaml round trip. They are tri-state:
+// nil means "not declared" and must stay nil, because conductor only seeds a
+// column when the value is present — an accidental false would look like an
+// explicit opt-out.
+func TestAgentSpecToggleBlocksSurvive(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "valid_agent.yml"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	var spec AgentSpec
+	if err := yaml.Unmarshal(raw, &spec); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if spec.Memory == nil || spec.Memory.InjectUserProfile == nil ||
+		!*spec.Memory.InjectUserProfile {
+		t.Fatalf("memory.inject_user_profile lost: %+v", spec.Memory)
+	}
+	if spec.Memory.InjectAgentProfile == nil || *spec.Memory.InjectAgentProfile {
+		t.Fatalf("memory.inject_agent_profile should be explicit false: %+v", spec.Memory)
+	}
+	if spec.Wiki == nil || spec.Wiki.Enabled == nil || !*spec.Wiki.Enabled {
+		t.Fatalf("wiki.enabled lost: %+v", spec.Wiki)
+	}
+	if spec.Wiki.Evolution == nil || *spec.Wiki.Evolution {
+		t.Fatalf("wiki.evolution should be explicit false: %+v", spec.Wiki)
+	}
+
+	out, err := yaml.Marshal(&spec)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var back AgentSpec
+	if err := yaml.Unmarshal(out, &back); err != nil {
+		t.Fatalf("re-unmarshal: %v", err)
+	}
+	if !reflect.DeepEqual(spec.Memory, back.Memory) {
+		t.Errorf("memory block drifted: %+v vs %+v", spec.Memory, back.Memory)
+	}
+	if !reflect.DeepEqual(spec.Wiki, back.Wiki) {
+		t.Errorf("wiki block drifted: %+v vs %+v", spec.Wiki, back.Wiki)
+	}
+
+	// An undeclared block must marshal away entirely (omitempty), so an
+	// untouched studio pane never grows an empty block in the KOL's yaml.
+	bare := AgentSpec{}
+	bareOut, err := yaml.Marshal(&bare)
+	if err != nil {
+		t.Fatalf("marshal bare: %v", err)
+	}
+	if strings.Contains(string(bareOut), "wiki:") {
+		t.Errorf("empty spec emitted a wiki block:\n%s", bareOut)
+	}
+}
+
 func TestAgentSpecRejectInvalid(t *testing.T) {
 	raw, err := os.ReadFile("testdata/invalid_agent.yml")
 	if err != nil {

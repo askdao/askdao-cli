@@ -103,6 +103,12 @@ harness_specific:
 memory:
   fact_extraction: enabled
   episode_summary: enabled
+  inject_user_profile: true
+  inject_agent_profile: false
+
+wiki:
+  enabled: true
+  evolution: false
 
 guardrails:
   credential_filter: enabled

@@ -79,7 +79,44 @@ func DiffAgentSpec(a, b *types.AgentSpec) []FieldDiff {
 	out = appendScalarDiff(out, "schedule.timezone", sa.timezone, sb.timezone)
 	out = appendScalarDiff(out, "schedule.task", sa.task, sb.task)
 	out = appendScalarDiff(out, "schedule.notify_channel", sa.notify, sb.notify)
+	// First-deploy toggle seeds (conductor applies them on create only).
+	ma, mb := memoryView(a.Memory), memoryView(b.Memory)
+	out = appendScalarDiff(out, "memory.inject_user_profile", ma.injectUser, mb.injectUser)
+	out = appendScalarDiff(out, "memory.inject_agent_profile", ma.injectAgent, mb.injectAgent)
+	wa, wb := wikiView(a.Wiki), wikiView(b.Wiki)
+	out = appendScalarDiff(out, "wiki.enabled", wa.enabled, wb.enabled)
+	out = appendScalarDiff(out, "wiki.evolution", wa.evolution, wb.evolution)
 	return out
+}
+
+type memoryFields struct{ injectUser, injectAgent string }
+
+func memoryView(m *types.Memory) memoryFields {
+	if m == nil {
+		return memoryFields{}
+	}
+	return memoryFields{
+		injectUser:  optBoolStr(m.InjectUserProfile),
+		injectAgent: optBoolStr(m.InjectAgentProfile),
+	}
+}
+
+type wikiFields struct{ enabled, evolution string }
+
+func wikiView(w *types.Wiki) wikiFields {
+	if w == nil {
+		return wikiFields{}
+	}
+	return wikiFields{enabled: optBoolStr(w.Enabled), evolution: optBoolStr(w.Evolution)}
+}
+
+// optBoolStr renders a tri-state switch: "" when undeclared (so an absent
+// block diffs clean against an absent one), else "true"/"false".
+func optBoolStr(v *bool) string {
+	if v == nil {
+		return ""
+	}
+	return boolStr(*v)
 }
 
 type outcomesFields struct{ enabled, rubric, maxIter string }

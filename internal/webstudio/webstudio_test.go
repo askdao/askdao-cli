@@ -158,7 +158,8 @@ func TestDoneSavesSpec(t *testing.T) {
 
 	// Save & finish must persist edits (display_name/avatar) before exiting,
 	// otherwise deploy reads a stale yaml missing those fields.
-	body := `{"metadata":{"name":"y","display_name":"Y","avatar":"icon:star"}}`
+	body := `{"metadata":{"name":"y","display_name":"Y","avatar":"icon:star"},` +
+		`"memory":{"inject_user_profile":true},"wiki":{"enabled":true,"evolution":false}}`
 	r, err := http.Post(srv.URL+"/api/done", "application/json", bytes.NewBufferString(body))
 	if err != nil || r.StatusCode != 200 {
 		t.Fatalf("/api/done status=%v err=%v", r.StatusCode, err)
@@ -168,6 +169,19 @@ func TestDoneSavesSpec(t *testing.T) {
 	}
 	if savedSpec.Metadata.DisplayName != "Y" || savedSpec.Metadata.Avatar != "icon:star" {
 		t.Errorf("/api/done dropped display_name/avatar: %+v", savedSpec.Metadata)
+	}
+	// First-deploy toggle seeds must survive decode → OnSave, otherwise the
+	// yaml the deploy reads back has no wiki block and the agent ships with
+	// its wiki off.
+	if savedSpec.Memory == nil || savedSpec.Memory.InjectUserProfile == nil ||
+		!*savedSpec.Memory.InjectUserProfile {
+		t.Errorf("/api/done dropped memory.inject_user_profile: %+v", savedSpec.Memory)
+	}
+	if savedSpec.Wiki == nil || savedSpec.Wiki.Enabled == nil || !*savedSpec.Wiki.Enabled {
+		t.Errorf("/api/done dropped wiki.enabled: %+v", savedSpec.Wiki)
+	}
+	if savedSpec.Wiki != nil && (savedSpec.Wiki.Evolution == nil || *savedSpec.Wiki.Evolution) {
+		t.Errorf("/api/done mangled wiki.evolution=false: %+v", savedSpec.Wiki)
 	}
 	select {
 	case <-done:

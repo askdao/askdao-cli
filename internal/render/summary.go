@@ -55,6 +55,7 @@ func RenderSummary(r *Renderer, in SummaryInput) {
 	renderRuntime(r, in)
 	r.println("")
 	renderAutomation(r, in.Spec)
+	renderKnowledge(r, in.Spec)
 	renderSubscriberOnboarding(r, in.Spec.VaultHints)
 	r.println("")
 	if len(in.Warnings) > 0 {
@@ -283,6 +284,38 @@ func renderAutomation(r *Renderer, spec *types.AgentSpec) {
 			r.printf("    Notify: %s\n", s.NotifyChannel)
 		}
 	}
+	r.println("")
+}
+
+// renderKnowledge prints the memory-injection / wiki switches. Skipped whole
+// when neither block declares one, so older specs render byte-identical.
+// These are first-deploy seeds only — the web dashboard owns them afterwards,
+// which the printed note makes explicit so nobody expects a redeploy to reset
+// what they toggled there.
+func renderKnowledge(r *Renderer, spec *types.AgentSpec) {
+	var on []string
+	if m := spec.Memory; m != nil {
+		if m.InjectUserProfile != nil && *m.InjectUserProfile {
+			on = append(on, "user profile")
+		}
+		if m.InjectAgentProfile != nil && *m.InjectAgentProfile {
+			on = append(on, "agent profile")
+		}
+	}
+	if w := spec.Wiki; w != nil && w.Enabled != nil && *w.Enabled {
+		if w.Evolution != nil && *w.Evolution {
+			on = append(on, "wiki + evolution")
+		} else {
+			on = append(on, "wiki")
+		}
+	}
+	if len(on) == 0 {
+		return
+	}
+	r.section("MEMORY & KNOWLEDGE")
+	r.println("")
+	r.printf("  Enabled: %s\n", strings.Join(on, ", "))
+	r.println("  Applied on first deploy only; manage these in the web dashboard afterwards.")
 	r.println("")
 }
 

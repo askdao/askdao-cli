@@ -1740,7 +1740,39 @@
     <div class="card"><label class="f"><span>Model ${confBadge('model')}</span><div class="seg">${classes}</div><div class="model-hint" id="modelHint">${modelHintHTML(p.model_class)}</div><div class="field-err" id="err_model"></div></label></div>
     <div class="card"><label class="f"><span>System prompt ${confBadge('persona', 'system', 'prompt')}</span>
       <textarea id="f_prompt" class="prompt" placeholder="You are a …">${esc(p.system_prompt)}</textarea><div class="field-err" id="err_prompt"></div></label></div>
+    ${memoryKnowledgeCardHTML()}
   </section>`;
+    }
+
+    /* Memory & Knowledge — four conductor-side switches seeded on FIRST deploy
+       only; afterwards the web dashboard owns them, so a redeploy never
+       clobbers what the KOL toggled there. */
+    function memoryKnowledgeCardHTML() {
+      const m = spec.memory || {}, w = spec.wiki || {};
+      const on = v => v === true ? ' checked' : '';
+      const row = (id, checked, extra, nm, ds) =>
+        `<label class="item"><input type="checkbox" id="${id}"${checked}${extra} onchange="toggleKnowledge()"><div><div class="nm">${nm}</div><div class="ds">${ds}</div></div></label>`;
+      const wikiOn = w.enabled === true;
+      return `<div class="card"><div class="f"><span>Memory &amp; knowledge</span>
+      <div class="ds" style="margin:-2px 0 10px">Applied on first deploy only — afterwards manage these in the web dashboard.</div>
+      ${row('f_mem_user', on(m.inject_user_profile), '', 'Inject user profile',
+        "Give the agent the user's consolidated cross-agent profile, so it knows their long-term background.")}
+      ${row('f_mem_agent', on(m.inject_agent_profile), '', 'Inject agent-specific profile',
+        'Give the agent the profile built from this user&rsquo;s prior conversations with it.')}
+      ${row('f_wiki_on', on(w.enabled), '', 'Enable agent wiki',
+        'The agent keeps a per-user knowledge wiki it can search, read and write during conversations.')}
+      ${row('f_wiki_evo', on(w.evolution), wikiOn ? '' : ' disabled', 'Enable wiki evolution',
+        'A periodic run compiles recent conversations into the wiki and prunes stale pages. Requires the wiki.')}
+    </div></div>`;
+    }
+
+    function toggleKnowledge() {
+      // Evolution is meaningless without the wiki; keep the UI honest even
+      // though the server stores the two columns independently.
+      const w = $('f_wiki_on'), e = $('f_wiki_evo');
+      if (!w || !e) return;
+      e.disabled = !w.checked;
+      if (!w.checked) e.checked = false;
     }
 
     /* Step 3 · Skills & Tools (tabs: Skills / MCP / Secrets) */
@@ -2363,7 +2395,17 @@
     <dt>MCP servers (${mcpNames.length})</dt><dd class="chips">${chips(mcpNames)}</dd>
     <dt>Secrets (${secretNames.length})</dt><dd class="chips">${chips(secretNames, true)}</dd>
     <dt>Outcomes</dt><dd>${spec.outcomes && spec.outcomes.enabled !== false ? `rubric · max ${spec.outcomes.max_iterations || 3} grader iterations` : '<span class="empty">off</span>'}</dd>
-    <dt>Schedule</dt><dd>${reviewScheduleHTML()}</dd>`;
+    <dt>Schedule</dt><dd>${reviewScheduleHTML()}</dd>
+    <dt>Memory &amp; knowledge</dt><dd>${reviewKnowledgeHTML()}</dd>`;
+    }
+    function reviewKnowledgeHTML() {
+      const m = spec.memory || {}, w = spec.wiki || {}, on = [];
+      if (m.inject_user_profile) on.push('user profile');
+      if (m.inject_agent_profile) on.push('agent profile');
+      if (w.enabled) on.push(w.evolution ? 'wiki + evolution' : 'wiki');
+      return on.length
+        ? `${esc(on.join(' · '))} <span class="empty">· seeded on first deploy</span>`
+        : '<span class="empty">off</span>';
     }
     function reviewScheduleHTML() {
       const s = spec.schedule;
@@ -2546,6 +2588,22 @@
           if (nc) s.notify_channel = nc;
           spec.schedule = s;
         } else delete spec.schedule;
+      }
+      // Memory injection + wiki switches: same discipline as automation —
+      // only emit a block when something is actually on, so an untouched pane
+      // never grows an empty block in the yaml. Values are first-deploy seeds;
+      // conductor ignores them on redeploy.
+      if ($('f_mem_user')) {
+        const u = $('f_mem_user').checked, a = $('f_mem_agent').checked;
+        const mem = spec.memory || {};
+        if (u || a) { mem.inject_user_profile = u; mem.inject_agent_profile = a; }
+        else { delete mem.inject_user_profile; delete mem.inject_agent_profile; }
+        if (Object.keys(mem).length) spec.memory = mem; else delete spec.memory;
+      }
+      if ($('f_wiki_on')) {
+        const on = $('f_wiki_on').checked, evo = $('f_wiki_evo').checked;
+        if (on || evo) spec.wiki = { enabled: on, evolution: evo };
+        else delete spec.wiki;
       }
       return spec;
     }
