@@ -1744,9 +1744,9 @@
   </section>`;
     }
 
-    /* Memory & Knowledge — four conductor-side switches seeded on FIRST deploy
-       only; afterwards the web dashboard owns them, so a redeploy never
-       clobbers what the KOL toggled there. */
+    /* Memory & Knowledge — four conductor-side switches. Declared here = applied
+       on every deploy (this file is the source of truth); an undeclared block is
+       left untouched so the web dashboard keeps owning it. */
     function memoryKnowledgeCardHTML() {
       const m = spec.memory || {}, w = spec.wiki || {};
       const on = v => v === true ? ' checked' : '';
@@ -1754,7 +1754,7 @@
         `<label class="item"><input type="checkbox" id="${id}"${checked}${extra} onchange="toggleKnowledge()"><div><div class="nm">${nm}</div><div class="ds">${ds}</div></div></label>`;
       const wikiOn = w.enabled === true;
       return `<div class="card"><div class="f"><span>Memory &amp; knowledge</span>
-      <div class="ds" style="margin:-2px 0 10px">Applied on first deploy only — afterwards manage these in the web dashboard.</div>
+      <div class="ds" style="margin:-2px 0 10px">Applied on every deploy — this file is the source of truth. The web dashboard can flip them between deploys.</div>
       ${row('f_mem_user', on(m.inject_user_profile), '', 'Inject user profile',
         "Give the agent the user's consolidated cross-agent profile, so it knows their long-term background.")}
       ${row('f_mem_agent', on(m.inject_agent_profile), '', 'Inject agent-specific profile',
@@ -2404,7 +2404,7 @@
       if (m.inject_agent_profile) on.push('agent profile');
       if (w.enabled) on.push(w.evolution ? 'wiki + evolution' : 'wiki');
       return on.length
-        ? `${esc(on.join(' · '))} <span class="empty">· seeded on first deploy</span>`
+        ? `${esc(on.join(' · '))} <span class="empty">· applied on every deploy</span>`
         : '<span class="empty">off</span>';
     }
     function reviewScheduleHTML() {

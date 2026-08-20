@@ -284,12 +284,12 @@ type Compaction struct {
 
 // Memory is conductor-side memory policy (never reaches harness API).
 //
-// InjectUserProfile / InjectAgentProfile are FIRST-DEPLOY INITIAL VALUES for
-// the agent_spec.user_profile_enabled / user_agent_profile_enabled columns:
-// conductor writes them on the create path only, never on redeploy. Day-to-day
-// flipping belongs to the web dashboard (PATCH /agents/{id}/memory-injection),
-// so a KOL's toggle there is never clobbered by a later deploy. nil = not
-// declared (server default: off).
+// InjectUserProfile / InjectAgentProfile drive the agent_spec.
+// user_profile_enabled / user_agent_profile_enabled columns: declared here means
+// conductor applies the value on EVERY deploy (this file is the source of
+// truth), matching how outcomes/schedule already behave. nil = not declared —
+// conductor leaves the column alone, so the web dashboard
+// (PATCH /agents/{id}/memory-injection) keeps owning it.
 type Memory struct {
 	FactExtraction     string `json:"fact_extraction,omitempty"      yaml:"fact_extraction,omitempty"` // enabled | disabled
 	EpisodeSummary     string `json:"episode_summary,omitempty"      yaml:"episode_summary,omitempty"`
@@ -298,10 +298,10 @@ type Memory struct {
 }
 
 // Wiki is the conductor-side Agent Wiki switch block (never reaches harness
-// API). Same create-only semantics as Memory.Inject*: these seed
-// agent_spec.wiki_enabled / wiki_evolution_enabled on first deploy, after which
-// the web dashboard owns them. Evolution depends on Enabled, but the two
-// columns are stored independently (no server-side cascade). nil = not declared.
+// API). Same declare-to-apply semantics as Memory.Inject*: a declared value is
+// written to agent_spec.wiki_enabled / wiki_evolution_enabled on every deploy;
+// nil leaves the column alone. Evolution depends on Enabled, but the two
+// columns are stored independently (no server-side cascade).
 type Wiki struct {
 	Enabled   *bool `json:"enabled,omitempty"   yaml:"enabled,omitempty"`
 	Evolution *bool `json:"evolution,omitempty" yaml:"evolution,omitempty"`
