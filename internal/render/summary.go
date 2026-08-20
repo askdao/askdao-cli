@@ -289,9 +289,9 @@ func renderAutomation(r *Renderer, spec *types.AgentSpec) {
 
 // renderKnowledge prints the memory-injection / wiki switches. Skipped whole
 // when neither block declares one, so older specs render byte-identical.
-// These are first-deploy seeds only — the web dashboard owns them afterwards,
-// which the printed note makes explicit so nobody expects a redeploy to reset
-// what they toggled there.
+// Declared switches apply on every deploy; the printed note says so, because
+// the reverse (dashboard wins) is what a KOL would otherwise assume after
+// flipping one there.
 func renderKnowledge(r *Renderer, spec *types.AgentSpec) {
 	var on []string
 	if m := spec.Memory; m != nil {
@@ -315,7 +315,7 @@ func renderKnowledge(r *Renderer, spec *types.AgentSpec) {
 	r.section("MEMORY & KNOWLEDGE")
 	r.println("")
 	r.printf("  Enabled: %s\n", strings.Join(on, ", "))
-	r.println("  Applied on first deploy only; manage these in the web dashboard afterwards.")
+	r.println("  Applied on every deploy; the web dashboard can flip them in between.")
 	r.println("")
 }
 
