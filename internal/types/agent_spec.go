@@ -328,7 +328,7 @@ type Outcomes struct {
 // never reaches harness API). Standard 5-field POSIX cron interpreted in
 // Timezone wall-clock; Task is the instruction each run starts with.
 // NotifyChannel picks the IM channel for run-result delivery
-// (telegram | whatsapp | imessage | feishu | dingtalk); empty = owner's most
+// (telegram | wechat | imessage | feishu | dingtalk | whatsapp); empty = owner's most
 // recent binding.
 type Schedule struct {
 	Enabled       *bool  `json:"enabled,omitempty"        yaml:"enabled,omitempty"` // nil = true
