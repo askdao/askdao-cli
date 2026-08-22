@@ -431,6 +431,11 @@
       display: none;
     }
 
+    .seg label.off {
+      opacity: .45;
+      cursor: not-allowed;
+    }
+
     .seg label:has(input:checked) {
       border-color: var(--accent);
       color: var(--accent);
@@ -1686,7 +1691,7 @@
       const langs = [['', 'Auto · follows the user'], ['zh', '中文 Chinese'], ['en', 'English']].map(([v, l]) =>
         `<option value="${v}" ${v === (m.language || '') ? 'selected' : ''}>${l}</option>`).join('');
       const vis = [['private', 'only you'], ['shared', 'your subscribers'], ['public', 'anyone']].map(([v, h]) =>
-        `<label><input type="radio" name="vis" value="${v}" ${v === (m.visibility || 'private') ? 'checked' : ''} onchange="spec.metadata.visibility=this.value"><span>${v}<small style="display:block;font-size:11px;color:var(--stone);font-weight:400;margin-top:2px">${h}</small></span></label>`).join('');
+        `<label><input type="radio" name="vis" value="${v}" ${v === (m.visibility || 'private') ? 'checked' : ''} onchange="spec.metadata.visibility=this.value;syncSchedAudience()"><span>${v}<small style="display:block;font-size:11px;color:var(--stone);font-weight:400;margin-top:2px">${h}</small></span></label>`).join('');
       const sw = (data.palette || []).map(t =>
         `<div class="sw ${t.token === m.theme_color ? 'sel' : ''}" style="background:${t.hex};color:${t.hex}" title="${t.label}" onclick="pickTheme('${t.token}')"></div>`).join('');
       return `<section class="panel" data-step="0">
@@ -1811,6 +1816,36 @@
        byte-exact, both so an unvisited pane doesn't grow a schedule: key and
        because render.DiffAgentSpec compares the raw string against
        .askdao/recommendation.yml (a normalized "0 9 * * 1" would read as an edit). */
+    // Schedule audience (conductor #326): personal = every user runs their own
+    // copy (the Builder's cadence is their own row + the default seeded into a
+    // subscriber's row); broadcast = the Builder runs once into the agent's
+    // Group and members get an IM notice. broadcast needs an audience, so it
+    // is greyed out while visibility is private (conductor rejects it anyway).
+    const SCHED_AUDIENCES = [
+      ['personal', 'Personal', 'Each subscriber runs their own copy on their own cadence and credit'],
+      ['broadcast', 'Broadcast', 'You run once; the result goes to your subscriber Group and their IM'],
+    ];
+    function schedAudience() {
+      const r = document.querySelector('input[name="scaud"]:checked');
+      return r ? r.value : 'personal';
+    }
+    function pickSchedAudience(v) { syncSchedAudience(); }
+    function syncSchedAudience() {
+      const seg = $('scAud');
+      if (!seg) return;
+      const priv = (spec.metadata.visibility || 'private') === 'private';
+      const bc = seg.querySelector('label[data-aud="broadcast"]');
+      bc.classList.toggle('off', priv);
+      bc.querySelector('input').disabled = priv;
+      if (priv && schedAudience() === 'broadcast') seg.querySelector('input[value="personal"]').checked = true;
+      const aud = schedAudience();
+      $('scAudNote').textContent = priv
+        ? 'Broadcast needs subscribers — set visibility to shared or public first.'
+        : aud === 'broadcast'
+          ? 'One run, billed to you; members read it in the Group and get an IM notice (they can mute the Group).'
+          : 'Subscribers who opt in pay for their own runs and pick their own time; your task text is shared, your cadence is only their default.';
+      $('scRepeatLbl').textContent = aud === 'personal' && !priv ? 'Your cadence (subscribers set their own)' : 'Repeat';
+    }
     let sched = { mode: 'daily', hour: 9, min: 0, dows: [1], doms: [1], every: 15, unit: 'minutes' };
     function automationPaneHTML() {
       const o = spec.outcomes || {}, s = spec.schedule || {};
@@ -1837,7 +1872,10 @@
     <div class="grp"><h3>Recurring run (Schedule)</h3>
     <label class="item"><input type="checkbox" id="f_sc_on" ${sOn ? 'checked' : ''} onchange="toggleAutomation()"><div><div class="nm">Run this agent on a schedule</div><div class="ds">Each run starts a fresh session, bills your credit, and pushes the result to your IM.</div></div></label>
     <div id="scFields" ${sOn ? '' : 'hidden'}>
-      <div class="lbl">Repeat</div>
+      <div class="lbl">Run for</div>
+      <div class="seg" id="scAud">${SCHED_AUDIENCES.map(a => `<label data-aud="${a[0]}" title="${a[2]}"><input type="radio" name="scaud" value="${a[0]}"${(s.mode || 'personal') === a[0] ? ' checked' : ''} onchange="pickSchedAudience('${a[0]}')">${a[1]}</label>`).join('')}</div>
+      <div class="sched-note" id="scAudNote"></div>
+      <div class="lbl" id="scRepeatLbl">Repeat</div>
       <div class="seg">${SCHED_MODES.map(m => `<label><input type="radio" name="scmode" value="${m[0]}"${sched.mode === m[0] ? ' checked' : ''} onchange="pickSchedMode('${m[0]}')">${m[1]}</label>`).join('')}</div>
       ${row('weekly', `<div class="lbl">On these days</div>
       <div class="chips" id="scDows">${DOW_LABEL.map((l, i) => `<button type="button" class="chip${sched.dows.indexOf(i) < 0 ? '' : ' on'}" data-v="${i}" title="${DOW_NAME[i]}" onclick="toggleDow(${i})">${l}</button>`).join('')}</div>
@@ -1970,6 +2008,7 @@
       if (on && el && !el.value.trim() && sched.mode !== 'custom') syncSched();
       positionWheels();
       renderSchedSummary();
+      syncSchedAudience();
     }
 
     /* ---- cron <-> picker ----------------------------------------------- */
@@ -2412,7 +2451,7 @@
       if (!s || s.enabled === false || !s.cron) return '<span class="empty">off</span>';
       const tz = s.timezone || 'UTC', runs = cronNextRuns(s.cron, tz, 25);
       const gap = minGapSeconds(runs);
-      return `${esc(describeCron(s.cron, tz))}${s.notify_channel ? ' → ' + esc(s.notify_channel) : ''}`
+      return `${s.mode === 'broadcast' ? 'Broadcast · ' : ''}${esc(describeCron(s.cron, tz))}${s.notify_channel ? ' → ' + esc(s.notify_channel) : ''}`
         + `<div class="rev-sub">${runs ? 'Next ' + esc(fmtRun(runs[0], tz)) + ' · ' : ''}<span class="mono">${esc(s.cron)}</span>`
         + `${gap !== null && gap < 900 ? ' · <span class="rev-warn">⚠️ frequent — cost risk</span>' : ''}</div>`;
     }
@@ -2582,6 +2621,8 @@
         const task = ($('f_sc_task') ? $('f_sc_task').value : '').trim();
         if (on || cron || task) {
           const s = { enabled: on, cron: cron, task: task };
+          // mode: personal is the default — omit it so an untouched spec stays byte-exact.
+          if (schedAudience() === 'broadcast') s.mode = 'broadcast';
           const tz = $('f_sc_tz') && $('f_sc_tz').value;
           if (tz && tz !== 'UTC') s.timezone = tz;
           const nc = $('f_sc_notify') && $('f_sc_notify').value;

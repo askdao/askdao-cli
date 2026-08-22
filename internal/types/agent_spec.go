@@ -330,8 +330,14 @@ type Outcomes struct {
 // NotifyChannel picks the IM channel for run-result delivery
 // (telegram | wechat | imessage | feishu | dingtalk | whatsapp); empty = owner's most
 // recent binding.
+// Mode (conductor #326): "personal" (default) — every user runs their own
+// copy; the Builder's cron is their own row plus the default seeded into a
+// subscriber's row when they opt in. "broadcast" — the Builder runs once,
+// the result lands in the agent's Group and members get an IM notice;
+// rejected by conductor for a private agent (no audience).
 type Schedule struct {
 	Enabled       *bool  `json:"enabled,omitempty"        yaml:"enabled,omitempty"` // nil = true
+	Mode          string `json:"mode,omitempty"           yaml:"mode,omitempty"`    // personal | broadcast, empty = personal
 	Cron          string `json:"cron"                     yaml:"cron"`
 	Timezone      string `json:"timezone,omitempty"       yaml:"timezone,omitempty"` // IANA, empty = UTC
 	Task          string `json:"task"                     yaml:"task"`

@@ -75,6 +75,7 @@ func DiffAgentSpec(a, b *types.AgentSpec) []FieldDiff {
 	out = appendScalarDiff(out, "outcomes.max_iterations", oa.maxIter, ob.maxIter)
 	sa, sb := scheduleView(a.Schedule), scheduleView(b.Schedule)
 	out = appendScalarDiff(out, "schedule.enabled", sa.enabled, sb.enabled)
+	out = appendScalarDiff(out, "schedule.mode", sa.mode, sb.mode)
 	out = appendScalarDiff(out, "schedule.cron", sa.cron, sb.cron)
 	out = appendScalarDiff(out, "schedule.timezone", sa.timezone, sb.timezone)
 	out = appendScalarDiff(out, "schedule.task", sa.task, sb.task)
@@ -135,15 +136,18 @@ func outcomesView(o *types.Outcomes) outcomesFields {
 	return v
 }
 
-type scheduleFields struct{ enabled, cron, timezone, task, notify string }
+type scheduleFields struct{ enabled, mode, cron, timezone, task, notify string }
 
 func scheduleView(s *types.Schedule) scheduleFields {
 	if s == nil {
 		return scheduleFields{}
 	}
 	v := scheduleFields{
-		enabled: "true", cron: s.Cron, timezone: s.Timezone,
+		enabled: "true", mode: s.Mode, cron: s.Cron, timezone: s.Timezone,
 		task: s.Task, notify: s.NotifyChannel,
+	}
+	if v.mode == "" {
+		v.mode = "personal"
 	}
 	if s.Enabled != nil && !*s.Enabled {
 		v.enabled = "false"
