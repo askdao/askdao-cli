@@ -272,7 +272,11 @@ func renderAutomation(r *Renderer, spec *types.AgentSpec) {
 		if tz == "" {
 			tz = "UTC"
 		}
-		r.printf("  Schedule: %s — cron %q (%s)\n", state, s.Cron, tz)
+		mode := s.Mode
+		if mode == "" {
+			mode = "personal"
+		}
+		r.printf("  Schedule: %s — %s, cron %q (%s)\n", state, mode, s.Cron, tz)
 		if s.Task != "" {
 			task := s.Task
 			if runes := []rune(task); len(runes) > 72 {
