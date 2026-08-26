@@ -244,6 +244,9 @@ func TestFetchModelClasses_HappyPath(t *testing.T) {
 		if r.URL.Path != DefaultModelClassesPath {
 			t.Errorf("path = %q, want %q", r.URL.Path, DefaultModelClassesPath)
 		}
+		if got := r.URL.Query().Get("harness"); got != "openai_agents_sdk" {
+			t.Errorf("harness query = %q, want openai_agents_sdk", got)
+		}
 		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
 			t.Errorf("auth header = %q", got)
 		}
@@ -257,7 +260,7 @@ func TestFetchModelClasses_HappyPath(t *testing.T) {
 
 	client := NewConductorClient(server.URL)
 	client.AuthToken = "test-token"
-	classes, err := client.FetchModelClasses(context.Background())
+	classes, err := client.FetchModelClasses(context.Background(), "openai_agents_sdk")
 	if err != nil {
 		t.Fatalf("FetchModelClasses: %v", err)
 	}
@@ -268,7 +271,7 @@ func TestFetchModelClasses_HappyPath(t *testing.T) {
 
 func TestFetchModelClassesOrFallback_FallbackOnEmptyBaseURL(t *testing.T) {
 	// No conductor configured → bundled fallback (stable labels, NO model ids).
-	classes := FetchModelClassesOrFallback(context.Background(), "", "")
+	classes := FetchModelClassesOrFallback(context.Background(), "", "", "")
 	if len(classes) != 3 {
 		t.Fatalf("fallback should have 3 tiers, got %d", len(classes))
 	}
@@ -287,7 +290,7 @@ func TestFetchModelClassesOrFallback_FallbackOnServerError(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
-	classes := FetchModelClassesOrFallback(context.Background(), server.URL, "")
+	classes := FetchModelClassesOrFallback(context.Background(), server.URL, "", "")
 	if len(classes) != 3 || classes[0].Slug != "high_reasoning" {
 		t.Errorf("server error should degrade to fallback, got %+v", classes)
 	}

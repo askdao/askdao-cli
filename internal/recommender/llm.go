@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	neturl "net/url"
 	"time"
 
 	"github.com/askdao/askdao-cli/internal/types"
@@ -153,12 +154,16 @@ type modelClassesResponse struct {
 
 // FetchModelClasses GETs conductor's offered model-class tiers (label /
 // concrete model id / derived cost). Mirrors Recommend's request shape.
-func (c *ConductorClient) FetchModelClasses(ctx context.Context) ([]types.ModelClassEntry, error) {
+func (c *ConductorClient) FetchModelClasses(ctx context.Context, harness string) ([]types.ModelClassEntry, error) {
 	if c.BaseURL == "" {
 		return nil, errors.New("recommender: ConductorClient.BaseURL is empty")
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		c.BaseURL+DefaultModelClassesPath, nil)
+	url := c.BaseURL + DefaultModelClassesPath
+	if harness != "" && harness != "auto" {
+		// 备份运行时（conductor #342）：目录按 harness 返回（openai_agents_sdk → SiliconFlow 三档）
+		url += "?harness=" + neturl.QueryEscape(harness)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -194,13 +199,15 @@ func (c *ConductorClient) FetchModelClasses(ctx context.Context) ([]types.ModelC
 // to the bundled minimal fallback (stable labels, NO concrete model ids) when
 // conductor is unreachable/unconfigured — so `askdao agent edit` works offline
 // and the concrete model is resolved server-side from model_class at deploy.
-func FetchModelClassesOrFallback(ctx context.Context, baseURL, token string) []types.ModelClassEntry {
+// harness selects the catalog (anthropic_managed_agents | openai_agents_sdk);
+// "" / "auto" falls back to the server default (anthropic).
+func FetchModelClassesOrFallback(ctx context.Context, baseURL, token, harness string) []types.ModelClassEntry {
 	if baseURL != "" {
 		fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		c := NewConductorClient(baseURL)
 		c.AuthToken = token
-		if classes, err := c.FetchModelClasses(fetchCtx); err == nil && len(classes) > 0 {
+		if classes, err := c.FetchModelClasses(fetchCtx, harness); err == nil && len(classes) > 0 {
 			return classes
 		}
 	}

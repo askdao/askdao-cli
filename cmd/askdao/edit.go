@@ -84,7 +84,8 @@ func runEdit(ctx context.Context, args []string) int {
 	// concrete model ids aren't baked into this binary. Degrades to a minimal
 	// bundled fallback offline (token is optional for edit).
 	editURL, editToken, _ := resolveServerAndToken()
-	data.ModelCatalog = recommender.FetchModelClassesOrFallback(ctx, editURL, editToken)
+	// 目录按 spec 的 harness 取（openai_agents_sdk → SiliconFlow 三档，conductor #342）
+	data.ModelCatalog = recommender.FetchModelClassesOrFallback(ctx, editURL, editToken, spec.PreferredHarness)
 
 	// --observe arms temporary hooks bound to the studio port (set in OnReady, once
 	// the port is known) and tears them down on the way out. SweepStale first clears

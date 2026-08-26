@@ -106,7 +106,7 @@ type Persona struct {
 
 // ModelPreference is one (provider, id, speed) tuple in the priority list.
 type ModelPreference struct {
-	Provider string `json:"provider"        yaml:"provider"` // anthropic | openai | google | ...
+	Provider string `json:"provider"        yaml:"provider"` // anthropic | siliconflow (openai_agents_sdk harness) | openai | google | ...
 	ID       string `json:"id"              yaml:"id"`
 	Speed    string `json:"speed,omitempty" yaml:"speed,omitempty"` // standard | fast
 }

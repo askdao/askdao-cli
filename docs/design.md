@@ -344,8 +344,8 @@ $ askdao agent init my-agent --auto
 `--from <path>` 允许从非 cwd 的目录扫。
 
 `--harness <id>`（可选）显式指定 `preferred_harness`，覆盖 LLM 自动推断：
-- `anthropic_managed_agents`（Phase 1 唯一可用 adapter）
-- `openai_agents_sdk`（Phase 2 启用；当前 `init` 接受但 `deploy` 会拒绝）
+- `anthropic_managed_agents`（Claude Managed Agents，默认）
+- `openai_agents_sdk`（**已启用**，conductor #342：备份运行时——OpenAI Agents SDK loop 在 Conductor × SiliconFlow 模型 × E2B 执行器；`model_preferences[].provider: siliconflow`；skills / schedule 暂不支持，adapter 出 translation warning / deploy 400）
 - `auto`（默认，按 detected_harness_signals 推断）
 
 ### 3.2 `askdao detect [path]`（仅诊断）
@@ -410,7 +410,7 @@ $ askdao agent deploy
 ```
 
 deploy 失败的常见情形：
-- `preferred_harness=openai_agents_sdk` 但服务端部署版本 < Phase 2 → 报错并提示切换
+- `preferred_harness=openai_agents_sdk` 但服务端 conductor 未含 #342 → `Unknown harness_id` 报错并提示切换
 - 中间格式里有某 harness 不支持的字段（如 OpenAI 不支持 Anthropic `fast_mode`）→ adapter 输出 translation report，KOL 决定继续或修改
 
 ---
