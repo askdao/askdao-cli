@@ -545,3 +545,50 @@ func TestCategoryDefaultIconsInWhitelist(t *testing.T) {
 		t.Error(`fallback icon "bot" not in AvatarIcons whitelist`)
 	}
 }
+
+func TestSaveRoundTripsModelPickAndHarness(t *testing.T) {
+	// cloud#84：Studio 下拉框选模型 → 浏览器写 preferred_harness + model_preferences，
+	// 经 /api/save 原样落到 OnSave（deploy 再从 yaml 读 harness）。
+	var savedSpec *types.AgentSpec
+	opts := Options{
+		Data:   &StudioData{Spec: &types.AgentSpec{Metadata: types.Metadata{Name: "x"}}},
+		OnSave: func(s *types.AgentSpec) error { savedSpec = s; return nil },
+	}
+	srv := httptest.NewServer(buildMux(opts, make(chan error, 1)))
+	defer srv.Close()
+
+	body := `{"metadata":{"name":"x"},"preferred_harness":"openai_agents_sdk",` +
+		`"persona":{"model_class":"fast","model_preferences":[{"provider":"siliconflow","id":"deepseek-ai/DeepSeek-V4-Flash"}]}}`
+	r, err := http.Post(srv.URL+"/api/save", "application/json", bytes.NewBufferString(body))
+	if err != nil || r.StatusCode != 200 {
+		t.Fatalf("/api/save status=%v err=%v", r.StatusCode, err)
+	}
+	if savedSpec == nil || savedSpec.PreferredHarness != "openai_agents_sdk" {
+		t.Fatalf("preferred_harness dropped: %+v", savedSpec)
+	}
+	prefs := savedSpec.Persona.ModelPreferences
+	if len(prefs) != 1 || prefs[0].Provider != "siliconflow" || prefs[0].ID != "deepseek-ai/DeepSeek-V4-Flash" {
+		t.Errorf("model_preferences dropped/mangled: %+v", prefs)
+	}
+}
+
+func TestStudioDataServesModelsAndHarness(t *testing.T) {
+	data := BuildStudioData(&types.AgentSpec{Metadata: types.Metadata{Name: "x"}, PreferredHarness: "openai_agents_sdk"}, nil, "openai_agents_sdk", false)
+	data.Models = []types.ModelEntry{{ModelID: "m/1", Provider: "siliconflow", HarnessID: "openai_agents_sdk"}}
+	srv := httptest.NewServer(buildMux(Options{Data: data}, make(chan error, 1)))
+	defer srv.Close()
+	r, err := http.Get(srv.URL + "/api/spec")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Harness string             `json:"harness"`
+		Models  []types.ModelEntry `json:"models"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Harness != "openai_agents_sdk" || len(got.Models) != 1 || got.Models[0].HarnessID != "openai_agents_sdk" {
+		t.Errorf("/api/spec payload = %+v", got)
+	}
+}

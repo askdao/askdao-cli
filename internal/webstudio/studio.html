@@ -450,6 +450,28 @@
       margin: 8px 2px 0;
     }
 
+    .model-hint b {
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    .model-hint .price {
+      display: inline-block;
+      margin-top: 4px;
+      font-family: var(--mono);
+      font-size: 11.5px;
+    }
+
+    .harness-note {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: #fff7e6;
+      border: 1px solid #f0d9a8;
+      color: #8a5a00;
+      font-size: 12.5px;
+    }
+
     .mono {
       font-family: var(--mono);
     }
@@ -1536,29 +1558,102 @@
 
   <script>
     const STEPS = [{ label: "Identity" }, { label: "Persona" }, { label: "Skills & Tools" }, { label: "Review & Deploy" }];
-    // Model-class tiers come from data.model_catalog (fetched from conductor's
-    // /cli/model-classes), NOT a hardcoded table — concrete model ids live only
-    // in conductor. modelEntry() looks one up by slug; the offline fallback
-    // catalog has no model_id (binary stays id-free) so the caption degrades to
-    // the tier blurb.
+    // Models come from conductor, NOT a hardcoded table — concrete model ids and
+    // prices live only in conductor (admin-maintained whitelist, cloud#84).
+    //   data.models        — `models[]` whitelist across both harnesses: the step-2
+    //                        dropdown; picking a model also picks the deploy harness.
+    //   data.model_catalog — legacy three-tier `classes[]`: rendered only when the
+    //                        whitelist is empty (offline / old conductor); the
+    //                        offline fallback has no model_id (binary stays id-free).
     const modelEntry = (slug) => (data.model_catalog || []).find(c => c.slug === slug);
-    function modelHintHTML(slug) {
-      const c = modelEntry(slug);
+    const models = () => data.models || [];
+    const modelById = (id) => models().find(m => m.model_id === id);
+    const HARNESS_ANTHROPIC = 'anthropic_managed_agents', HARNESS_OPENAI = 'openai_agents_sdk';
+    const HARNESS_LABEL = { [HARNESS_ANTHROPIC]: 'Anthropic Managed Agents', [HARNESS_OPENAI]: 'OpenAI Agents SDK · SiliconFlow' };
+    const PROVIDER_LABEL = { anthropic: 'Anthropic Claude', siliconflow: 'SiliconFlow' };
+    const currentHarness = () => spec.preferred_harness || HARNESS_ANTHROPIC;
+    const isOpenAI = () => currentHarness() === HARNESS_OPENAI;
+    const fmtUsd = (v) => v == null ? '—' : '$' + (+v).toFixed(+v >= 10 ? 2 : 3).replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1');
+    // Which whitelist entry the draft currently means: explicit model_preferences
+    // pin → the tier's model on the draft's harness → that harness's recommended.
+    function currentModelId() {
+      const ms = models(); if (!ms.length) return '';
+      const pref = (spec.persona.model_preferences || [])[0];
+      if (pref && modelById(pref.id)) return pref.id;
+      const h = currentHarness(), cls = (spec.persona.model_class || '').toLowerCase();
+      const byClass = ms.find(m => m.harness_id === h && m.model_class === cls);
+      if (byClass) return byClass.model_id;
+      const rec = ms.find(m => m.harness_id === h && m.recommended) || ms.find(m => m.harness_id === h);
+      return (rec || ms[0]).model_id;
+    }
+    function modelOptionsHTML(selected) {
+      const groups = [];
+      models().forEach(m => {
+        let g = groups.find(x => x.provider === m.provider);
+        if (!g) { g = { provider: m.provider, items: [] }; groups.push(g); }
+        g.items.push(m);
+      });
+      return groups.map(g => `<optgroup label="${esc(PROVIDER_LABEL[g.provider] || g.provider)}">` + g.items.map(m =>
+        `<option value="${esc(m.model_id)}"${m.model_id === selected ? ' selected' : ''}>${esc(m.display_name)} · ${fmtUsd(m.input_usd_per_mtok)} / ${fmtUsd(m.output_usd_per_mtok)} per MTok${m.recommended ? ' · recommended' : ''}</option>`
+      ).join('') + '</optgroup>').join('');
+    }
+    function modelHintHTML(key) {
+      if (models().length) {
+        const m = modelById(key);
+        if (!m) return '';
+        return `<b>${esc(m.display_name)}</b> <span class="mono">(${esc(m.model_id)})</span> · runs on ${esc(HARNESS_LABEL[m.harness_id] || m.harness_id)}`
+          + (m.blurb ? `<br>${esc(m.blurb)}` : '')
+          + `<br><span class="price">input ${fmtUsd(m.input_usd_per_mtok)} · output ${fmtUsd(m.output_usd_per_mtok)} per 1M tokens${m.cached_input_usd_per_mtok != null ? ` · cached input ${fmtUsd(m.cached_input_usd_per_mtok)}` : ''}</span>`;
+      }
+      const c = modelEntry(key);
       if (!c) return '';
       if (!c.model_id) return esc(c.blurb || '');
       const cost = c.cost_tier && c.cost_tier !== 'unknown' ? ` · ${esc(c.cost_tier)} cost` : '';
       return `${esc(c.friendly_name)} <span class="mono">(${esc(c.model_id)})</span>${cost}`;
     }
-    function reviewModelHTML(slug) {
-      const c = modelEntry(slug);
+    function reviewModelHTML() {
+      if (models().length) {
+        const m = modelById(currentModelId());
+        if (!m) return '<span class="empty">—</span>';
+        return `${esc(m.display_name)} <span class="mono">(${esc(m.model_id)})</span> · ${fmtUsd(m.input_usd_per_mtok)} / ${fmtUsd(m.output_usd_per_mtok)} per MTok`;
+      }
+      const slug = spec.persona.model_class, c = modelEntry(slug);
       if (!c) return esc(slug || 'balanced');
       if (!c.model_id) return esc(c.label);
       return `${esc(c.label)} · ${esc(c.friendly_name)} <span class="mono">(${esc(c.model_id)})</span>`;
+    }
+    // Write the picked whitelist model into the spec: explicit pin (provider from
+    // the catalog, never hardcoded), the tier it represents (conductor still
+    // requires model_class), and the harness it runs on. Returns true when the
+    // harness changed (Step 3 gates need re-syncing).
+    function applyModel(id) {
+      const m = modelById(id); if (!m) return false;
+      spec.persona.model_preferences = [{ provider: m.provider, id: m.model_id }];
+      if (m.model_class) spec.persona.model_class = m.model_class;
+      const changed = currentHarness() !== m.harness_id;
+      spec.preferred_harness = m.harness_id;
+      return changed;
+    }
+    function pickModel(id) {
+      const changed = applyModel(id);
+      const hint = $('modelHint');
+      if (hint) hint.innerHTML = modelHintHTML(id);
+      if (changed) syncHarnessGates();
     }
     function pickModelClass(slug) {
       spec.persona.model_class = slug;
       const hint = $('modelHint');
       if (hint) hint.innerHTML = modelHintHTML(slug);
+    }
+    // Harness-dependent gating (cloud#84): the backup runtime (SiliconFlow models)
+    // ignores Managed/custom skills at deploy and rejects scheduled runs (400), so
+    // Step 3 says so up front instead of surprising the KOL at deploy time.
+    function syncHarnessGates() {
+      const oa = isOpenAI();
+      const sk = $('harnessSkillsNote');
+      if (sk) { sk.hidden = !oa; sk.textContent = 'This runtime does not run Managed or custom skills yet — ticked skills are kept in the yaml but ignored at deploy. Pick a Claude model in Step 2 to use them.'; }
+      const sc = $('scHarnessNote');
+      if (sc) { sc.hidden = !oa; sc.textContent = 'Scheduled runs are not available on the SiliconFlow runtime — pick a Claude model in Step 2, or leave the schedule off.'; }
     }
     const HARNESS_NAME = { claude: "Claude Code", codex: "OpenAI Codex", cursor: "Cursor", cowork: "Claude Cowork" };
     let data, spec, palette = {}, step = 0, vault = [];
@@ -1583,6 +1678,7 @@
       $('projName').textContent = data.project_name || 'agent';
       applyAccent(spec.metadata.theme_color);
       renderNav(); renderPanels(); go(0);
+      syncHarnessGates();
       startObservePolling();
       if (data.desktop) { initAuth(); $('assistantFab').hidden = false; if (data.needs_scan) showScanPrompt(); else validateSkills(); }
     }
@@ -1731,18 +1827,29 @@
     function panelPersona() {
       const p = spec.persona;
       const catalog = data.model_catalog || [];
-      // Default selection to the recommended tier when the draft's model_class
-      // isn't one of the offered slugs (e.g. legacy multimodal/coding).
-      if (catalog.length && !catalog.some(c => c.slug === p.model_class)) {
-        p.model_class = (catalog.find(c => c.recommended) || catalog[0]).slug;
+      let picker, hintKey;
+      if (models().length) {
+        // Whitelist dropdown (cloud#84): most-common first, grouped by provider,
+        // raw $/MTok on every option; the selection also fixes preferred_harness.
+        const cur = currentModelId();
+        applyModel(cur);
+        hintKey = cur;
+        picker = `<select id="modelSel" class="model-select" onchange="pickModel(this.value)">${modelOptionsHTML(cur)}</select>`;
+      } else {
+        // Offline / old conductor: legacy three-tier pills. Default to the
+        // recommended tier when the draft's model_class isn't offered (legacy slugs).
+        if (catalog.length && !catalog.some(c => c.slug === p.model_class)) {
+          p.model_class = (catalog.find(c => c.recommended) || catalog[0]).slug;
+        }
+        hintKey = p.model_class;
+        picker = `<div class="seg">${catalog
+          .map(c => `<label><input type="radio" name="mc" value="${esc(c.slug)}" ${c.slug === p.model_class ? 'checked' : ''} onchange="pickModelClass(this.value)"><span>${esc(c.label)}</span></label>`).join('')}</div>`;
       }
-      const classes = catalog
-        .map(c => `<label><input type="radio" name="mc" value="${esc(c.slug)}" ${c.slug === p.model_class ? 'checked' : ''} onchange="pickModelClass(this.value)"><span>${esc(c.label)}</span></label>`).join('');
       return `<section class="panel" data-step="1">
     <p class="eyebrow">Step 2 of 4 · Persona</p>
     <h2>Shape its voice</h2>
     <p class="sub">Pick the model and write the system prompt that defines its behaviour.</p>
-    <div class="card"><label class="f"><span>Model ${confBadge('model')}</span><div class="seg">${classes}</div><div class="model-hint" id="modelHint">${modelHintHTML(p.model_class)}</div><div class="field-err" id="err_model"></div></label></div>
+    <div class="card"><label class="f"><span>Model ${confBadge('model')}</span>${picker}<div class="model-hint" id="modelHint">${modelHintHTML(hintKey)}</div><div class="field-err" id="err_model"></div></label></div>
     <div class="card"><label class="f"><span>System prompt ${confBadge('persona', 'system', 'prompt')}</span>
       <textarea id="f_prompt" class="prompt" placeholder="You are a …">${esc(p.system_prompt)}</textarea><div class="field-err" id="err_prompt"></div></label></div>
     ${memoryKnowledgeCardHTML()}
@@ -1794,7 +1901,7 @@
       <button type="button" class="tab" onclick="switchTab('vault',this)">Secrets <span class="cnt" id="vaultCnt">${vault.length}</span></button>
       <button type="button" class="tab" onclick="switchTab('automation',this)">Automation <span class="cnt">${(spec.outcomes ? 1 : 0) + (spec.schedule ? 1 : 0)}</span></button>
     </div>
-    <div class="tabpane" data-pane="skills">${skillFlagBar()}<div class="card">${skillGroups()}</div></div>
+    <div class="tabpane" data-pane="skills">${skillFlagBar()}<div class="harness-note" id="harnessSkillsNote" hidden></div><div class="card">${skillGroups()}</div></div>
     <div class="tabpane" data-pane="mcp" hidden><div class="card">${mcpGroups()}</div></div>
     <div class="tabpane" data-pane="vault" hidden><div class="card">${vaultPaneHTML()}</div></div>
     <div class="tabpane" data-pane="automation" hidden><div class="card">${automationPaneHTML()}</div></div>
@@ -1871,6 +1978,7 @@
     </div></div>
     <div class="grp"><h3>Recurring run (Schedule)</h3>
     <label class="item"><input type="checkbox" id="f_sc_on" ${sOn ? 'checked' : ''} onchange="toggleAutomation()"><div><div class="nm">Run this agent on a schedule</div><div class="ds">Each run starts a fresh session, bills your credit, and pushes the result to your IM.</div></div></label>
+    <div class="harness-note" id="scHarnessNote" hidden></div>
     <div id="scFields" ${sOn ? '' : 'hidden'}>
       <div class="lbl">Run for</div>
       <div class="seg" id="scAud">${SCHED_AUDIENCES.map(a => `<label data-aud="${a[0]}" title="${a[2]}"><input type="radio" name="scaud" value="${a[0]}"${(s.mode || 'personal') === a[0] ? ' checked' : ''} onchange="pickSchedAudience('${a[0]}')">${a[1]}</label>`).join('')}</div>
@@ -2428,7 +2536,8 @@
     <dt>Category</dt><dd>${esc(m.category) || '—'}</dd>
     <dt>Language</dt><dd>${m.language === 'zh' ? '中文 Chinese' : m.language === 'en' ? 'English' : m.language ? esc(m.language) : 'Auto · follows the user'}</dd>
     <dt>Visibility</dt><dd>${esc(m.visibility || 'private')}</dd>
-    <dt>Model</dt><dd>${reviewModelHTML(spec.persona.model_class)}</dd>
+    <dt>Model</dt><dd>${reviewModelHTML()}</dd>
+    <dt>Runtime</dt><dd>${esc(HARNESS_LABEL[currentHarness()] || currentHarness())}${isOpenAI() && skillNames.length ? '<div class="rev-sub"><span class="rev-warn">⚠️ skills are ignored on this runtime</span></div>' : ''}</dd>
     <dt>System prompt</dt><dd>${spHTML}</dd>
     <dt>Skills (${skillNames.length})</dt><dd class="chips">${chips(skillNames)}</dd>
     <dt>MCP servers (${mcpNames.length})</dt><dd class="chips">${chips(mcpNames)}</dd>
@@ -2472,7 +2581,7 @@
         if (!(m.display_name || '').trim()) errs.push({ id: 'display', msg: 'Display name is required' });
         if (!(m.description || '').trim()) errs.push({ id: 'desc', msg: 'Description is required' });
       } else if (n === 1) {
-        if (!(p.model_class || '').trim()) errs.push({ id: 'model', msg: 'Pick a model class' });
+        if (models().length ? !modelById(currentModelId()) : !(p.model_class || '').trim()) errs.push({ id: 'model', msg: 'Pick a model' });
         if (!(p.system_prompt || '').trim()) errs.push({ id: 'prompt', msg: 'System prompt is required' });
       } else if (n === 2) {
         syncVault();
@@ -2480,6 +2589,8 @@
         // Automation (#303): only validate what's switched on.
         if ($('f_oc_on') && $('f_oc_on').checked && !($('f_oc_rubric').value || '').trim())
           errs.push({ id: 'oc_rubric', msg: 'A rubric is required when outcomes are enabled', automation: true });
+        if ($('f_sc_on') && $('f_sc_on').checked && isOpenAI())
+          errs.push({ id: 'sc_cron', msg: 'Scheduled runs need a Claude model — pick one in Step 2 or turn the schedule off', automation: true });
         if ($('f_sc_on') && $('f_sc_on').checked) {
           const cron = ($('f_sc_cron').value || '').trim();
           if (!cron) errs.push({ id: 'sc_cron', msg: 'A cron expression is required', automation: true });
@@ -2583,11 +2694,18 @@
       if ($('f_cat')) m.category = $('f_cat').value;
       if ($('f_lang')) m.language = $('f_lang').value; // '' = universal (omitempty drops it from yaml)
       if ($('f_prompt')) p.system_prompt = $('f_prompt').value;
-      // Fill model_preferences[0] from the fetched catalog (not a hardcoded
-      // table). Offline fallback has no model_id → leave empty; conductor
-      // resolves the concrete id from model_class at deploy time.
-      const mc = modelEntry(p.model_class);
-      p.model_preferences = (mc && mc.model_id) ? [{ provider: 'anthropic', id: mc.model_id }] : [];
+      if (models().length) {
+        // Whitelist mode: the dropdown's pick is the pin (provider/harness from the
+        // catalog entry, never hardcoded) — see applyModel().
+        const sel = $('modelSel');
+        applyModel(sel ? sel.value : currentModelId());
+      } else {
+        // Legacy tier mode: fill model_preferences[0] from the fetched catalog.
+        // Offline fallback has no model_id → leave empty; conductor resolves the
+        // concrete id from model_class at deploy time.
+        const mc = modelEntry(p.model_class);
+        p.model_preferences = (mc && mc.model_id) ? [{ provider: 'anthropic', id: mc.model_id }] : [];
+      }
       spec.skills = [];
       (data.skill_candidates || []).forEach((c, i) => {
         const el = $('skill-' + i); if (!el || !el.checked) return;

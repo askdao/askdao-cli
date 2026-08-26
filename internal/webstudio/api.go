@@ -25,12 +25,13 @@ type StudioData struct {
 	Palette         []ThemeToken              `json:"palette"`
 	Categories      []string                  `json:"categories"`
 	ProjectName     string                    `json:"project_name"`
-	Harness         string                    `json:"harness"`
+	Harness         string                    `json:"harness"`       // spec.preferred_harness id（cloud#84 起真实 id，前端 Runtime 展示）
 	Observe         bool                      `json:"observe"`       // --observe session: frontend shows the observe panel + polls /api/observe
 	Desktop         bool                      `json:"desktop"`       // desktop-app session: frontend shows desktop-only blocks (assistant sidebar / test chat); CLI edit leaves it false
 	NeedsScan       bool                      `json:"needs_scan"`    // desktop pre-scan placeholder: frontend shows the folder-picker prompt until POST /api/scan returns a scanned draft
 	Icons           []IconDef                 `json:"icons"`         // avatar icon 网格的 lucide 子集（AvatarIcons）
-	ModelCatalog    []types.ModelClassEntry   `json:"model_catalog"` // step-2 模型档（档名/concrete model/成本）从 conductor /cli/model-classes 拉，前端零硬编码 id
+	ModelCatalog    []types.ModelClassEntry   `json:"model_catalog"` // step-2 三档视图（离线回退用）从 conductor /cli/model-classes 拉，前端零硬编码 id
+	Models          []types.ModelEntry        `json:"models"`        // step-2 模型白名单（cloud#84：显式选模型，选模型即切 harness；空 = 离线/旧 conductor → 前端回退三档药丸）
 }
 
 // ObservedData is the GET /api/observe payload: the skills and MCP servers seen
@@ -155,13 +156,13 @@ type MCPCandidate struct {
 //   - false (a fresh draft): no authoritative selection exists yet, so apply the
 //     default policy — project-scope skills on, user-scope (global) skills off
 //     (opt-in), implied builtins on, Anthropic-compatible MCP on / incompatible off.
-func BuildStudioData(spec *types.AgentSpec, det *types.Detection, harnessLabel string, restorePrior bool) *StudioData {
+func BuildStudioData(spec *types.AgentSpec, det *types.Detection, harness string, restorePrior bool) *StudioData {
 	d := &StudioData{
 		Spec:       spec,
 		Palette:    Palette,
 		Categories: Categories,
 		Icons:      AvatarIcons,
-		Harness:    harnessLabel,
+		Harness:    harness,
 	}
 	if spec != nil {
 		d.ProjectName = spec.Metadata.Name
