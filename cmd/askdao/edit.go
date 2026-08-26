@@ -78,14 +78,16 @@ func runEdit(ctx context.Context, args []string) int {
 
 	// loaded ⇒ editing an existing yaml: restore the KOL's saved skill/MCP
 	// selection verbatim. A fresh draft uses the default selection policy.
-	data := webstudio.BuildStudioData(spec, det, "Anthropic Managed Agents", loaded)
+	data := webstudio.BuildStudioData(spec, det, spec.PreferredHarness, loaded)
 	data.Observe = *observeMode
 	// Model-class catalog for the step-2 selector: fetched from conductor so the
 	// concrete model ids aren't baked into this binary. Degrades to a minimal
 	// bundled fallback offline (token is optional for edit).
 	editURL, editToken, _ := resolveServerAndToken()
-	// 目录按 spec 的 harness 取（openai_agents_sdk → SiliconFlow 三档，conductor #342）
+	// 三档视图按 spec 的 harness 取（离线回退用）；白名单 `models[]` 取两 harness 合集
+	// （cloud#84：Studio 下拉框选模型即切 harness；空 = 离线/旧 conductor → 前端回退三档）
 	data.ModelCatalog = recommender.FetchModelClassesOrFallback(ctx, editURL, editToken, spec.PreferredHarness)
+	data.Models = recommender.FetchModelCatalogOrEmpty(ctx, editURL, editToken)
 
 	// --observe arms temporary hooks bound to the studio port (set in OnReady, once
 	// the port is known) and tears them down on the way out. SweepStale first clears
@@ -126,7 +128,9 @@ func runEdit(ctx context.Context, args []string) int {
 			if err := writeAgentSpec(*dir, edited); err != nil {
 				return nil, err
 			}
-			resp, derr := deployFromDir(ctx, *dir, *harness, *force)
+			// Studio 里选的模型决定 harness（写进 yaml 的 preferred_harness）；--harness 只
+			// 作打开 Studio 时的初始种子，不再在部署时覆盖 KOL 在页面上的选择（cloud#84）。
+			resp, derr := deployFromDir(ctx, *dir, "", *force)
 			if derr != nil {
 				return nil, studioDeployError(derr)
 			}
@@ -179,6 +183,11 @@ func loadOrScan(ctx context.Context, dir, harness, home string) (*types.AgentSpe
 		// (studio has no capabilities UI). Overwrite even on load so a stale yaml
 		// (LLM free-text scopes) is normalised on the next edit.
 		existing.Capabilities = recommender.DefaultCapabilities(detRiskHints(det))
+		// --harness seeds the Studio's initial runtime; the model picked in the
+		// Studio (written back as preferred_harness) is what deploy uses.
+		if harness != "" {
+			existing.PreferredHarness = harness
+		}
 		return existing, det, true, 0
 	}
 

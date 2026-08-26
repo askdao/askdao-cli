@@ -139,9 +139,10 @@ func (a *App) runScan() (*webstudio.StudioData, error) {
 	if spec.Metadata.Avatar == "" {
 		spec.Metadata.Avatar = webstudio.DefaultAvatarForCategory(spec.Metadata.Category)
 	}
-	data := webstudio.BuildStudioData(spec, res.Detection, "Anthropic Managed Agents", false)
+	data := webstudio.BuildStudioData(spec, res.Detection, spec.PreferredHarness, false)
 	data.Desktop = true
 	data.ModelCatalog = a.modelCatalog(ctx, spec.PreferredHarness)
+	data.Models = a.modelWhitelist(ctx)
 	a.mu.Lock()
 	a.dir, a.currentData = dir, data
 	a.mu.Unlock()
@@ -201,9 +202,10 @@ func (a *App) deploy(spec *types.AgentSpec) (*webstudio.DeployResult, error) {
 	}
 	cl := deploy.NewClient(creds.Server)
 	cl.AuthToken = creds.AccessToken
+	// harness 跟着 Studio 里选的模型走（spec.preferred_harness，cloud#84）；空 = conductor 默认
 	resp, err := cl.Deploy(a.reqCtx(), deploy.DeployInput{
 		AgentYAML: agentYAML,
-		HarnessID: "anthropic_managed_agents",
+		HarnessID: spec.PreferredHarness,
 		SkillZips: skillZips,
 	})
 	if err != nil {
@@ -396,6 +398,17 @@ func (a *App) modelCatalog(ctx context.Context, harness string) []types.ModelCla
 	return recommender.FetchModelClassesOrFallback(ctx, url, token, harness)
 }
 
+// modelWhitelist fetches the unified `models[]` whitelist (both harnesses) for
+// the step-2 dropdown; empty when logged out / offline → frontend falls back to
+// the three-tier picker.
+func (a *App) modelWhitelist(ctx context.Context) []types.ModelEntry {
+	var url, token string
+	if creds, err := auth.Load(); err == nil {
+		url, token = creds.Server, creds.AccessToken
+	}
+	return recommender.FetchModelCatalogOrEmpty(ctx, url, token)
+}
+
 // --- login (device flow, 阶段3) -------------------------------------------------
 
 // authState reports whether a credentials file is present (logged in) + the email.
@@ -514,7 +527,7 @@ func riskHints(det *types.Detection) types.DetectedToolRiskHints {
 func placeholderData() *webstudio.StudioData {
 	s := &types.AgentSpec{}
 	s.Metadata.Name = "askdao-studio"
-	d := webstudio.BuildStudioData(s, nil, "Anthropic Managed Agents", false)
+	d := webstudio.BuildStudioData(s, nil, "", false)
 	d.Desktop = true
 	d.NeedsScan = true
 	return d

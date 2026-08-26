@@ -1,10 +1,11 @@
 // [INPUT]: 无（纯数据 struct）
-// [OUTPUT]: 对外提供 ModelClassEntry + FallbackModelClasses
-// [POS]: internal/types —— conductor model-class catalog (GET /api/v1/cli/model-classes)
+// [OUTPUT]: 对外提供 ModelClassEntry + FallbackModelClasses + ModelEntry
+// [POS]: internal/types —— conductor model catalog (GET /api/v1/cli/model-classes)
 //
-//	的客户端镜像（对称 conductor app/api/cli.py:ModelClassEntry）。桌面/CLI 第二步选择器
-//	从一组 ModelClassEntry 渲染，故 concrete model id 只活在 conductor —— 换 Anthropic
-//	模型是 conductor 重部署、非客户端二进制重下载。
+//	的客户端镜像（对称 conductor app/api/cli.py:ModelClassEntry / ModelEntryOut）。
+//	ModelClassEntry = 旧 `classes[]` 三档视图（离线回退用）；ModelEntry = `models[]`
+//	白名单（cloud#84：Studio 显式选模型，选模型即切 harness）。concrete model id 与价目只活在
+//	conductor（Admin 后台维护）—— 换模型/改价是后台操作、非客户端二进制重下载。
 //
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package types
@@ -18,6 +19,23 @@ type ModelClassEntry struct {
 	Blurb        string `json:"blurb"`
 	CostTier     string `json:"cost_tier"` // lower | moderate | higher | unknown
 	Recommended  bool   `json:"recommended"`
+}
+
+// ModelEntry is one selectable model in conductor's `models[]` whitelist
+// (GET /api/v1/cli/model-classes?harness=all). HarnessID tells the studio which
+// harness to deploy to when this model is picked; prices are raw USD per 1M tokens.
+type ModelEntry struct {
+	ModelID               string   `json:"model_id"`
+	Provider              string   `json:"provider"`   // anthropic | siliconflow
+	HarnessID             string   `json:"harness_id"` // anthropic_managed_agents | openai_agents_sdk
+	DisplayName           string   `json:"display_name"`
+	Blurb                 string   `json:"blurb"`
+	ModelClass            string   `json:"model_class"` // high_reasoning | balanced | fast | "" (no tier)
+	Recommended           bool     `json:"recommended"`
+	SortOrder             int      `json:"sort_order"`
+	InputUSDPerMTok       float64  `json:"input_usd_per_mtok"`
+	CachedInputUSDPerMTok *float64 `json:"cached_input_usd_per_mtok"`
+	OutputUSDPerMTok      float64  `json:"output_usd_per_mtok"`
 }
 
 // FallbackModelClasses is the minimal offline catalog used when conductor is

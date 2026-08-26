@@ -147,16 +147,29 @@ func (c *ConductorClient) Recommend(ctx context.Context, req RecommendRequest) (
 	return &out, nil
 }
 
-// modelClassesResponse is the GET /cli/model-classes envelope.
+// modelClassesResponse is the GET /cli/model-classes envelope. `models` is the
+// admin-maintained whitelist (cloud#84); older conductors omit it (→ nil).
 type modelClassesResponse struct {
 	Classes []types.ModelClassEntry `json:"classes"`
+	Models  []types.ModelEntry      `json:"models"`
 }
+
+// ModelCatalogAllHarnesses is the `harness` query value that asks conductor for
+// the unified whitelist across both harnesses (studio dropdown: picking a model
+// picks the harness).
+const ModelCatalogAllHarnesses = "all"
 
 // FetchModelClasses GETs conductor's offered model-class tiers (label /
 // concrete model id / derived cost). Mirrors Recommend's request shape.
 func (c *ConductorClient) FetchModelClasses(ctx context.Context, harness string) ([]types.ModelClassEntry, error) {
+	classes, _, err := c.fetchModelClasses(ctx, harness)
+	return classes, err
+}
+
+// fetchModelClasses is the shared GET behind FetchModelClasses / FetchModelCatalog.
+func (c *ConductorClient) fetchModelClasses(ctx context.Context, harness string) ([]types.ModelClassEntry, []types.ModelEntry, error) {
 	if c.BaseURL == "" {
-		return nil, errors.New("recommender: ConductorClient.BaseURL is empty")
+		return nil, nil, errors.New("recommender: ConductorClient.BaseURL is empty")
 	}
 	url := c.BaseURL + DefaultModelClassesPath
 	if harness != "" && harness != "auto" {
@@ -165,7 +178,7 @@ func (c *ConductorClient) FetchModelClasses(ctx context.Context, harness string)
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	httpReq.Header.Set("Accept", "application/json")
 	if c.AuthToken != "" {
@@ -177,22 +190,50 @@ func (c *ConductorClient) FetchModelClasses(ctx context.Context, harness string)
 	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("recommender: conductor unreachable: %w", err)
+		return nil, nil, fmt.Errorf("recommender: conductor unreachable: %w", err)
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("recommender: read response: %w", err)
+		return nil, nil, fmt.Errorf("recommender: read response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("recommender: conductor returned %d: %s",
+		return nil, nil, fmt.Errorf("recommender: conductor returned %d: %s",
 			resp.StatusCode, truncate(string(respBody), 240))
 	}
 	var out modelClassesResponse
 	if err := json.Unmarshal(respBody, &out); err != nil {
-		return nil, fmt.Errorf("recommender: decode response: %w", err)
+		return nil, nil, fmt.Errorf("recommender: decode response: %w", err)
 	}
-	return out.Classes, nil
+	return out.Classes, out.Models, nil
+}
+
+// FetchModelCatalog GETs conductor's unified model whitelist (`models[]`,
+// ?harness=all): every enabled model across both harnesses with provider /
+// harness_id / raw price, sorted most-common-first. Returns nil (no error) when
+// conductor predates the field.
+func (c *ConductorClient) FetchModelCatalog(ctx context.Context) ([]types.ModelEntry, error) {
+	_, models, err := c.fetchModelClasses(ctx, ModelCatalogAllHarnesses)
+	return models, err
+}
+
+// FetchModelCatalogOrEmpty is FetchModelCatalog with the same offline / logged-out
+// degradation as FetchModelClassesOrFallback — but the whitelist has no bundled
+// fallback (the binary carries no model ids): an empty slice tells the studio to
+// render the legacy three-tier picker instead.
+func FetchModelCatalogOrEmpty(ctx context.Context, baseURL, token string) []types.ModelEntry {
+	if baseURL == "" {
+		return nil
+	}
+	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	c := NewConductorClient(baseURL)
+	c.AuthToken = token
+	models, err := c.FetchModelCatalog(fetchCtx)
+	if err != nil {
+		return nil
+	}
+	return models
 }
 
 // FetchModelClassesOrFallback fetches conductor's model-class catalog, degrading

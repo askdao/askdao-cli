@@ -368,3 +368,65 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+
+func TestFetchModelCatalog_HappyPath(t *testing.T) {
+	cached := 0.028
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != DefaultModelClassesPath {
+			t.Errorf("path = %q, want %q", r.URL.Path, DefaultModelClassesPath)
+		}
+		// 统一白名单（cloud#84）：两 harness 合集，选模型即切 harness
+		if got := r.URL.Query().Get("harness"); got != ModelCatalogAllHarnesses {
+			t.Errorf("harness query = %q, want %q", got, ModelCatalogAllHarnesses)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(modelClassesResponse{
+			Classes: []types.ModelClassEntry{{Slug: "balanced", ModelID: "claude-sonnet-5"}},
+			Models: []types.ModelEntry{
+				{ModelID: "claude-sonnet-5", Provider: "anthropic", HarnessID: "anthropic_managed_agents",
+					DisplayName: "Claude Sonnet 5", ModelClass: "balanced", Recommended: true, SortOrder: 10,
+					InputUSDPerMTok: 3, OutputUSDPerMTok: 15},
+				{ModelID: "deepseek-ai/DeepSeek-V4-Flash", Provider: "siliconflow", HarnessID: "openai_agents_sdk",
+					DisplayName: "DeepSeek V4 Flash", ModelClass: "fast", SortOrder: 100,
+					InputUSDPerMTok: 0.13, CachedInputUSDPerMTok: &cached, OutputUSDPerMTok: 0.28},
+			},
+		})
+	}))
+	defer server.Close()
+
+	models, err := NewConductorClient(server.URL).FetchModelCatalog(context.Background())
+	if err != nil {
+		t.Fatalf("FetchModelCatalog: %v", err)
+	}
+	if len(models) != 2 || models[1].HarnessID != "openai_agents_sdk" || models[1].Provider != "siliconflow" {
+		t.Errorf("models = %+v", models)
+	}
+	if models[1].CachedInputUSDPerMTok == nil || *models[1].CachedInputUSDPerMTok != 0.028 {
+		t.Errorf("cached price not decoded: %+v", models[1])
+	}
+	if models[0].CachedInputUSDPerMTok != nil {
+		t.Errorf("anthropic cached price should be nil: %+v", models[0])
+	}
+}
+
+func TestFetchModelCatalogOrEmpty_DegradesToEmpty(t *testing.T) {
+	// 白名单没有离线兜底（二进制不含模型 id）：空切片 → 前端回退三档药丸
+	if got := FetchModelCatalogOrEmpty(context.Background(), "", "tok"); len(got) != 0 {
+		t.Errorf("empty base url → want empty, got %+v", got)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	if got := FetchModelCatalogOrEmpty(context.Background(), server.URL, ""); len(got) != 0 {
+		t.Errorf("server error → want empty, got %+v", got)
+	}
+	// 旧 conductor（无 models 字段）→ 空，不报错
+	old := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"classes":[{"slug":"balanced","label":"Balanced"}]}`))
+	}))
+	defer old.Close()
+	if got := FetchModelCatalogOrEmpty(context.Background(), old.URL, ""); len(got) != 0 {
+		t.Errorf("old conductor → want empty, got %+v", got)
+	}
+}
