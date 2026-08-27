@@ -1646,14 +1646,25 @@
       const hint = $('modelHint');
       if (hint) hint.innerHTML = modelHintHTML(slug);
     }
-    // Harness-dependent gating (cloud#84): the backup runtime (OpenAI / Open Source models)
-    // ignores Managed/custom skills at deploy, so Step 3 says so up front instead of
-    // surprising the KOL at deploy time. (Scheduled runs work on both runtimes since
-    // conductor #352 — no schedule gate here.)
+    // Harness-dependent gating (cloud#84): the backup runtime runs the KOL's OWN skills
+    // since conductor #372 (unpacked into the sandbox + indexed in the system prompt), but
+    // Anthropic's built-in skills (xlsx / pdf …) are a platform feature it can't provide —
+    // so Step 3 only speaks up when a built-in is actually ticked. (Scheduled runs work on
+    // both runtimes since conductor #352 — no schedule gate here.)
+    function tickedBuiltinSkills() {
+      return (data.skill_candidates || []).filter((c, i) => {
+        const el = $('skill-' + i);
+        return c.builtin && el && el.checked;
+      });
+    }
     function syncHarnessGates() {
-      const oa = isOpenAI();
       const sk = $('harnessSkillsNote');
-      if (sk) { sk.hidden = !oa; sk.textContent = 'This runtime does not run Managed or custom skills yet — ticked skills are kept in the yaml but ignored at deploy. Pick a Claude model in Step 2 to use them.'; }
+      if (!sk) return;
+      const builtins = isOpenAI() ? tickedBuiltinSkills() : [];
+      sk.hidden = !builtins.length;
+      sk.textContent = 'Built-in Anthropic skills (' + builtins.map(c => c.name).join(', ')
+        + ') do not run on this runtime — they stay in the yaml but are skipped at deploy. '
+        + 'Your own skills DO run here. Pick a Claude model in Step 2 to use the built-ins.';
     }
     const HARNESS_NAME = { claude: "Claude Code", codex: "OpenAI Codex", cursor: "Cursor", cowork: "Claude Cowork" };
     let data, spec, palette = {}, step = 0, vault = [];
@@ -2317,7 +2328,8 @@
       if (name === 'automation') refreshSched();
     }
     function skillItem(c, i) {
-      if (c.builtin) return `<label class="item"><input type="checkbox" id="skill-${i}" ${c.checked ? 'checked' : ''}><div><div class="nm">${esc(c.name)} <span class="tag ink">builtin</span></div></div></label>`;
+      // onchange：内建 skill 在备份运行时不可用，勾选状态直接决定 Step 3 横幅（conductor #372）
+      if (c.builtin) return `<label class="item"><input type="checkbox" id="skill-${i}" ${c.checked ? 'checked' : ''} onchange="syncHarnessGates()"><div><div class="nm">${esc(c.name)} <span class="tag ink">builtin</span></div></div></label>`;
       const sc = c.scope === 'user' ? '<span class="tag user">global</span>' : '<span class="tag proj">project</span>';
       const hb = c.harness ? `<span class="tag">${esc(hLabel(c.harness))}</span>` : '';
       const og = c.origin && c.origin !== 'repo-native' ? `<span class="tag">${esc(c.origin)}</span>` : '';
@@ -2536,7 +2548,7 @@
     <dt>Language</dt><dd>${m.language === 'zh' ? '中文 Chinese' : m.language === 'en' ? 'English' : m.language ? esc(m.language) : 'Auto · follows the user'}</dd>
     <dt>Visibility</dt><dd>${esc(m.visibility || 'private')}</dd>
     <dt>Model</dt><dd>${reviewModelHTML()}</dd>
-    <dt>Runtime</dt><dd>${esc(HARNESS_LABEL[currentHarness()] || currentHarness())}${isOpenAI() && skillNames.length ? '<div class="rev-sub"><span class="rev-warn">⚠️ skills are ignored on this runtime</span></div>' : ''}</dd>
+    <dt>Runtime</dt><dd>${esc(HARNESS_LABEL[currentHarness()] || currentHarness())}${isOpenAI() && tickedBuiltinSkills().length ? '<div class="rev-sub"><span class="rev-warn">⚠️ built-in Anthropic skills are skipped on this runtime (your own skills run)</span></div>' : ''}</dd>
     <dt>System prompt</dt><dd>${spHTML}</dd>
     <dt>Skills (${skillNames.length})</dt><dd class="chips">${chips(skillNames)}</dd>
     <dt>MCP servers (${mcpNames.length})</dt><dd class="chips">${chips(mcpNames)}</dd>
