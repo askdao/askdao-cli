@@ -1571,10 +1571,10 @@
     const HARNESS_ANTHROPIC = 'anthropic_managed_agents', HARNESS_OPENAI = 'openai_agents_sdk';
     const HARNESS_LABEL = { [HARNESS_ANTHROPIC]: 'Anthropic Managed Agents', [HARNESS_OPENAI]: 'OpenAI Agents SDK' };
     // Step 2 dropdown groups (#90): show model families, never the vendor we route through.
-    // anthropic → Claude, openai → OpenAI, anything else (SiliconFlow-served DeepSeek/Kimi/
+    // anthropic → Anthropic, openai → OpenAI, anything else (SiliconFlow-served DeepSeek/Kimi/
     // MiniMax/GLM, direct deepseek/moonshot …) → Open Source. Fixed order.
-    const MODEL_GROUPS = ['Claude', 'OpenAI', 'Open Source'];
-    const groupOf = (m) => m.provider === 'anthropic' ? 'Claude' : m.provider === 'openai' ? 'OpenAI' : 'Open Source';
+    const MODEL_GROUPS = ['Anthropic', 'OpenAI', 'Open Source'];
+    const groupOf = (m) => m.provider === 'anthropic' ? 'Anthropic' : m.provider === 'openai' ? 'OpenAI' : 'Open Source';
     const currentHarness = () => spec.preferred_harness || HARNESS_ANTHROPIC;
     const isOpenAI = () => currentHarness() === HARNESS_OPENAI;
     const fmtUsd = (v) => v == null ? '—' : '$' + (+v).toFixed(+v >= 10 ? 2 : 3).replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1');
