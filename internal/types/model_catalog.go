@@ -26,7 +26,7 @@ type ModelClassEntry struct {
 // harness to deploy to when this model is picked; prices are raw USD per 1M tokens.
 type ModelEntry struct {
 	ModelID               string   `json:"model_id"`
-	Provider              string   `json:"provider"`   // anthropic | siliconflow
+	Provider              string   `json:"provider"`   // anthropic | openai | siliconflow | deepseek | …（小写 slug，Studio 只用来分组 Anthropic / OpenAI / Open Source）
 	HarnessID             string   `json:"harness_id"` // anthropic_managed_agents | openai_agents_sdk
 	DisplayName           string   `json:"display_name"`
 	Blurb                 string   `json:"blurb"`

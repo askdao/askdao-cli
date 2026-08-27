@@ -1569,8 +1569,12 @@
     const models = () => data.models || [];
     const modelById = (id) => models().find(m => m.model_id === id);
     const HARNESS_ANTHROPIC = 'anthropic_managed_agents', HARNESS_OPENAI = 'openai_agents_sdk';
-    const HARNESS_LABEL = { [HARNESS_ANTHROPIC]: 'Anthropic Managed Agents', [HARNESS_OPENAI]: 'OpenAI Agents SDK · SiliconFlow' };
-    const PROVIDER_LABEL = { anthropic: 'Anthropic Claude', siliconflow: 'SiliconFlow' };
+    const HARNESS_LABEL = { [HARNESS_ANTHROPIC]: 'Anthropic Managed Agents', [HARNESS_OPENAI]: 'OpenAI Agents SDK' };
+    // Step 2 dropdown groups (#90): show model families, never the vendor we route through.
+    // anthropic → Anthropic, openai → OpenAI, anything else (SiliconFlow-served DeepSeek/Kimi/
+    // MiniMax/GLM, direct deepseek/moonshot …) → Open Source. Fixed order.
+    const MODEL_GROUPS = ['Anthropic', 'OpenAI', 'Open Source'];
+    const groupOf = (m) => m.provider === 'anthropic' ? 'Anthropic' : m.provider === 'openai' ? 'OpenAI' : 'Open Source';
     const currentHarness = () => spec.preferred_harness || HARNESS_ANTHROPIC;
     const isOpenAI = () => currentHarness() === HARNESS_OPENAI;
     const fmtUsd = (v) => v == null ? '—' : '$' + (+v).toFixed(+v >= 10 ? 2 : 3).replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1');
@@ -1587,13 +1591,10 @@
       return (rec || ms[0]).model_id;
     }
     function modelOptionsHTML(selected) {
-      const groups = [];
-      models().forEach(m => {
-        let g = groups.find(x => x.provider === m.provider);
-        if (!g) { g = { provider: m.provider, items: [] }; groups.push(g); }
-        g.items.push(m);
-      });
-      return groups.map(g => `<optgroup label="${esc(PROVIDER_LABEL[g.provider] || g.provider)}">` + g.items.map(m =>
+      const byGroup = new Map(MODEL_GROUPS.map(g => [g, []]));
+      models().forEach(m => byGroup.get(groupOf(m)).push(m));
+      const groups = MODEL_GROUPS.filter(g => byGroup.get(g).length).map(g => ({ label: g, items: byGroup.get(g) }));
+      return groups.map(g => `<optgroup label="${esc(g.label)}">` + g.items.map(m =>
         `<option value="${esc(m.model_id)}"${m.model_id === selected ? ' selected' : ''}>${esc(m.display_name)} · ${fmtUsd(m.input_usd_per_mtok)} / ${fmtUsd(m.output_usd_per_mtok)} per MTok${m.recommended ? ' · recommended' : ''}</option>`
       ).join('') + '</optgroup>').join('');
     }
@@ -1645,7 +1646,7 @@
       const hint = $('modelHint');
       if (hint) hint.innerHTML = modelHintHTML(slug);
     }
-    // Harness-dependent gating (cloud#84): the backup runtime (SiliconFlow models)
+    // Harness-dependent gating (cloud#84): the backup runtime (OpenAI / Open Source models)
     // ignores Managed/custom skills at deploy, so Step 3 says so up front instead of
     // surprising the KOL at deploy time. (Scheduled runs work on both runtimes since
     // conductor #352 — no schedule gate here.)

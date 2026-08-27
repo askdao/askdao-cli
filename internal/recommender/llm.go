@@ -173,7 +173,7 @@ func (c *ConductorClient) fetchModelClasses(ctx context.Context, harness string)
 	}
 	url := c.BaseURL + DefaultModelClassesPath
 	if harness != "" && harness != "auto" {
-		// 备份运行时（conductor #342）：目录按 harness 返回（openai_agents_sdk → SiliconFlow 三档）
+		// 备份运行时（conductor #342）：目录按 harness 返回（openai_agents_sdk → OpenAI 官方 / SiliconFlow 等兼容端点的三档）
 		url += "?harness=" + neturl.QueryEscape(harness)
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
