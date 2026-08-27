@@ -16,7 +16,7 @@ import (
 // version is stamped by GoReleaser at release time via
 // `-ldflags -X main.version=...`; the literal below only shows up in
 // from-source builds (go build / go install).
-var version = "0.1.0"
+var version = "0.3.0"
 
 func main() {
 	if len(os.Args) < 2 {
