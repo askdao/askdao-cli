@@ -1646,14 +1646,13 @@
       if (hint) hint.innerHTML = modelHintHTML(slug);
     }
     // Harness-dependent gating (cloud#84): the backup runtime (SiliconFlow models)
-    // ignores Managed/custom skills at deploy and rejects scheduled runs (400), so
-    // Step 3 says so up front instead of surprising the KOL at deploy time.
+    // ignores Managed/custom skills at deploy, so Step 3 says so up front instead of
+    // surprising the KOL at deploy time. (Scheduled runs work on both runtimes since
+    // conductor #352 — no schedule gate here.)
     function syncHarnessGates() {
       const oa = isOpenAI();
       const sk = $('harnessSkillsNote');
       if (sk) { sk.hidden = !oa; sk.textContent = 'This runtime does not run Managed or custom skills yet — ticked skills are kept in the yaml but ignored at deploy. Pick a Claude model in Step 2 to use them.'; }
-      const sc = $('scHarnessNote');
-      if (sc) { sc.hidden = !oa; sc.textContent = 'Scheduled runs are not available on the SiliconFlow runtime — pick a Claude model in Step 2, or leave the schedule off.'; }
     }
     const HARNESS_NAME = { claude: "Claude Code", codex: "OpenAI Codex", cursor: "Cursor", cowork: "Claude Cowork" };
     let data, spec, palette = {}, step = 0, vault = [];
@@ -1978,7 +1977,6 @@
     </div></div>
     <div class="grp"><h3>Recurring run (Schedule)</h3>
     <label class="item"><input type="checkbox" id="f_sc_on" ${sOn ? 'checked' : ''} onchange="toggleAutomation()"><div><div class="nm">Run this agent on a schedule</div><div class="ds">Each run starts a fresh session, bills your credit, and pushes the result to your IM.</div></div></label>
-    <div class="harness-note" id="scHarnessNote" hidden></div>
     <div id="scFields" ${sOn ? '' : 'hidden'}>
       <div class="lbl">Run for</div>
       <div class="seg" id="scAud">${SCHED_AUDIENCES.map(a => `<label data-aud="${a[0]}" title="${a[2]}"><input type="radio" name="scaud" value="${a[0]}"${(s.mode || 'personal') === a[0] ? ' checked' : ''} onchange="pickSchedAudience('${a[0]}')">${a[1]}</label>`).join('')}</div>
@@ -2589,8 +2587,6 @@
         // Automation (#303): only validate what's switched on.
         if ($('f_oc_on') && $('f_oc_on').checked && !($('f_oc_rubric').value || '').trim())
           errs.push({ id: 'oc_rubric', msg: 'A rubric is required when outcomes are enabled', automation: true });
-        if ($('f_sc_on') && $('f_sc_on').checked && isOpenAI())
-          errs.push({ id: 'sc_cron', msg: 'Scheduled runs need a Claude model — pick one in Step 2 or turn the schedule off', automation: true });
         if ($('f_sc_on') && $('f_sc_on').checked) {
           const cron = ($('f_sc_cron').value || '').trim();
           if (!cron) errs.push({ id: 'sc_cron', msg: 'A cron expression is required', automation: true });

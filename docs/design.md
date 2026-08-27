@@ -345,10 +345,10 @@ $ askdao agent init my-agent --auto
 
 `--harness <id>`（可选）显式指定 `preferred_harness`，覆盖 LLM 自动推断：
 - `anthropic_managed_agents`（Claude Managed Agents，默认）
-- `openai_agents_sdk`（**已启用**，conductor #342：备份运行时——OpenAI Agents SDK loop 在 Conductor × SiliconFlow 模型 × E2B 执行器；`model_preferences[].provider: siliconflow`；skills / schedule 暂不支持，adapter 出 translation warning / deploy 400）
+- `openai_agents_sdk`（**已启用**，conductor #342：备份运行时——OpenAI Agents SDK loop 在 Conductor × SiliconFlow 模型 × E2B 执行器；`model_preferences[].provider: siliconflow`；skills 暂不支持（adapter 出 translation warning、部署时忽略）；schedule 自 conductor #352 起支持）
 - `auto`（默认，按 detected_harness_signals 推断）
 
-对 `askdao agent edit`（Studio）而言 `--harness` 只是**初始种子**：Studio 第二步的模型下拉框（conductor `GET /cli/model-classes?harness=all` 的 `models[]` 白名单，Admin 后台维护、附 $/MTok 原价）**选模型即切 harness**——选 Claude 写 `preferred_harness: anthropic_managed_agents`，选 SiliconFlow 模型写 `openai_agents_sdk`，并把 `model_preferences[0] = {provider, id}` 钉到该条目；deploy 从 yaml 读 harness，不再被 flag 覆盖。离线/旧 conductor 时回退三档 `model_class` 药丸。切到 SiliconFlow 时 Studio 在 Skills 显示「部署时忽略」横幅、schedule 开启则校验拦下（cloud#84）。
+对 `askdao agent edit`（Studio）而言 `--harness` 只是**初始种子**：Studio 第二步的模型下拉框（conductor `GET /cli/model-classes?harness=all` 的 `models[]` 白名单，Admin 后台维护、附 $/MTok 原价）**选模型即切 harness**——选 Claude 写 `preferred_harness: anthropic_managed_agents`，选 SiliconFlow 模型写 `openai_agents_sdk`，并把 `model_preferences[0] = {provider, id}` 钉到该条目；deploy 从 yaml 读 harness，不再被 flag 覆盖。离线/旧 conductor 时回退三档 `model_class` 药丸。切到 SiliconFlow 时 Studio 在 Skills 显示「部署时忽略」横幅（cloud#84）；schedule 两 harness 皆可配置。
 
 ### 3.2 `askdao detect [path]`（仅诊断）
 
