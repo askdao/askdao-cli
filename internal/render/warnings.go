@@ -1,7 +1,6 @@
 package render
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 )
@@ -119,17 +118,3 @@ func groupBySeverity(ws []TranslationWarning) map[Severity][]TranslationWarning 
 	return out
 }
 
-// CountSummary returns "HIGH (2) · MEDIUM (1) · LOW (0)" for inclusion in
-// other contexts (e.g. the `agent show --warnings` header).
-func CountSummary(warnings []TranslationWarning) string {
-	c := map[Severity]int{}
-	for _, w := range warnings {
-		sev := w.Severity
-		if sev == "" {
-			sev = SeverityMedium
-		}
-		c[sev]++
-	}
-	return fmt.Sprintf("HIGH (%d) · MEDIUM (%d) · LOW (%d)",
-		c[SeverityHigh], c[SeverityMedium], c[SeverityLow])
-}

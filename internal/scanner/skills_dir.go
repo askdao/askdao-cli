@@ -7,7 +7,7 @@
 //	LoadSkillsLock（skills-lock.json → name→SkillRef map）、SkillDirCandidates、ParseSkillFrontmatter
 //	（SKILL.md frontmatter name/description 行级解析，deploy 前置校验共用）、hashFile
 //
-// [POS]: internal/scanner 的 skill 探测器；产物喂 payload.go 做上传清单分类、archetype.go 做原型判定、recommender 做 L4 推荐
+// [POS]: internal/scanner 的 skill 探测器；产物喂 recommender 做 L4 推荐
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package scanner
 

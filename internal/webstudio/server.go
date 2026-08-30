@@ -16,13 +16,12 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os/exec"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/askdao/askdao-cli/internal/browser"
 	"github.com/askdao/askdao-cli/internal/types"
 )
 
@@ -121,7 +120,7 @@ func Serve(opts Options) error {
 
 	fmt.Printf("→ Agent studio at %s\n", url)
 	if !opts.NoBrowser {
-		_ = openBrowser(url)
+		_ = browser.Open(url)
 	}
 	fmt.Println("  Review and edit in the browser, then click Deploy or Done (Ctrl-C to abort).")
 
@@ -544,16 +543,3 @@ func writeErr(w http.ResponseWriter, err error) {
 
 // openBrowser best-effort opens url in the default browser (macOS open /
 // Windows start / Linux xdg-open). A failure is non-fatal — the URL is printed.
-func openBrowser(url string) error {
-	var cmd string
-	var args []string
-	switch runtime.GOOS {
-	case "darwin":
-		cmd, args = "open", []string{url}
-	case "windows":
-		cmd, args = "cmd", []string{"/c", "start", url}
-	default:
-		cmd, args = "xdg-open", []string{url}
-	}
-	return exec.Command(cmd, args...).Start()
-}

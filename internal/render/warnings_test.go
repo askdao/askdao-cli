@@ -74,9 +74,3 @@ func TestRenderTranslationWarnings_EmptyNoop(t *testing.T) {
 	}
 }
 
-func TestCountSummary(t *testing.T) {
-	got := CountSummary(sampleWarnings())
-	if got != "HIGH (2) · MEDIUM (1) · LOW (0)" {
-		t.Errorf("CountSummary = %q", got)
-	}
-}

@@ -100,51 +100,85 @@ func NewConductorClient(baseURL string) *ConductorClient {
 // stderr / status code so KOLs see actionable diagnostics in `askdao agent
 // init`.
 func (c *ConductorClient) Recommend(ctx context.Context, req RecommendRequest) (*RecommendResponse, error) {
-	if c.BaseURL == "" {
-		return nil, errors.New("recommender: ConductorClient.BaseURL is empty")
-	}
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("recommender: marshal request: %w", err)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		c.BaseURL+DefaultRecommendPath, bytes.NewReader(body))
+	out, err := doJSON[RecommendResponse](ctx, c, http.MethodPost, DefaultRecommendPath, req)
 	if err != nil {
 		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "application/json")
-	if c.AuthToken != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.AuthToken)
-	}
-
-	client := c.HTTPClient
-	if client == nil {
-		client = &http.Client{Timeout: DefaultTimeout}
-	}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("recommender: conductor unreachable: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("recommender: read response: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("recommender: conductor returned %d: %s",
-			resp.StatusCode, truncate(string(respBody), 240))
-	}
-	var out RecommendResponse
-	if err := json.Unmarshal(respBody, &out); err != nil {
-		return nil, fmt.Errorf("recommender: decode response: %w", err)
 	}
 	if out.Spec.APIVersion != types.AgentSpecAPIVersion {
 		return nil, fmt.Errorf("recommender: unexpected apiVersion %q (want %q)",
 			out.Spec.APIVersion, types.AgentSpecAPIVersion)
 	}
 	return &out, nil
+}
+
+// doJSON is the single HTTP round-trip behind every ConductorClient method:
+// BaseURL check → optional JSON body → Accept/Content-Type + optional bearer →
+// default client fallback → 2xx check → decode T. Each endpoint method keeps
+// only its own path/query and post-decode validation.
+func doJSON[T any](ctx context.Context, c *ConductorClient, method, path string, body any) (T, error) {
+	var zero T
+	if c.BaseURL == "" {
+		return zero, errors.New("recommender: ConductorClient.BaseURL is empty")
+	}
+	var reader io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return zero, fmt.Errorf("recommender: marshal request: %w", err)
+		}
+		reader = bytes.NewReader(b)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, reader)
+	if err != nil {
+		return zero, err
+	}
+	httpReq.Header.Set("Accept", "application/json")
+	if body != nil {
+		httpReq.Header.Set("Content-Type", "application/json")
+	}
+	if c.AuthToken != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.AuthToken)
+	}
+	client := c.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: DefaultTimeout}
+	}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return zero, fmt.Errorf("recommender: conductor unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return zero, fmt.Errorf("recommender: read response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return zero, fmt.Errorf("recommender: conductor returned %d: %s",
+			resp.StatusCode, truncate(string(respBody), 240))
+	}
+	var out T
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return zero, fmt.Errorf("recommender: decode response: %w", err)
+	}
+	return out, nil
+}
+
+// fetchOr wraps the graceful degradation shared by the module-level Fetch*Or*
+// helpers: no baseURL / any error → fallback; otherwise a 10s-capped call on a
+// fresh client.
+func fetchOr[T any](ctx context.Context, baseURL, token string, fallback T, fn func(context.Context, *ConductorClient) (T, error)) T {
+	if baseURL == "" {
+		return fallback
+	}
+	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	c := NewConductorClient(baseURL)
+	c.AuthToken = token
+	v, err := fn(fetchCtx, c)
+	if err != nil {
+		return fallback
+	}
+	return v
 }
 
 // modelClassesResponse is the GET /cli/model-classes envelope. `models` is the
@@ -168,42 +202,14 @@ func (c *ConductorClient) FetchModelClasses(ctx context.Context, harness string)
 
 // fetchModelClasses is the shared GET behind FetchModelClasses / FetchModelCatalog.
 func (c *ConductorClient) fetchModelClasses(ctx context.Context, harness string) ([]types.ModelClassEntry, []types.ModelEntry, error) {
-	if c.BaseURL == "" {
-		return nil, nil, errors.New("recommender: ConductorClient.BaseURL is empty")
-	}
-	url := c.BaseURL + DefaultModelClassesPath
+	path := DefaultModelClassesPath
 	if harness != "" && harness != "auto" {
 		// 备份运行时（conductor #342）：目录按 harness 返回（openai_agents_sdk → OpenAI 官方 / SiliconFlow 等兼容端点的三档）
-		url += "?harness=" + neturl.QueryEscape(harness)
+		path += "?harness=" + neturl.QueryEscape(harness)
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	out, err := doJSON[modelClassesResponse](ctx, c, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, nil, err
-	}
-	httpReq.Header.Set("Accept", "application/json")
-	if c.AuthToken != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.AuthToken)
-	}
-	client := c.HTTPClient
-	if client == nil {
-		client = &http.Client{Timeout: DefaultTimeout}
-	}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return nil, nil, fmt.Errorf("recommender: conductor unreachable: %w", err)
-	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, nil, fmt.Errorf("recommender: read response: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, nil, fmt.Errorf("recommender: conductor returned %d: %s",
-			resp.StatusCode, truncate(string(respBody), 240))
-	}
-	var out modelClassesResponse
-	if err := json.Unmarshal(respBody, &out); err != nil {
-		return nil, nil, fmt.Errorf("recommender: decode response: %w", err)
 	}
 	return out.Classes, out.Models, nil
 }
@@ -222,18 +228,10 @@ func (c *ConductorClient) FetchModelCatalog(ctx context.Context) ([]types.ModelE
 // fallback (the binary carries no model ids): an empty slice tells the studio to
 // render the legacy three-tier picker instead.
 func FetchModelCatalogOrEmpty(ctx context.Context, baseURL, token string) []types.ModelEntry {
-	if baseURL == "" {
-		return nil
-	}
-	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	c := NewConductorClient(baseURL)
-	c.AuthToken = token
-	models, err := c.FetchModelCatalog(fetchCtx)
-	if err != nil {
-		return nil
-	}
-	return models
+	return fetchOr(ctx, baseURL, token, nil,
+		func(fctx context.Context, c *ConductorClient) ([]types.ModelEntry, error) {
+			return c.FetchModelCatalog(fctx)
+		})
 }
 
 // FetchModelClassesOrFallback fetches conductor's model-class catalog, degrading
@@ -243,16 +241,14 @@ func FetchModelCatalogOrEmpty(ctx context.Context, baseURL, token string) []type
 // harness selects the catalog (anthropic_managed_agents | openai_agents_sdk);
 // "" / "auto" falls back to the server default (anthropic).
 func FetchModelClassesOrFallback(ctx context.Context, baseURL, token, harness string) []types.ModelClassEntry {
-	if baseURL != "" {
-		fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		c := NewConductorClient(baseURL)
-		c.AuthToken = token
-		if classes, err := c.FetchModelClasses(fetchCtx, harness); err == nil && len(classes) > 0 {
-			return classes
-		}
-	}
-	return types.FallbackModelClasses()
+	return fetchOr(ctx, baseURL, token, types.FallbackModelClasses(),
+		func(fctx context.Context, c *ConductorClient) ([]types.ModelClassEntry, error) {
+			classes, err := c.FetchModelClasses(fctx, harness)
+			if err == nil && len(classes) == 0 {
+				return nil, errors.New("empty catalog") // 空目录也回退 bundled fallback
+			}
+			return classes, err
+		})
 }
 
 // appConfigResponse is the GET /cli/config envelope.
@@ -264,38 +260,9 @@ type appConfigResponse struct {
 // Studio Assistant agent id (empty string if the server hasn't configured one).
 // Mirrors FetchModelClasses's request shape.
 func (c *ConductorClient) FetchAppConfig(ctx context.Context) (string, error) {
-	if c.BaseURL == "" {
-		return "", errors.New("recommender: ConductorClient.BaseURL is empty")
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		c.BaseURL+DefaultAppConfigPath, nil)
+	out, err := doJSON[appConfigResponse](ctx, c, http.MethodGet, DefaultAppConfigPath, nil)
 	if err != nil {
 		return "", err
-	}
-	httpReq.Header.Set("Accept", "application/json")
-	if c.AuthToken != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.AuthToken)
-	}
-	client := c.HTTPClient
-	if client == nil {
-		client = &http.Client{Timeout: DefaultTimeout}
-	}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return "", fmt.Errorf("recommender: conductor unreachable: %w", err)
-	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("recommender: read response: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("recommender: conductor returned %d: %s",
-			resp.StatusCode, truncate(string(respBody), 240))
-	}
-	var out appConfigResponse
-	if err := json.Unmarshal(respBody, &out); err != nil {
-		return "", fmt.Errorf("recommender: decode response: %w", err)
 	}
 	return out.StudioAssistantAgentID, nil
 }
@@ -305,17 +272,10 @@ func (c *ConductorClient) FetchAppConfig(ctx context.Context) (string, error) {
 // logged in) so the desktop assistant degrades to static help instead of a
 // wrong-agent chat. Mirrors FetchModelClassesOrFallback's graceful shape.
 func FetchStudioAssistantID(ctx context.Context, baseURL, token string) string {
-	if baseURL == "" {
-		return ""
-	}
-	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	c := NewConductorClient(baseURL)
-	c.AuthToken = token
-	if id, err := c.FetchAppConfig(fetchCtx); err == nil {
-		return id
-	}
-	return ""
+	return fetchOr(ctx, baseURL, token, "",
+		func(fctx context.Context, c *ConductorClient) (string, error) {
+			return c.FetchAppConfig(fctx)
+		})
 }
 
 // MockClient returns canned data without calling out. The default canned
