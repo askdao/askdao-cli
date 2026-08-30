@@ -49,9 +49,6 @@ type Options struct {
 	// HomeDir overrides $HOME for harness-signal probing. Empty falls through
 	// to os.UserHomeDir().
 	HomeDir string
-	// IncludeEvals keeps skill evals/ subdirectories in the deployment payload
-	// (the `--no-evals` flag clears it; default keeps them out — false).
-	IncludeEvals bool
 }
 
 // Result is the full pipeline output. ProviderPlans is the per-provider
@@ -156,16 +153,6 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	det.InferredAptPackages = mergeAptHints(res.ProviderPlans, det.DetectedDockerfile)
 	dedupeFrameworks(det)
 	dedupeServices(det)
-
-	// 3b. Archetype + deployment payload. Archetype needs the assembled view
-	// (skills + languages + frameworks); the payload classifier needs the
-	// archetype to decide whether to drop input/data dirs.
-	det.Archetype = scanner.InferArchetype(det)
-	payload, payloadWarns := scanner.DetectDeploymentPayload(root, det, scanner.PayloadOptions{
-		IncludeEvals: opts.IncludeEvals,
-	})
-	det.DeploymentPayload = payload
-	res.Warnings = append(res.Warnings, payloadWarns...)
 
 	// 4. Policy phase.
 	if hints, err := recommender.InferToolRiskHints(root); err == nil {

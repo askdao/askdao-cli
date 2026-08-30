@@ -24,8 +24,6 @@ L1-L3 流水线确定性扫描器。issue #2 起底（syft / enry / dockerfile�
 
 ### v0.6 — 项目原型 + 部署清单（确定性，零 LLM）
 
-- **archetype.go** — `InferArchetype(det)` 纯函数，输入已装配的 Detection。打分：本地原创 skill 数（`IsLocalOriginal`，跳过 implied-builtin 占位）= pipeline 信号；service framework 命中 / 后端语言占比 >50% = app 信号。两个信号都有 → `mixed`；只 pipeline → `skill_pipeline`（confidence = 命中正向证据数 / 3，证据含「N 个 repo-native skill」「无 service framework」「语言以 Markdown/HTML/JSON 为主」）；只 app → `code_app`（framework + 后端双中 conf 0.9，否则 0.7）；都无 → `unknown`。语言桶：`backendLanguages` vs `docLanguages`，`dominantLanguageBucket` 判 >50%。**v0.8：`Scope=="user"` 的全局 skill 跳过计数**——它们不代表本项目原型，否则有全局 skill 库的 KOL 任何项目都会被误判 skill_pipeline。
-- **payload.go** — `DetectDeploymentPayload(root, det, opts)` 把项目目录分类成上传清单。三阶段：(1) ignore 规则 = `builtinIgnore`（编辑器/OS 垃圾、可重装的依赖缓存、build 输出、**secrets 文件 `.env*`/`*.pem`/`*.key` —— 永不上传**）→ `.gitignore` → `.dockerignore` → `.askdaoignore`（新约定，syntax 同 gitignore，`!pattern` 反向纳入），匹配复用 `glob.go` 的 `compileGlobs`/`matchAny`；(2) skill 单元 = 每个 `<skillDir>/<name>/` 一条：**v0.7 起所有 custom skill 一律进 Includes（vendored 和 repo-原生 无区别）** —— Anthropic Managed Agents 无公共 skill registry，custom skill 必须随包上传。每条用 `addSkillDirEntry`（`--no-evals` 时减掉 `evals/`），`Reason` 写入 origin tag（`"repo-native"` 或 `"vendored: <source> @ <short-hash>"`），由 render 层 inline 渲染；(3) 顶层条目：`agentDocNames`（CLAUDE.md/AGENTS.md/README）→ agent_doc；`manifestNames`（package.json/go.mod/skills-lock.json/Dockerfile/…）→ manifest；`generatedDirNames` + `*-old`/`*-bak` 后缀 → generated 排除；`userDataDirNames`（input/data/samples/tmp…）→ 仅 archetype==skill_pipeline 时排除；`.github` → 排除；其余 → 默认纳入（source/manifest）。负向 pattern 用 `resolveNegation` 在文件级把被排除目录里的具体文件捞回 Includes。warning：总体积 > 50 MiB。`humanBytes` 渲消息用。**不做 drift 检测**（见 skills_dir.go 说明）。
 
 ## 设计约束
 

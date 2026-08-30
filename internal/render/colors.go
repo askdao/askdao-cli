@@ -32,7 +32,6 @@ const (
 	ansiRed    = "\x1b[31m"
 	ansiGreen  = "\x1b[32m"
 	ansiYellow = "\x1b[33m"
-	ansiBlue   = "\x1b[34m"
 	ansiGrey   = "\x1b[90m"
 )
 
@@ -78,7 +77,6 @@ func (r *Renderer) color(code, s string) string {
 func (r *Renderer) red(s string) string    { return r.color(ansiRed, s) }
 func (r *Renderer) green(s string) string  { return r.color(ansiGreen, s) }
 func (r *Renderer) yellow(s string) string { return r.color(ansiYellow, s) }
-func (r *Renderer) blue(s string) string   { return r.color(ansiBlue, s) }
 func (r *Renderer) grey(s string) string   { return r.color(ansiGrey, s) }
 func (r *Renderer) bold(s string) string   { return r.color(ansiBold, s) }
 func (r *Renderer) dim(s string) string    { return r.color(ansiDim, s) }

@@ -22,11 +22,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"runtime"
 	"strings"
 	"time"
 
+	"github.com/askdao/askdao-cli/internal/browser"
 	"github.com/askdao/askdao-cli/internal/auth"
 )
 
@@ -88,7 +88,7 @@ func runAuthLogin(ctx context.Context, args []string) int {
 	fmt.Fprintln(os.Stderr)
 
 	if !*noBrowserFlag {
-		if err := openBrowser(start.VerificationURIComplete); err != nil {
+		if err := browser.Open(start.VerificationURIComplete); err != nil {
 			fmt.Fprintln(os.Stderr, "(could not open browser automatically:", err, ")")
 			fmt.Fprintln(os.Stderr, "   Visit the URL above manually.")
 		}
@@ -216,22 +216,6 @@ func defaultDeviceName() string {
 
 // openBrowser tries platform-appropriate commands; failure is non-fatal —
 // the URL is also printed to stderr so the user can copy it manually.
-func openBrowser(url string) error {
-	var bin string
-	var args []string
-	switch runtime.GOOS {
-	case "darwin":
-		bin, args = "open", []string{url}
-	case "windows":
-		bin, args = "cmd", []string{"/c", "start", "", url}
-	default: // linux, *bsd, etc.
-		bin, args = "xdg-open", []string{url}
-	}
-	cmd := exec.Command(bin, args...)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	return cmd.Start()
-}
 
 // ---------------------------------------------------------------------------
 // help

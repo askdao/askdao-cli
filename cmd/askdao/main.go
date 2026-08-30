@@ -97,14 +97,16 @@ func printAgentHelp(w io.Writer) {
     askdao agent <subcommand> [args]
 
 SUBCOMMANDS:
-    edit [--dir path] [--harness id] [--no-ui] [--force]
+    edit [--dir path] [--harness id] [--no-ui] [--force] [--observe]
         Scan the project (or load an existing askdao-agent.yml), open the local
         web studio to review/edit the spec + Agent profile and tick the skills /
         MCP servers to include, then Save or one-stop Deploy. --no-ui writes a
-        draft and exits (CI/headless).
+        draft and exits (CI/headless); --observe arms temporary hooks to
+        pre-select the skills/MCP a real claude session actually uses.
 
-    deploy [--harness id] [--force] [--bio text] [--dir path]
+    deploy [--harness id] [--force] [--confirm-downgrade] [--dir path]
         Read <dir>/askdao-agent.yml, package custom_local skills, and push to the
-        chosen harness via conductor.
+        chosen harness via conductor. --confirm-downgrade acknowledges taking an
+        approved shared/public agent private.
 `)
 }

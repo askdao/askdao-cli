@@ -10,14 +10,13 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sync"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 	"gopkg.in/yaml.v3"
 
+	"github.com/askdao/askdao-cli/internal/browser"
 	"github.com/askdao/askdao-cli/internal/auth"
 	"github.com/askdao/askdao-cli/internal/chat"
 	"github.com/askdao/askdao-cli/internal/deploy"
@@ -310,7 +309,7 @@ func (a *App) resolveOfficialAssistant() string {
 // target=_blank / window.open, so studio.html routes external-link clicks (the
 // group page) here via /api/open-external. Reuses openBrowser (same as login).
 func (a *App) openExternal(url string) error {
-	openBrowser(url)
+	_ = browser.Open(url)
 	return nil
 }
 
@@ -432,7 +431,7 @@ func (a *App) startLogin() (webstudio.LoginChallenge, error) {
 	a.mu.Lock()
 	a.df, a.deviceCode, a.server = df, resp.DeviceCode, server
 	a.mu.Unlock()
-	openBrowser(resp.VerificationURIComplete)
+	_ = browser.Open(resp.VerificationURIComplete)
 	return webstudio.LoginChallenge{
 		UserCode:        resp.UserCode,
 		VerificationURL: resp.VerificationURIComplete,
@@ -535,16 +534,3 @@ func placeholderData() *webstudio.StudioData {
 
 // openBrowser best-effort opens url in the default browser (macOS open / Windows
 // start / Linux xdg-open). Failure is non-fatal — the login panel also shows the URL.
-func openBrowser(url string) {
-	var cmd string
-	var args []string
-	switch runtime.GOOS {
-	case "darwin":
-		cmd, args = "open", []string{url}
-	case "windows":
-		cmd, args = "cmd", []string{"/c", "start", url}
-	default:
-		cmd, args = "xdg-open", []string{url}
-	}
-	_ = exec.Command(cmd, args...).Start()
-}
