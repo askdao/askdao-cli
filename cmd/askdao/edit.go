@@ -1,7 +1,7 @@
 // [INPUT]: internal/pipeline（Run）+ internal/webstudio（Serve / BuildStudioData / DefaultThemeForCategory）
 //
 //   - internal/deploy（DeployResponse / Err* 类型）+ internal/observe（Install / SweepStale）+ internal/types（AgentSpec / Detection）+ internal/recommender（DefaultCapabilities / BuildVaultHints / FetchModelClassesOrFallback）+ yaml；
-//     复用同包 helper：chooseLLMClient / readSpec / resolveServerAndToken / deployFromDir / ensureAskdaoDir /
+//     复用同包 helper：chooseLLMClient / readSpec / resolveServerAndToken / ensureAskdaoDir /
 //     defaultAgentName / askdaoAgentFileName / askdaoDirName
 //
 // [OUTPUT]: runEdit — `askdao agent edit` 命令实装
@@ -22,6 +22,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/askdao/askdao-cli/internal/deploy"
+	"github.com/askdao/askdao-cli/internal/deployflow"
 	"github.com/askdao/askdao-cli/internal/observe"
 	"github.com/askdao/askdao-cli/internal/pipeline"
 	"github.com/askdao/askdao-cli/internal/recommender"
@@ -83,7 +84,7 @@ func runEdit(ctx context.Context, args []string) int {
 	// Model-class catalog for the step-2 selector: fetched from conductor so the
 	// concrete model ids aren't baked into this binary. Degrades to a minimal
 	// bundled fallback offline (token is optional for edit).
-	editURL, editToken, _ := resolveServerAndToken()
+	editURL, editToken, _ := deployflow.ResolveServerAndToken()
 	// 三档视图按 spec 的 harness 取（离线回退用）；白名单 `models[]` 取两 harness 合集
 	// （cloud#84：Studio 下拉框选模型即切 harness；空 = 离线/旧 conductor → 前端回退三档）
 	data.ModelCatalog = recommender.FetchModelClassesOrFallback(ctx, editURL, editToken, spec.PreferredHarness)
@@ -130,7 +131,15 @@ func runEdit(ctx context.Context, args []string) int {
 			}
 			// Studio 里选的模型决定 harness（写进 yaml 的 preferred_harness）；--harness 只
 			// 作打开 Studio 时的初始种子，不再在部署时覆盖 KOL 在页面上的选择（cloud#84）。
-			resp, derr := deployFromDir(ctx, *dir, "", *force)
+			url, tok, aerr := deployflow.ResolveServerAndToken()
+			if aerr != nil {
+				return nil, studioDeployError(aerr)
+			}
+			prep, perr := deployflow.Prepare(*dir, "")
+			if perr != nil {
+				return nil, studioDeployError(perr)
+			}
+			resp, derr := prep.Deploy(ctx, url, tok, *force, false)
 			if derr != nil {
 				return nil, studioDeployError(derr)
 			}

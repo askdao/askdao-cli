@@ -1,11 +1,11 @@
-// [INPUT]: 标准库 + internal/auth（Credentials / Load / ErrNoCredentials）+ internal/deploy（Client / DeployInput / Err* 类型）+ internal/deployflow（PackageSkills — skill 打包单源）+ internal/render（Diff / TranslationWarnings）+ internal/types（AgentSpec）+ gopkg.in/yaml.v3
-// [OUTPUT]: runDeploy — `askdao agent deploy` 命令实装；deployFromDir / deployFromDirWithConfirm — 部署入口（skill 打包已提取到 internal/deployflow.PackageSkills 单源，CLI + 桌面共用）
+// [INPUT]: 标准库 + internal/deploy（Err* 类型）+ internal/deployflow（Prepare/Deploy/ResolveServerAndToken 装配单源）+ internal/render（Diff / TranslationWarnings）+ internal/types（AgentSpec）+ gopkg.in/yaml.v3
+// [OUTPUT]: runDeploy — `askdao agent deploy` 命令实装（装配走 internal/deployflow.Prepare+Deploy 单源，CLI / studio / 桌面共用）
 // [POS]: cmd/askdao 的 deploy 子命令；读 <dir>/askdao-agent.yml 原文 + 经 internal/deployflow.PackageSkills 按 skill.path（project 相对 / 绝对 / ~ / Scope=="user"）
 //
 //	统一解析 + 递归打 zip（harness 中性 invariant）→ 经 internal/deploy.Client 上传 conductor /cli/deploy；处理
 //	kol_profile_required 时引导去 askdao.ai/dashboard/subscription（kol_join_mode 在订阅模式页设置，KOL profile 归云端）+ blocking-warning gating（仅 REJECTED 阻断，severity 不 gate）
 //	+ visibility 降级确认闸（409 visibility_downgrade_requires_confirm → promptVisibilityDowngrade 危险警告 + stdin Y/N，yes 重发带确认字段；--confirm-downgrade 非交互通道）+ 结果打印。
-//	Token / server URL 解析顺序见 resolveServerAndToken (env > credentials.json > error)，对齐 docs/cli-auth-device-flow.md §6.3.
+//	Token / server URL 解析走 deployflow.ResolveServerAndToken (env > credentials.json > error)，对齐 docs/cli-auth-device-flow.md §6.3.
 //
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package main
@@ -23,7 +23,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/askdao/askdao-cli/internal/auth"
 	"github.com/askdao/askdao-cli/internal/deploy"
 	"github.com/askdao/askdao-cli/internal/deployflow"
 	"github.com/askdao/askdao-cli/internal/render"
@@ -31,15 +30,10 @@ import (
 )
 
 // runDeploy implements `askdao agent deploy [--dir path] [--harness id] [--force]`:
-// reads <dir>/askdao-agent.yml (sent verbatim), packages every custom_local
-// skill directory into a zip via the shared packageSkills (recursively
-// including SKILL.md + scripts/ + assets/ + references/ etc., harness-neutral
-// by virtue of filepath.Base) — the same source of truth the web studio's
-// deployFromDir uses, so CLI and studio resolve project / absolute / ~ /
-// user-scope skill paths identically — POSTs everything to the conductor
-// /cli/deploy endpoint, runs the kol_profile_required handshake when needed,
-// gates on blocking (REJECTED / deploy-fatal) translation warnings (override
-// with --force), and prints the resulting agent / group / skill IDs.
+// assembles the bundle via deployflow.Prepare (the single source the web studio
+// and desktop share), prints diff preview / progress, POSTs via deployflow
+// Deploy, handles the kol_profile_required handshake and the visibility
+// downgrade prompt, and prints the resulting agent / group IDs.
 func runDeploy(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("deploy", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "KOL project root containing askdao-agent.yml")
@@ -50,23 +44,19 @@ func runDeploy(ctx context.Context, args []string) int {
 		return 2
 	}
 
-	agentYAMLPath := filepath.Join(*dir, askdaoAgentFileName)
-	agentYAML, err := os.ReadFile(agentYAMLPath)
+	// 装配单源（deployflow.Prepare）：读 yaml + PackageSkills + detection + harness 默认链。
+	p, err := deployflow.Prepare(*dir, *harness)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "deploy: %v\n", err)
+		fmt.Fprintln(os.Stderr, "deploy:", err)
 		return 1
 	}
-	var spec types.AgentSpec
-	if err := yaml.Unmarshal(agentYAML, &spec); err != nil {
-		fmt.Fprintf(os.Stderr, "deploy: parse %s: %v\n", agentYAMLPath, err)
-		return 1
-	}
-	fmt.Println("→ Reading", agentYAMLPath)
+	fmt.Println("→ Reading", filepath.Join(*dir, askdaoAgentFileName))
 
 	// Optional diff preview against the frozen recommendation snapshot
 	// (`init --auto` writes it; a from-scratch agent.yml won't have one).
+	// 有意先于凭据检查：未登录用户也能看到自己改了什么。
 	if original, derr := readSpec(filepath.Join(*dir, ".askdao", "recommendation.yml")); derr == nil {
-		diffs := render.DiffAgentSpec(original, &spec)
+		diffs := render.DiffAgentSpec(original, p.Spec)
 		if len(diffs) == 0 {
 			fmt.Println("→ No fields changed since the last recommendation.")
 		} else {
@@ -75,7 +65,7 @@ func runDeploy(ctx context.Context, args []string) int {
 		}
 	}
 
-	conductorURL, token, authErr := resolveServerAndToken()
+	conductorURL, token, authErr := deployflow.ResolveServerAndToken()
 	if authErr != nil {
 		fmt.Println()
 		fmt.Println("✗ deploy:", authErr)
@@ -83,51 +73,13 @@ func runDeploy(ctx context.Context, args []string) int {
 		return 3
 	}
 
-	// Package each custom_local skill's directory via the shared packageSkills —
-	// the single source of truth also used by the web studio's deployFromDir.
-	// It resolves project-relative, absolute, ~-prefixed, and Scope=="user"
-	// (global) skill paths uniformly (see resolveSkillDir), and applies the
-	// harness-neutral invariant (zip top dir = filepath.Base, design.md §9.14:
-	// Anthropic only ever sees `tts/SKILL.md` regardless of the on-disk
-	// .claude/ or .agents/ prefix). Keeping a separate inline loop here once
-	// caused the CLI to mishandle global skills the studio packaged fine.
-	skillZips, err := deployflow.PackageSkills(*dir, &spec)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "deploy:", err)
-		return 1
+	if n := len(p.SkillZips); n > 0 {
+		fmt.Printf("→ Packaged %d custom skill(s): %s\n", n, strings.Join(sortedKeys(p.SkillZips), ", "))
 	}
+	printDeployProgress(conductorURL, p.HarnessID, len(p.SkillZips))
 
-	// Optional detection.json — sent if present.
-	var detection []byte
-	if d, derr := os.ReadFile(filepath.Join(*dir, ".askdao", "detection.json")); derr == nil {
-		detection = d
-	}
-
-	harnessID := *harness
-	if harnessID == "" {
-		harnessID = spec.PreferredHarness
-	}
-	if harnessID == "" {
-		harnessID = "anthropic_managed_agents"
-	}
-
-	cl := deploy.NewClient(conductorURL)
-	cl.AuthToken = token
-	in := deploy.DeployInput{
-		AgentYAML:                  agentYAML,
-		Detection:                  detection,
-		HarnessID:                  harnessID,
-		Force:                      *force,
-		ConfirmVisibilityDowngrade: *confirmDowngrade,
-		SkillZips:                  skillZips,
-	}
-
-	if n := len(skillZips); n > 0 {
-		fmt.Printf("→ Packaged %d custom skill(s): %s\n", n, strings.Join(sortedKeys(skillZips), ", "))
-	}
-	printDeployProgress(conductorURL, harnessID, len(skillZips))
-
-	resp, derr := cl.Deploy(ctx, in)
+	confirm := *confirmDowngrade
+	resp, derr := p.Deploy(ctx, conductorURL, token, *force, confirm)
 	if derr != nil {
 		// Visibility downgrade gate: the yaml explicitly sets visibility: private
 		// on an agent that is approved and publicly serving. Warn about both
@@ -139,8 +91,8 @@ func runDeploy(ctx context.Context, args []string) int {
 			if !promptVisibilityDowngrade(vdc) {
 				return 1
 			}
-			in.ConfirmVisibilityDowngrade = true
-			resp, derr = cl.Deploy(ctx, in)
+			confirm = true
+			resp, derr = p.Deploy(ctx, conductorURL, token, *force, confirm)
 		}
 	}
 	if derr != nil {
@@ -396,43 +348,6 @@ func sortedKeys(m map[string][]byte) []string {
 	return out
 }
 
-// resolveServerAndToken picks the conductor URL + bearer token for deploy.
-//
-// Precedence (docs/cli-auth-device-flow.md §6.3 — env-first, matches
-// aws/gcloud/kubectl):
-//
-//  1. $ASKDAO_CONDUCTOR_TOKEN + $ASKDAO_CONDUCTOR_URL (both required if either
-//     is set) — CI / one-off override
-//  2. credentials.json from `askdao auth login` — interactive default
-//  3. error — caller prints the actionable hint
-//
-// The two env vars travel as a pair: explicitly setting only one is almost
-// certainly a misconfiguration and silently falling back to credentials.json
-// would be more confusing than the error.
-func resolveServerAndToken() (string, string, error) {
-	envToken := strings.TrimSpace(os.Getenv("ASKDAO_CONDUCTOR_TOKEN"))
-	envURL := strings.TrimSpace(os.Getenv("ASKDAO_CONDUCTOR_URL"))
-
-	if envToken != "" && envURL != "" {
-		return envURL, envToken, nil
-	}
-	if envToken != "" && envURL == "" {
-		return "", "", errors.New("ASKDAO_CONDUCTOR_TOKEN is set but ASKDAO_CONDUCTOR_URL is not")
-	}
-	if envURL != "" && envToken == "" {
-		return "", "", errors.New("ASKDAO_CONDUCTOR_URL is set but ASKDAO_CONDUCTOR_TOKEN is not")
-	}
-
-	creds, err := auth.Load()
-	if err != nil {
-		if errors.Is(err, auth.ErrNoCredentials) {
-			return "", "", errors.New("not logged in")
-		}
-		return "", "", err
-	}
-	return creds.Server, creds.AccessToken, nil
-}
-
 // readSpec parses an agent.yml-style file into an AgentSpec — used for the
 // deploy diff preview against .askdao/recommendation.yml.
 func readSpec(path string) (*types.AgentSpec, error) {
@@ -445,57 +360,4 @@ func readSpec(path string) (*types.AgentSpec, error) {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	return &s, nil
-}
-
-// deployFromDir reads <dir>/askdao-agent.yml, packages its custom_local skills,
-// and POSTs to conductor /cli/deploy. It performs no interactive prompting —
-// callers handle typed errors (*deploy.ErrKolProfileRequired,
-// *deploy.ErrBlockingWarnings). Used by the web studio's one-stop OnDeploy.
-func deployFromDir(ctx context.Context, dir, harnessOverride string, force bool) (*deploy.DeployResponse, error) {
-	return deployFromDirWithConfirm(ctx, dir, harnessOverride, force, false)
-}
-
-// deployFromDirWithConfirm is deployFromDir plus the visibility-downgrade
-// confirmation flag (deploy.DeployInput.ConfirmVisibilityDowngrade). The desktop
-// studio re-sends with confirmDowngrade=true after the user acknowledges an
-// in-app downgrade prompt; deployFromDir passes false, so the CLI web studio
-// path is unchanged.
-func deployFromDirWithConfirm(ctx context.Context, dir, harnessOverride string, force, confirmDowngrade bool) (*deploy.DeployResponse, error) {
-	agentYAML, err := os.ReadFile(filepath.Join(dir, askdaoAgentFileName))
-	if err != nil {
-		return nil, err
-	}
-	var spec types.AgentSpec
-	if err := yaml.Unmarshal(agentYAML, &spec); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", askdaoAgentFileName, err)
-	}
-	skillZips, err := deployflow.PackageSkills(dir, &spec)
-	if err != nil {
-		return nil, err
-	}
-	var detection []byte
-	if d, derr := os.ReadFile(filepath.Join(dir, ".askdao", "detection.json")); derr == nil {
-		detection = d
-	}
-	harnessID := harnessOverride
-	if harnessID == "" {
-		harnessID = spec.PreferredHarness
-	}
-	if harnessID == "" {
-		harnessID = "anthropic_managed_agents"
-	}
-	conductorURL, token, err := resolveServerAndToken()
-	if err != nil {
-		return nil, err
-	}
-	cl := deploy.NewClient(conductorURL)
-	cl.AuthToken = token
-	return cl.Deploy(ctx, deploy.DeployInput{
-		AgentYAML:                  agentYAML,
-		Detection:                  detection,
-		HarnessID:                  harnessID,
-		Force:                      force,
-		ConfirmVisibilityDowngrade: confirmDowngrade,
-		SkillZips:                  skillZips,
-	})
 }

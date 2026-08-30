@@ -335,7 +335,7 @@ func TestDeploy_ConfirmDowngradeFlag_Passes(t *testing.T) {
 		}
 		writeJSON(w, http.StatusOK, deploy.DeployResponse{
 			AgentID: "agt_downgraded", AnthropicAgentID: "agent_d", AnthropicEnvironmentID: "env_d",
-			GroupID: "grp_d",
+			GroupID:           "grp_d",
 			TranslationReport: deploy.TranslationReport{Harness: "anthropic_managed_agents"},
 		})
 	}))

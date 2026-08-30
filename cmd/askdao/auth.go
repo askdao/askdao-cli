@@ -26,8 +26,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/askdao/askdao-cli/internal/browser"
 	"github.com/askdao/askdao-cli/internal/auth"
+	"github.com/askdao/askdao-cli/internal/browser"
 )
 
 // runAuth dispatches `askdao auth <subcommand>`.

@@ -1,6 +1,6 @@
 // [INPUT]: context/errors/fmt/net·url/os/path·filepath/sync + gopkg.in/yaml.v3 + wails runtime；internal/{auth,chat,deploy,deployflow,pipeline,recommender,scanner,types,webstudio}
 // [OUTPUT]: App（Wails bound-method 宿主 + 登录/项目态）+ StudioOptions（注入 webstudio 数据与桌面回调）
-// [POS]: cmd/askdao-studio 应用层 —— 桌面壳业务逻辑：登录(device flow)/扫描(pick 选文件夹→run 跑管线,Stop 可 cancel)/保存(写 yaml)/部署(deployflow.PackageSkills 单源 + deploy.Client)/测试聊天(chat 流式转发 conductor /chat)/内嵌助手(assistant 流式转发官方 Studio 助手 agent,resolveOfficialAssistant 从 conductor /cli/config 读回 agent id + 缓存 + env override)/SKILL 校验+补全(skillValidate/skillFix)/外链桥接(openExternal)，全复用 internal 核心包
+// [POS]: cmd/askdao-studio 应用层 —— 桌面壳业务逻辑：登录(device flow)/扫描(pick 选文件夹→run 跑管线,Stop 可 cancel)/保存(写 yaml)/部署(deployflow.Prepare+Deploy 装配单源)/测试聊天(chat 流式转发 conductor /chat)/内嵌助手(assistant 流式转发官方 Studio 助手 agent,resolveOfficialAssistant 从 conductor /cli/config 读回 agent id + 缓存 + env override)/SKILL 校验+补全(skillValidate/skillFix)/外链桥接(openExternal)，全复用 internal 核心包
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package main
 
@@ -16,10 +16,9 @@ import (
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 	"gopkg.in/yaml.v3"
 
-	"github.com/askdao/askdao-cli/internal/browser"
 	"github.com/askdao/askdao-cli/internal/auth"
+	"github.com/askdao/askdao-cli/internal/browser"
 	"github.com/askdao/askdao-cli/internal/chat"
-	"github.com/askdao/askdao-cli/internal/deploy"
 	"github.com/askdao/askdao-cli/internal/deployflow"
 	"github.com/askdao/askdao-cli/internal/pipeline"
 	"github.com/askdao/askdao-cli/internal/recommender"
@@ -176,10 +175,9 @@ func (a *App) save(spec *types.AgentSpec) error {
 	return os.WriteFile(filepath.Join(dir, agentYAMLName), yml, 0o644)
 }
 
-// deploy saves the spec, packages its skills via the single-source
-// deployflow.PackageSkills, and POSTs to conductor. Assembly (read yaml + auth +
-// deploy.Client) mirrors cmd/askdao's deployFromDir; typed deploy errors surface
-// to the frontend dialog verbatim.
+// deploy saves the spec, then assembles + POSTs via the single-source
+// deployflow.Prepare/Deploy (same chain as the CLI and web studio); typed
+// deploy errors surface to the frontend dialog verbatim.
 func (a *App) deploy(spec *types.AgentSpec) (*webstudio.DeployResult, error) {
 	if err := a.save(spec); err != nil {
 		return nil, err
@@ -187,26 +185,19 @@ func (a *App) deploy(spec *types.AgentSpec) (*webstudio.DeployResult, error) {
 	a.mu.Lock()
 	dir := a.dir
 	a.mu.Unlock()
-	agentYAML, err := os.ReadFile(filepath.Join(dir, agentYAMLName))
-	if err != nil {
-		return nil, err
-	}
-	skillZips, err := deployflow.PackageSkills(dir, spec)
-	if err != nil {
-		return nil, err
-	}
-	creds, err := auth.Load()
+	// 装配走 deployflow.Prepare 单源（与 CLI/studio 同链）：桌面由此白拿 Detection 透传、
+	// harness 默认链与 env override（ResolveServerAndToken：env pair > credentials.json）——
+	// 此前桌面内联装配漂移，四者全缺。
+	conductorURL, token, err := deployflow.ResolveServerAndToken()
 	if err != nil {
 		return nil, errors.New("not logged in — sign in to AskDAO first")
 	}
-	cl := deploy.NewClient(creds.Server)
-	cl.AuthToken = creds.AccessToken
-	// harness 跟着 Studio 里选的模型走（spec.preferred_harness，cloud#84）；空 = conductor 默认
-	resp, err := cl.Deploy(a.reqCtx(), deploy.DeployInput{
-		AgentYAML: agentYAML,
-		HarnessID: spec.PreferredHarness,
-		SkillZips: skillZips,
-	})
+	p, err := deployflow.Prepare(dir, "")
+	if err != nil {
+		return nil, err
+	}
+	// harness 跟着 Studio 里选的模型走（spec.preferred_harness 已随 save 落盘，cloud#84）
+	resp, err := p.Deploy(a.reqCtx(), conductorURL, token, false, false)
 	if err != nil {
 		return nil, err
 	}

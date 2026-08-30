@@ -73,4 +73,3 @@ func TestRenderTranslationWarnings_EmptyNoop(t *testing.T) {
 		t.Errorf("empty warnings should be noop, got %q", buf.String())
 	}
 }
-

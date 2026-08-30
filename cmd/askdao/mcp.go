@@ -26,6 +26,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/askdao/askdao-cli/internal/deployflow"
 )
 
 const (
@@ -67,7 +69,7 @@ func runMCPSetup(ctx context.Context, args []string) int {
 		return 2
 	}
 
-	server, token, err := resolveServerAndToken()
+	server, token, err := deployflow.ResolveServerAndToken()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "✗", err)
 		fmt.Fprintln(os.Stderr, "  Run `askdao auth login` first.")

@@ -1,7 +1,9 @@
 // [INPUT]: 标准库 (io, os/exec, runtime)
 // [OUTPUT]: 对外提供 Open(url) error —— 跨平台打开默认浏览器
 // [POS]: internal/browser 唯一成员。此前 webstudio/server、askdao-studio/app、askdao/auth
-//        三处各写一份 darwin/windows/xdg-open 三分支，收敛于此；caller 自行决定是否吞错
+//
+//	三处各写一份 darwin/windows/xdg-open 三分支，收敛于此；caller 自行决定是否吞错
+//
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package browser
 
