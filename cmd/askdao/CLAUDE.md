@@ -1,41 +1,34 @@
 # cmd/askdao/
 > L2 | 父级: ../../CLAUDE.md
 
-CLI 入口与用户命令（**auth login/status/logout · agent edit/deploy**）的实装。这里只做参数解析 + IO + 调用 pipeline / webstudio / deploy / auth；业务逻辑都在 internal/。**v0.8 命令精简**：核心审阅入口从一堆 CLI 子命令（init/show/detect/bundle + [A/E/R/S/D/F/M/W/P/Q] 字符菜单）收敛为单一 `agent edit` 本地 Web 工作台；旧命令的价值（扫描报告 / 上传清单 / 卡片审阅）收进工作台视图。
+CLI 入口与用户命令（auth · mcp · agent edit/deploy · update）的实装。只做参数解析 + IO + 调用 internal/ 各层；审阅入口收敛为 `agent edit` 本地 Web 工作台。实现细节见各文件头注释；历史变更见 [../../CHANGELOG.md](../../CHANGELOG.md)。
 
 ## 成员清单
 
-- **main.go** — subcommand router。无第三方 CLI 框架；stdlib `flag` + 手写 dispatch。一级命令 `auth / agent / mcp / update / version / help`；`agent` 二级 dispatch 到 `edit / deploy`；`auth` 二级 dispatch 到 `login / status / logout`；`mcp` 二级 dispatch 到 `setup`。
-- **update.go** — `askdao update [--force]`：调 `internal/selfupdate.Updater.Run` 自升级到最新 GitHub Release。`-dev` 后缀版本（snapshot/源码构建）拒绝并提示 `go install`（--force 越过）；`ErrUpToDate` → 友好输出 exit 0；--force 同版本重装（验证换装链路用）。
-- **mcp.go** — `askdao mcp setup [--print]`（onboarding 计划 M2）：核心逻辑抽在 `applyMCPSetup(ctx, server, bearer)`（**auth login 成功后自动调用**，standalone 命令是重试/手动入口）。调对外端点 `GET /api/v1/cli/mcp-credentials`（standalone 时 token 解析复用 `deployflow.ResolveServerAndToken`，401/503 友好报错）取 `{gateway_url, token}` → 检测本机 harness（`~/.claude`(.json) / `~/.codex`）→ **claude**：read-modify-write `~/.claude.json` 只 upsert `mcpServers.askdao-mcp`（type=http + literal Bearer header；malformed JSON 拒绝 clobber；原子写 temp+rename），其余键全保留；**codex**：`~/.codex/config.toml` 只追加 `[mcp_servers.askdao-mcp]` 块（`bearer_token_env_var = ASKDAO_MCP_TOKEN`；手维护文件不做 TOML round-trip 不破坏注释；表头文本存在即幂等跳过）+ env var 落地（Windows `setx`，unix 打印 export 行不擅改 shell profile）。`--print` 零写入只输出三段 snippet。线上 Agent 凭证由 Vault 注入，本命令只服务本地调试 + `agent edit` 扫描发现。
-- **mcp_test.go** — `httptest` 假服务端：双 harness 写入（无关键/既有 server 保留 + TOML 原内容完整）/ 二次运行幂等（块唯一 + entry 唯一）/ malformed `~/.claude.json` 拒绝 clobber 原字节不动 / `--print` 零写入 / 503 → exit 1 / 无 harness → exit 1。HOME/USERPROFILE 双 env 注入临时目录。
-- **common.go** — 共享 helper（edit/deploy 共用）：`askdaoAgentFileName`(`askdao-agent.yml`) / `askdaoDirName`(`.askdao`) 常量 + `ensureAskdaoDir` + `defaultAgentName`（项目根 basename） + `chooseLLMClient`（env/credentials → ConductorClient，否则离线 MockClient；partial env 报错不静默 mock）。
-- **auth.go** — `askdao auth login [--server url] [--name device-name] [--no-browser]` / `status` / `logout`。login 编排 OAuth 2.0 Device Code Flow（RFC 8628）：`auth.NewDeviceFlow(...).Start` → 打印 `user_code` + 开浏览器（`open`/`xdg-open`/`cmd /c start`）→ `PollUntilApproved` → `auth.Save` 落 `~/.config/askdao/credentials.json`（0600）→ **登录成功后自动跑 `applyMCPSetup`（mcp.go）**：用刚拿到的 server+token 配置本机 askdao-mcp，fail-soft——任何失败（平台 503 / 无 harness）只打印提示 + 指引 `askdao mcp setup` 重试，不影响 login exit code。server URL 解析 `--server` > `$ASKDAO_CONDUCTOR_URL` > `auth.DefaultServerURL`。`status` 输出身份，无凭据 exit 1；`logout` 删本地。设计稿 [../../docs/cli-auth-device-flow.md](../../docs/cli-auth-device-flow.md) §6。
-- **edit.go** — `askdao agent edit [--dir path] [--harness id] [--no-ui] [--force] [--observe]`。**v0.8 核心命令**：`runEdit` → `loadOrScan`（存在 `askdao-agent.yml` 则加载 + 重扫拿 skill/MCP 候选，返回 `loaded=true`；否则跑 `pipeline.Run` 生成草稿 + `writeBaseline` 落 `.askdao/`，`loaded=false`；**两分支都覆盖 `spec.Capabilities = recommender.DefaultCapabilities(detRiskHints(det))`**；**`!loaded` 全新草稿分支再覆盖 `spec.VaultHints = recommender.BuildVaultHints(det)`**（只声明真凭证、排除配置参数；`loaded` 编辑已有 yaml 不覆写，尊重 KOL 已存）—— 均 hard field 不交 LLM 即兴，§9.13 同 skills）→ `loaded` 透传 `BuildStudioData(...,restorePrior=loaded)`：**编辑已有 yaml 时忠实回显 KOL 上次勾选的 skill/MCP（含 stdio MCP），全新草稿走默认策略** → 默认主题色（`webstudio.DefaultThemeForCategory`）→ 启 `webstudio.Serve`（`OnSave`=`writeAgentSpec` 写 yaml；`OnDeploy`=写 yaml + `deployflow.Prepare` + `Deploy`（harnessOverride 传空：Studio 里选的模型决定 harness，`--harness` 只作打开 Studio 时的初始种子——`loadOrScan` 对已有 yaml 也按 flag 覆盖 `spec.PreferredHarness` 一次，cloud#84）+ `studioDeployError` 把 kol_profile 错转「去 askdao.ai/dashboard/subscription 选订阅模式」引导 + `deployResultLine`）。**`--observe`**：观测真实 claude session 预勾真正用到的 skill/MCP —— 进流程先 `observe.SweepStale` 清残留，`webstudio.Serve` 的 `OnReady(port)` 回调里 `observe.Install` 写临时 PreToolUse hook（指向 `/api/observe`）+ `printObserveGuide` 引导 KOL 另开终端跑 `claude`，`defer` cleanup 字节级还原（零残留三件套见 [../../internal/observe/CLAUDE.md](../../internal/observe/CLAUDE.md)）。`--no-ui` 降级为扫描+写草稿退出（CI/headless）。复用：`chooseLLMClient` / `readSpec` / `deployflow.{Prepare,Deploy,ResolveServerAndToken}` / `ensureAskdaoDir` / `defaultAgentName`。**第二步 model 选择器**：BuildStudioData 后 `data.ModelCatalog = recommender.FetchModelClassesOrFallback(ctx, deployflow.ResolveServerAndToken())` 注入 —— 模型档从 conductor `/cli/model-classes` 拉、离线/未登录降级 `FallbackModelClasses`，客户端零硬编码 model id。
-- **deploy.go** — `askdao agent deploy [--dir path] [--harness id] [--force] [--confirm-downgrade]`。读 `<dir>/askdao-agent.yml` **原始字节**（不 re-marshal）+ 解析；`.askdao/recommendation.yml` 存在则先 `render.DiffAgentSpec` 显示 KOL 改动；skill 打包统一经 **`internal/deployflow.PackageSkills`**（提取到 internal 单源，CLI + 桌面工作台共用；v0.8.1 起 runDeploy 删内联循环改调，消除分叉；随桌面复用需求从 cmd 提取到 internal/deployflow —— deploy 纪律 stdlib-only 不收 types/scanner）：每个 `custom_local` skill 先过 **frontmatter 前置校验**（`scanner.ParseSkillFrontmatter`：`name`/`description` 必填 + frontmatter name 跨 skill 唯一 —— description 是模型触发 skill 的语义匹配指令，缺了部署成功但永不激活，故 fail-fast；源自 design.md §9.11 野生案例验证），再经 `internal/deploy.ZipDir` 打 zip（harness 中性：`filepath.Base` 切上级路径）；经 `deploy.Client.Deploy` 以 `multipart/form-data` POST 对外端点 `/api/v1/cli/deploy`。`409 kol_profile_required` → **引导去订阅模式页**（M4：URL 优先用服务端下发的 `detail.setup_url`，`kolProfileSetupURL` helper 统一解析、硬编码 dashboard/subscription 仅作老版服务端 fallback——根治页面改版后客户端提示漂移；409 gate 只查 kol_join_mode，该字段由订阅模式页「激活」按钮写入；profile 页只写 name/image/bio 不解 gate。KOL profile 归云端，不再 prompt bio / 自动 PATCH，与 edit 的 `studioDeployError` 一致）；`ErrBlockingWarnings`（blocking action = rejected，severity 不 gate）→ `RenderTranslationWarnings(ViewAll)` + `--force` gating；**`ErrVisibilityDowngradeConfirm`（降级确认闸）** → `promptVisibilityDowngrade` 打危险警告（两层后果：订阅者/展示页立即失访 + 改回公开需平台重审）后 stdin Y/N 确认（CLI 首个交互 prompt；stdin 非 TTY 或 EOF/非 yes 一律拒绝并指引 `--confirm-downgrade`——危险默认值绝不能靠沉默达成），yes 则带 `ConfirmVisibilityDowngrade=true` 重发；`--confirm-downgrade` flag 直接在首个请求带确认字段（CI/非交互通道，与 `--force` 语义分离）。**v0.7.1 update-mode**：`DeployResponse.Created` / `PreviousManagedVersion` 区分 `Created` vs `Updated (vN→vN+1)`。**#303 `ScheduleWarning`**：conductor 对 <15min 触发间隔的 schedule 返回费用提示，`printDeployResult` 以 `⚠️ SCHEDULE COST WARNING` 显著输出（非阻断，产品决策频率不设硬下限、护栏在界面）。装配全走 `internal/deployflow`（Prepare + Deploy + ResolveServerAndToken；CLI / web studio / 桌面三入口单源）。helper：`printDeployResult` / `printDeployProgress` / `formatSkillRef` / `toRenderWarnings` / `readSpec`。
-- **\*\_test.go** — `cmd_test.go`：`edit --no-ui`（写 askdao-agent.yml + detection.json）/ `deploy 无服务端 URL 错出` / `deploy 含 diff 显示 before/after`；`deploy_test.go`（`httptest` 假服务端）：e2e happy（验 multipart + skill zip）/ `409 kol_profile_required` → 引导去 askdao.ai/dashboard/subscription + exit 1（不 retry、不调 /kol-profile PATCH）/ blocking-warning gating ±`--force`（mock rejected warning 触发 409）/ 缺 skill 目录 exit 1。`skill_package_test.go`（**v0.8.1 守 skill 打包真相源**）：`TestResolveSkillDir` 表驱动锁四分支（`~/`展开 / 绝对路径 / `Scope=="user"` 相对 / project 相对 join dir）+ `TestDeploy_UserScopeAbsolutePath` e2e 回归（yaml 含全局 skill 绝对路径 + `scope: user` → `runDeploy` 经 packageSkills 正确打包，验旧内联循环 `filepath.Join(dir, abs)` 拼错路径的 bug 已修）+ `TestPackageSkills_FrontmatterValidation`（frontmatter 缺 name / 缺 description / name 撞名的拒绝路径 + 完整 frontmatter 通过）。`captureStdout` 临时 redirect helper。
+- **main.go** — subcommand router（stdlib flag + 手写 dispatch，无第三方 CLI 框架）
+- **common.go** — edit/deploy 共享 helper（文件名常量 / ensureAskdaoDir / defaultAgentName / chooseLLMClient）
+- **auth.go** — auth login/status/logout（Device Code Flow 编排 + 凭据落盘；登录成功自动配置 askdao-mcp，fail-soft）
+- **mcp.go** — mcp setup：取 gateway 凭证写本机 Claude Code(.claude.json upsert) / Codex(config.toml 追加)，幂等 + 原子写 + malformed 拒绝 clobber；--print 零写入
+- **update.go** — 自升级命令壳（-dev 构建拒绝，--force 越过）
+- **edit.go** — agent edit 核心命令：loadOrScan（加载或扫描生成草稿 + 确定性硬字段覆盖）→ webstudio.Serve（OnSave/OnDeploy 回调注入）；--observe 观测流程；--no-ui 降级写草稿退出；模型目录注入
+- **deploy.go** — agent deploy：读原始 yaml 字节 + diff 显示 + deployflow 装配 → 409 三义分流（KOL 资料引导 / blocking-warning gating / 降级确认 prompt）+ update-mode 与 schedule 警示输出
+- **\*\_test.go** — cmd/deploy/mcp/skill 打包各 e2e 与回归（httptest 假服务端）
 
 ## 设计约束
 
-- **stdlib only**：不引 cobra / kingpin。手写 router 简单稳定，二进制小。
-- **命令收敛到 agent edit / deploy**（v0.8）：审阅/编辑/发布走 `agent edit`（本地 Web 工作台，go:embed 单页，见 [../../internal/webstudio/CLAUDE.md](../../internal/webstudio/CLAUDE.md)）；命令行直接发布走 `agent deploy`（手动 / CI / 手编 yaml 用户）。系统未上线，无向后兼容包袱，砍掉 init/show/detect/bundle 不保留。
-- **KOL Profile 不在本地 CLI/工作台**：归 askdao.ai 云端 web（认证后未填则云端补）；`edit` 与 `deploy`（CLI）遇 `kol_profile_required` **统一引导去 https://askdao.ai/dashboard/subscription**（订阅模式页 —— 409 gate 的 kol_join_mode 在此设置），不再 prompt bio / 自动 PATCH —— KOL 在云端表单设 `kol_join_mode` 后重跑 deploy。
-- **服务端 env / token 解析**：`ASKDAO_CONDUCTOR_URL` + `ASKDAO_CONDUCTOR_TOKEN`。edit 时 token 可选（无配置 → MockClient 离线生成草稿）；deploy 时必填，解析 env 成对（单设一个报错）> credentials.json > error。
-- **deploy 发原始 askdao-agent.yml 字节**：不 yaml.Marshal 往返，保留 KOL 注释 / 字段顺序 / 未知字段（服务端忽略未知字段做 forward-compat）。
-- **error 退出码**：0 成功 / 1 业务错 / 2 用法错 / 3 conductor URL/token 未配置（deploy）。
+- **stdlib only**：不引 cobra；手写 router 简单稳定二进制小
+- **KOL Profile 归云端**：遇 `kol_profile_required` 统一引导去订阅模式页（URL 优先服务端下发），不本地 prompt/PATCH
+- **deploy 发原始 yaml 字节**：不 Marshal 往返，保留注释/顺序/未知字段（服务端 forward-compat）
+- **危险默认值绝不靠沉默达成**：降级确认 stdin 非 TTY/EOF/非 yes 一律拒绝并指引 `--confirm-downgrade`
+- **退出码**：0 成功 / 1 业务错 / 2 用法错 / 3 conductor 未配置（deploy）
 
 ## 端到端验证
 
-`make build && ./askdao agent edit --dir <proj> --no-ui` → 扫描 + 写 `askdao-agent.yml`（含 `theme_color` 默认 token + `skills` 仅 project scope）+ `.askdao/{recommendation.yml,detection.json}`。
-
-`./askdao agent edit --dir <proj>`（默认）→ 启 `127.0.0.1:随机端口` Web 工作台 + 开浏览器 → 审阅/编辑 profile/persona/主题色 + 按 scope 分组勾选 skill/MCP → Save / 一站式 Deploy。
-
-`deploy` e2e：`ASKDAO_CONDUCTOR_URL=… ASKDAO_CONDUCTOR_TOKEN=… ./askdao agent deploy --dir <proj>` → 上传 skill zip → `agent_id` / `group link` / update-mode `Created`/`Updated`。
+`make build && ./askdao agent edit --dir <proj> --no-ui` → 写 askdao-agent.yml + `.askdao/`；默认起 127.0.0.1 工作台；deploy e2e 验 multipart + skill zip + update-mode 输出。
 
 ## 已知限制
 
-- syft 不在 PATH 时 packages 列表空（软警告提示安装）。
-- Codex user-scope skill（`~/.agents/skills`）与 MCP（`~/.codex/config.toml` TOML）均已接入；Cursor 非目标 harness 已移除。
-- 远端 ID 不写回 `agent.yml` `status:`（P2）。
+- syft 不在 PATH 时 packages 列表空（软警告提示安装）
+- 远端 ID 不写回 yaml `status:`
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

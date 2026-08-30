@@ -1,31 +1,24 @@
 # internal/types/
 > L2 | 父级: ../../CLAUDE.md
 
-askdao-cli pipeline 的两份 schema 真相源。所有上层模块（scanner / providers / recommender / render / cmd）依赖此包定义的结构契约；服务端通过镜像同一 schema 契约解析 deploy 上送的 yaml（CI diff 校验对齐）。
+askdao-cli pipeline 的两份 schema 真相源。所有上层模块依赖此包定义的结构契约；服务端镜像同一 schema（CI diff 校验对齐）。字段语义细节见各文件头注释；历史演进见 [../../CHANGELOG.md](../../CHANGELOG.md)。
 
 ## 成员清单
 
-- **detection.go** — `Detection` schema (detection.json L1-L3 产物)。含 v0.4 完整 Dockerfile AST + v0.3 五个新字段（mcp_configs / skills / required_secrets / tool_risk_hints / harness_signals）+ v0.6 两个新字段（`Archetype ProjectArchetype` = code_app/skill_pipeline/mixed/unknown + confidence + evidence；`DeploymentPayload` = `Includes`/`Excludes` 两份 `PayloadEntry` 清单 + `TotalBytes`/`TotalFiles`/`IgnoreSources`）。**v0.7 删 `SkillReferences` 字段 + `SkillRef` struct** —— Anthropic Managed Agents 无公共 registry，所有 custom skill 一律进 Includes 上传；vendored 标签由 `DetectedSkill.LockedSource` + `LockedHash` 携带，bundle UI inline 渲染。`DetectedSkill` 字段：`Description` / `BundleBytes` / `BundleFiles` / `LockedSource` / `LockedHash` / `IsLocalOriginal`（全 omitempty）。`DetectionSchemaVersion = "askdao/detection/v1"` 是版本戳。JSON tag only。导出常量 `UnknownSecretPurpose`（未匹配任何凭证规则的 env key 的 `PurposeGuess` 值）供 `scanner` 标记 + `recommender.BuildVaultHints` 排除配置参数复用。**v0.8 给 `DetectedSkill` + `DetectedMCPConfig` 各加 `Scope`（project|user）+ `Harness`（claude|codex）** —— 支撑 harness 感知双 scope 扫描（工作目录 `.claude`→扫 `~/.claude`、`.agent`→Codex）+ 工作台按 scope 分组展示。
-- **agent_spec.go** — `AgentSpec` schema (askdao-agent.yml L4 输出 · harness-neutral 中间格式)。`apiVersion: askdao.ai/v1` + 八块顶层（metadata / persona / capabilities / mcp_servers / custom_tools / skills / workspace / vault_hints）+ `harness_specific` escape hatch + memory/wiki/guardrails/outcomes/schedule/provenance/status 服务端业务字段。**`Memory.Inject{User,Agent}Profile` + `Wiki`（Enabled/Evolution）驱动四个注入开关（`*bool` 三态：nil=未声明）—— **声明即生效**：写了值 conductor 每次 deploy 都按它设（同 outcomes/schedule）；nil 则不碰该列，由 web 工作台独占。****#303 加 `Outcomes`（Enabled *bool nil=true / Rubric / MaxIterations 1-5 服务端钳制）+ `Schedule`（Enabled / **Mode personal|broadcast 空=personal（conductor #326：personal 每人各跑各的、Builder cron 是订阅者默认值；broadcast Builder 跑一次落 Group + IM 通知，private agent 被 conductor 400）** / Cron 5 段 POSIX / Timezone IANA 空=UTC / Task / NotifyChannel 五渠道枚举空=最近绑定）：conductor-only 自动化块（交付验收 grader 迭代 + 例行运行），照 Memory/Guardrails 先例不上送 harness API；必须进 struct——`agent edit` Save 走 yaml.Marshal，不进 struct 的手写块会被抹掉。**同时提供 yaml + json tags。`AgentSpecAPIVersion` / `AgentSpecKind` 是版本戳。**v0.7 删 `Metadata.PersonaFile` 字段** —— persona 内容全在 `Persona.SystemPrompt` literal block 内，单一真相源。`Skill.Type` 三个值：`builtin` / `custom_local` / `git_repo`（最后一个 harness-agnostic 保留，Anthropic Adapter HIGH-warning skip）。`Skill.Path`（custom_local 用）= **相对 KOL 项目根的 skill 目录路径**（如 `.agents/skills/tts`），deploy 时 `ZipDir` 递归打包目录全部内容；harness 中性 invariant：filepath.Base 切掉 `.claude/`/`.agents/` 等上级，Anthropic 端只看到 `tts/SKILL.md` 形态。**v0.9 `Metadata` 加 `Language`：agent 声明的输出语言，ISO 639-1 小写两字母码（zh/en/…），空 = 通用自适应（跟随用户语言，发现广场任何语言筛选下都显示）；KOL 在工作台 Identity 步选择或手写 `metadata.language`，omitempty 空值不落 yaml；服务端镜像同步（CI diff）。** **v0.8 `Metadata` 加订阅者身份层（agent-bound）`Category` + `ThemeColor` + `DisplayName` + `Avatar`：ThemeColor 预设色板 token 非自由 hex；DisplayName 中文展示名，与 Name（运行时标识+dedup key）解耦、改它不动 dedup；Avatar 单 string 前缀（""=默认 / `icon:<lucide>` / url，颜色复用 ThemeColor）；四者跨仓贯通订阅者端 Group 页 / 广场。`Skill` 加 `Scope`（project|user，user 层全局 skill 的 `Path` 为绝对/`~` 前缀，deploy 据此解析）。**
-- **model_catalog.go** — `ModelClassEntry`（conductor `GET /api/v1/cli/model-classes` 旧 `classes[]` 三档视图镜像：slug/label/model_id/friendly_name/blurb/cost_tier/recommended）+ `FallbackModelClasses()`（离线兜底目录：仅 slug/label/blurb，**无 concrete model id** → 二进制不含模型 id，真 id 由 conductor 从 model_class 解析）+ `ModelEntry`（cloud#84 `models[]` 白名单镜像：model_id/provider/harness_id/display_name/blurb/model_class/recommended/sort_order/input·cached·output_usd_per_mtok；Studio 第二步下拉框渲染源，**选模型即由 harness_id 定 preferred_harness**；无离线兜底——空即回退三档）。模型 id 与价目单源在 conductor（Admin 后台维护）。
-- **detection_test.go** — Detection JSON marshal→unmarshal→DeepEqual round-trip 测试 + schema_version 钉死。
-- **agent_spec_test.go** — AgentSpec YAML round-trip 测试（基于 testdata/valid_agent.yml）+ strict 模式（KnownFields=true）拒收 invalid fixture + apiVersion/kind 钉死。
-- **testdata/valid_agent.yml** — 合法 fixture，覆盖全部八块。约定：`omitempty` 字段空值省略不写，避免 round-trip 把 `[]` 转为 nil 触发 DeepEqual 假阴。
-- **testdata/invalid_agent.yml** — 非法 fixture，含未知顶层字段 `mystery_field`，strict 解码必须 reject。
+- **detection.go** — `Detection` schema（detection.json L1-L3 产物）：packages/languages/dockerfile AST/runtimes/mcp_configs/skills/required_secrets/tool_risk_hints/harness_signals；DetectedSkill 与 DetectedMCPConfig 各带 Scope（project|user）+ Harness 支撑双 scope 扫描；`UnknownSecretPurpose` 常量供 scanner 标记 + recommender 排除
+- **agent_spec.go** — `AgentSpec` schema（askdao-agent.yml，harness-neutral 中间格式）：八块顶层 + harness_specific + memory/wiki/guardrails/outcomes/schedule/provenance/status 服务端业务块（`*bool` 三态声明即生效语义）+ 订阅者身份层 metadata（display_name/avatar/theme_color/category/language）；yaml+json 双 tags
+- **model_catalog.go** — 模型目录镜像类型（三档 class 视图 + models 白名单条目）+ 离线兜底目录（无 concrete id——二进制不含模型 id）
+- **detection_test.go / agent_spec_test.go** — round-trip + strict 拒收 + 版本戳钉死
+- **testdata/** — 合法/非法 yaml fixture
 
 ## 设计约束
 
-- 仅 schema + tags，不带 `Validate()` / builder。校验逻辑留给 scanner / recommender / cmd 层。
-- 区分 nullable scalar 用 `*T`（如 `FinalStageName *string`、`LastAppliedAt *time.Time`）；nullable slice/map 用裸类型，nil 即 null。
-- 异构列表（如 `DetectedSkill` 同时承载 custom_local skill 与 implied builtin skill 两种形态）通过 `omitempty` 字段 union 实现，避免自定义 unmarshaler。
-- `DeploymentPayload` 是「上传清单」的真相源：`PayloadEntry.Path` 目录以 `/` 结尾、`Bytes`/`Files` 为递归总和。**v0.7 起所有 custom skill 一律进 Includes**（vendored 与 repo-原生 同等对待），origin 信息携带在 `PayloadEntry.Reason`（`"repo-native"` 或 `"vendored: <source> @ <hash>"`）。服务端按这份清单打包上送，不再做"按 references 重装"。
+- 仅 schema + tags，不带 Validate()/builder；校验留给上层
+- nullable scalar 用 `*T`；nullable slice/map 用裸类型 nil 即 null
+- 异构列表用 omitempty union 字段实现，避免自定义 unmarshaler
 
 ## 版本演进协议
 
-- bump `DetectionSchemaVersion` 或 `AgentSpecAPIVersion` 必须同步：
-  1. 服务端镜像模型同步更新（私有仓，CI diff 校验）
-  2. 更新本目录的 fixture
-  3. 更新 design.md §4 / §5
-- 字段增删：先在本包加，再加测试，再让上层适配。
+bump `DetectionSchemaVersion` / `AgentSpecAPIVersion` 必须同步：服务端镜像（CI diff）→ 本目录 fixture → design.md 对应节。字段增删先在本包加、再加测试、再让上层适配。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
