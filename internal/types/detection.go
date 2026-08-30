@@ -41,7 +41,6 @@ type Detection struct {
 	DetectedRequiredSecrets  []DetectedRequiredSecret  `json:"detected_required_secrets"`
 	DetectedToolRiskHints    DetectedToolRiskHints     `json:"detected_tool_risk_hints"`
 	DetectedHarnessSignals   DetectedHarnessSignals    `json:"detected_harness_signals"`
-
 }
 
 // ScanInfo records what was scanned and how long it took.

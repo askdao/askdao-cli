@@ -28,6 +28,12 @@ import (
 //go:embed studio.html
 var studioHTML []byte
 
+//go:embed studio.css
+var studioCSS []byte
+
+//go:embed studio.js
+var studioJS []byte
+
 //go:embed logo.png
 var logoPNG []byte
 
@@ -154,6 +160,16 @@ func buildMux(opts Options, done chan error) *http.ServeMux {
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(studioHTML)
+	})
+
+	mux.HandleFunc("/studio.css", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		_, _ = w.Write(studioCSS)
+	})
+
+	mux.HandleFunc("/studio.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = w.Write(studioJS)
 	})
 
 	mux.HandleFunc("/logo.png", func(w http.ResponseWriter, r *http.Request) {

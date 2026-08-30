@@ -1,4 +1,4 @@
-// [INPUT]: 标准库 os / path/filepath + internal/recommender；resolveServerAndToken（deploy.go 同包）
+// [INPUT]: 标准库 os / path/filepath + internal/recommender；deployflow.ResolveServerAndToken
 // [OUTPUT]: askdaoAgentFileName / askdaoDirName 常量 + ensureAskdaoDir / defaultAgentName / chooseLLMClient
 // [POS]: cmd/askdao 的共享 helper —— edit/deploy 共用的产物布局常量 + LLM 客户端选择（env/credentials → conductor，否则离线 mock）
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/askdao/askdao-cli/internal/deployflow"
 	"github.com/askdao/askdao-cli/internal/recommender"
 )
 
@@ -42,9 +43,9 @@ func defaultAgentName(root string) string {
 // chooseLLMClient picks the conductor client when both a server URL and bearer
 // token resolve (env pair or credentials.json); otherwise falls back to the
 // in-process MockClient so edit/scan work offline. Partial env (only one of the
-// pair) is surfaced as an error by resolveServerAndToken, not silently mocked.
+// pair) is surfaced as an error by deployflow.ResolveServerAndToken, not silently mocked.
 func chooseLLMClient() recommender.LLMClient {
-	url, token, err := resolveServerAndToken()
+	url, token, err := deployflow.ResolveServerAndToken()
 	if err != nil {
 		return &recommender.MockClient{}
 	}

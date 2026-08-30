@@ -117,4 +117,3 @@ func groupBySeverity(ws []TranslationWarning) map[Severity][]TranslationWarning 
 	}
 	return out
 }
-
