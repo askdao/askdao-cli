@@ -110,6 +110,11 @@ func runEdit(ctx context.Context, args []string) int {
 
 	err := webstudio.Serve(webstudio.Options{
 		Data: data,
+		// cron「Next:」预览走 conductor 权威求解（B10）；离线/未登录返 nil 隐藏预览行。
+		// 凭证与 model catalog 同一份（token 对 edit 可选）。
+		OnCronPreview: func(cron, tz string) *recommender.CronPreview {
+			return recommender.FetchCronPreviewOrNil(ctx, editURL, editToken, cron, tz)
+		},
 		OnReady: func(port int) {
 			if !*observeMode {
 				return

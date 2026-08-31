@@ -10,7 +10,7 @@
 - **theme.go** — 色板 token 真相源（token 名非 hex 全链贯通）+ category 默认主题/头像
 - **icons.go** — avatar icon 网格数据（lucide 子集 inner-SVG，与服务端 whitelist 同一契约端到端同步）
 - **logo.png** — 品牌 logo（go:embed）
-- **studio.html / studio.css / studio.js** — 前端三件（vanilla JS 零构建链，三文件各自 go:embed）：向导式 4 步（Identity → Persona → Skills & Tools → Review & Deploy）+ Kami 视觉 + 信心度徽标 + 调度选择器（内置 cron 求解器，与 croniter 同 DST 语义）+ observe 叠加层 + 统一结果对话框 + 桌面专属块（测试聊天 / AI 助手侧栏 / SKILL.md 行内校验 / 外链桥接）
+- **studio.html / studio.css / studio.js** — 前端三件（vanilla JS 零构建链，三文件各自 go:embed）：向导式 4 步（Identity → Persona → Skills & Tools → Review & Deploy）+ Kami 视觉 + 信心度徽标 + 调度选择器（「Next:」预览与费用警示走 conductor /api/cron-preview 服务端权威求解，本地零 cron 时间算术；离线隐藏预览行）+ observe 叠加层 + 统一结果对话框 + 桌面专属块（测试聊天 / AI 助手侧栏 / SKILL.md 行内校验 / 外链桥接）
 - **static_assets_test.go** — 守护三静态文件路由与引用一致 + 禁止内联块回潮
 - **server_test.go / api_test.go / theme/icons 测试** — httptest 路由 + 序列化 + 契约守护
 
@@ -22,6 +22,7 @@
 - **scope 分组默认勾选**：project skill 全勾 / user 全局 skill opt-in 不勾 / stdio MCP 不勾
 - **observe 是叠加层不是唯一真相**：观测只做证据高亮 + 一键收窄建议，默认全勾保持为安全网
 - **cron 字符串是唯一序列化值**：选择器只是语法糖；表达不了的形态落 Custom 原样保留，绝不近似改写；seed 不在 render 回写（未触碰不产生 yaml 键）
+- **禁止客户端 cron 求解器回潮**：下次触发/最小间隔一律问 conductor（static_assets_test 守护符号不回潮）；describeCron/schedFromCron 纯映射无时间算术可留本地
 - **前端注入防御**：动态内容一律 textContent/createElement 渲染
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

@@ -23,6 +23,8 @@ import (
 
 	"github.com/askdao/askdao-cli/internal/browser"
 	"github.com/askdao/askdao-cli/internal/types"
+
+	"github.com/askdao/askdao-cli/internal/recommender"
 )
 
 //go:embed studio.html
@@ -62,6 +64,14 @@ type Options struct {
 	OnDeploy     func(*types.AgentSpec) (*DeployResult, error)
 	OnReady      func(port int)
 	NoBrowser    bool
+
+	// OnCronPreview, if set, registers POST /api/cron-preview — the schedule
+	// picker's "Next:" summary asks conductor (croniter authority, incl. DST
+	// semantics) instead of re-solving cron in JS (cli#78: client-side solvers
+	// drift). Returns nil when offline / logged out / cron invalid — the
+	// frontend hides the preview row. Injected by BOTH the CLI edit flow and
+	// the desktop app (unlike the desktop-only callbacks below).
+	OnCronPreview func(cron, tz string) *recommender.CronPreview
 
 	// Desktop-only auth callbacks. All nil in the CLI (agent edit) path — the
 	// desktop app injects them, and their presence registers the /api/auth/*
@@ -247,6 +257,25 @@ func buildMux(opts Options, done chan error) *http.ServeMux {
 	// /api/observe doubles as the Claude Code PreToolUse hook receiver (POST) and
 	// the frontend poll source (GET). POST always returns 200 — observe is a
 	// non-blocking overlay and must never disrupt the KOL's claude session.
+	if opts.OnCronPreview != nil {
+		mux.HandleFunc("/api/cron-preview", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			var p struct {
+				Cron     string `json:"cron"`
+				Timezone string `json:"timezone"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&p); err != nil || p.Cron == "" {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			// nil（离线/未登录/非法 cron）→ 200 + null，前端据此隐藏预览行
+			writeJSON(w, opts.OnCronPreview(p.Cron, p.Timezone))
+		})
+	}
+
 	mux.HandleFunc("/api/observe", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			skills, servers := obs.snapshot()

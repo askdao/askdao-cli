@@ -7,7 +7,7 @@ L4 推荐器 —— askdao-cli 的「模糊推断」边界。L1-L3 全确定性�
 
 - **policy.go** — 生产/用户数据信号探测 → tool risk hints（默认 policy 恒 always_allow，只对命中信号的 bash/write 加 always_ask override）
 - **fs.go** — os.Stat/ReadDir 薄包装（测试可替换钩子）
-- **llm.go** — LLMClient 接口 + ConductorClient（/cli/recommend + 模型目录/配置各 Fetch* 及其 graceful fallback wrapper；HTTP 往返收敛在泛型 `doJSON[T]`，降级收敛在 `fetchOr[T]`）+ MockClient（离线/单测参考实现，含 vault hints 构造与 harness 优先级推导）
+- **llm.go** — LLMClient 接口 + ConductorClient（/cli/recommend + 模型目录/配置/cron-preview 各 Fetch* 及其 graceful fallback wrapper；HTTP 往返收敛在泛型 `doJSON[T]`，降级收敛在 `fetchOr[T]`）+ MockClient（离线/单测参考实现，含 vault hints 构造与 harness 优先级推导）
 - **capabilities.go** — 确定性 capabilities 生成（4 槽固定 + 规范 scopes 词表 + production 信号收紧 shell 权限）
 - **\*\_test.go** — policy 边界 + Mock/Conductor 客户端序列化往返与错误路径
 

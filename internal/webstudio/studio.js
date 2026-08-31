@@ -619,107 +619,38 @@
       renderSchedSummary();
     }
 
-    /* ---- cron solver ---------------------------------------------------
-       Hand-rolled because the page ships as one go:embed file with no build
-       chain and must work offline (a CDN cron library is not an option). Field
-       grammar and the dom/dow OR rule follow croniter, which is what conductor
-       actually schedules with; anything richer (L, #, W, names, @macros) parses
-       to null and the UI silently degrades to showing the raw expression. */
-    const _tzFmt = {};
-    function tzFmt(tz) {
-      if (!_tzFmt[tz]) {
-        try { _tzFmt[tz] = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
-        catch (e) { _tzFmt[tz] = tzFmt('UTC'); }
-      }
-      return _tzFmt[tz];
+    /* ---- cron preview (server-authoritative, B10) ----------------------
+       The hand-rolled croniter clone that used to live here is gone: next-run
+       times and the min-interval gap now come from conductor via the local
+       /api/cron-preview proxy (cli#78: client cron solvers drift from croniter,
+       which is what actually fires). Offline / logged out / invalid cron → null
+       and the "Next:" row + cost warning simply hide; describeCron and the raw
+       expression need no time math and keep working everywhere. Responses are
+       memoised per (cron, tz) and fetched 300ms after the last edit — the
+       summary re-renders on every picker tick/keystroke. */
+    const _cronPrev = { cache: {}, timer: null };
+    const _cronKey = (cron, tz) => cron + '\u0000' + tz;
+    function cronPreviewCached(cron, tz) {
+      return _cronPrev.cache[_cronKey(cron, tz)] || null;
     }
-    function tzParts(tz, ms) {
-      const o = {};
-      tzFmt(tz).formatToParts(new Date(ms)).forEach(p => { o[p.type] = p.value; });
-      return [+o.year, +o.month, +o.day, +o.hour % 24, +o.minute, +o.second];
+    async function fetchCronPreview(cron, tz) {
+      const key = _cronKey(cron, tz);
+      if (key in _cronPrev.cache) return _cronPrev.cache[key];
+      try {
+        const r = await fetch('/api/cron-preview', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ cron, timezone: tz }),
+        });
+        // 404 = proxy not registered (shouldn't happen); non-2xx / null body = degrade
+        _cronPrev.cache[key] = r.ok ? await r.json() : null;
+      } catch (e) { _cronPrev.cache[key] = null; }
+      return _cronPrev.cache[key];
     }
-    const tzOffsetAt = (tz, t) => { const p = tzParts(tz, t); return Date.UTC(p[0], p[1] - 1, p[2], p[3], p[4], p[5]) - t; };
-    // A wall-clock time maps to one instant on an ordinary day, two on a
-    // fall-back day (croniter fires the repeated hour twice) and to a shifted
-    // one across a spring-forward gap (zoneinfo fold=0 keeps the pre-transition
-    // offset, which is what croniter then returns).
-    function wallInstants(tz, y, mo, d, H, M) {
-      const wall = Date.UTC(y, mo - 1, d, H, M);
-      const a = wall - tzOffsetAt(tz, wall - 216e5), b = wall - tzOffsetAt(tz, wall + 216e5);
-      if (a === b) return [a];
-      const fits = t => { const p = tzParts(tz, t); return p[0] === y && p[1] === mo && p[2] === d && p[3] === H && p[4] === M; };
-      const ok = [a, b].filter(fits);
-      return ok.length ? ok.sort((x, y2) => x - y2) : [a];
+    function kickCronPreview(cron, tz, rerender) {
+      if (_cronKey(cron, tz) in _cronPrev.cache) return;
+      clearTimeout(_cronPrev.timer);
+      _cronPrev.timer = setTimeout(async () => { await fetchCronPreview(cron, tz); rerender(); }, 300);
     }
-    function cronFieldSet(f, lo, hi) {
-      const out = {};
-      let n = 0;
-      const segs = String(f).split(',');
-      for (let i = 0; i < segs.length; i++) {
-        const m = segs[i].match(/^(\*|\d+(?:-\d+)?)(?:\/(\d+))?$/);
-        if (!m) return null;
-        let a, b;
-        if (m[1] === '*') { a = lo; b = hi; }
-        else { const r = m[1].split('-'); a = +r[0]; b = r.length > 1 ? +r[1] : (m[2] ? hi : a); }
-        const st = m[2] ? +m[2] : 1;
-        if (!st || a < lo || b > hi || a > b) return null;
-        for (let v = a; v <= b; v += st) { if (!out[v]) { out[v] = 1; n++; } }
-      }
-      return n ? out : null;
-    }
-    function cronNextRuns(cron, tz, want) {
-      const p = String(cron || '').trim().split(/\s+/);
-      if (p.length !== 5) return null;
-      const mins = cronFieldSet(p[0], 0, 59), hrs = cronFieldSet(p[1], 0, 23),
-        doms = cronFieldSet(p[2], 1, 31), mons = cronFieldSet(p[3], 1, 12), dows = cronFieldSet(p[4], 0, 7);
-      if (!mins || !hrs || !doms || !mons || !dows) return null;
-      if (dows[7]) dows[0] = 1; // croniter treats 7 and 0 alike
-      const domStar = p[2] === '*', dowStar = p[4] === '*';
-      const hlist = Object.keys(hrs).map(Number).sort((a, b) => a - b);
-      const mlist = Object.keys(mins).map(Number).sort((a, b) => a - b);
-      const now = Date.now(), today = tzParts(tz, now), out = [];
-      const day0 = Date.UTC(today[0], today[1] - 1, today[2]);
-      let last = -Infinity;
-      for (let i = 0; i < 400 && out.length < want; i++) {
-        const c = new Date(day0 + i * 86400000);
-        const y = c.getUTCFullYear(), mo = c.getUTCMonth() + 1, d = c.getUTCDate();
-        if (!mons[mo]) continue;
-        // Vixie rule, as croniter implements it: when both day-of-month and
-        // day-of-week are restricted the match is their union, not intersection.
-        const hitD = !!doms[d], hitW = !!dows[c.getUTCDay()];
-        if (!(domStar && dowStar ? true : domStar ? hitW : dowStar ? hitD : (hitD || hitW))) continue;
-        const dayUTC = Date.UTC(y, mo - 1, d);
-        const oA = tzOffsetAt(tz, dayUTC - 432e5), oB = tzOffsetAt(tz, dayUTC + 1296e5);
-        const push = t => { if (t > now && t > last) { out.push(new Date(t)); last = t; } };
-        if (oA === oB) {
-          // No DST transition anywhere near this day: one fixed offset, wall
-          // times already ascending, so emit straight through.
-          for (let hi = 0; hi < hlist.length && out.length < want; hi++)
-            for (let mi = 0; mi < mlist.length && out.length < want; mi++)
-              push(Date.UTC(y, mo - 1, d, hlist[hi], mlist[mi]) - oA);
-        } else {
-          // Transition day: a wall time can yield two instants (fall-back) or a
-          // shifted one (spring-forward), so collect the whole day and sort.
-          const day = [];
-          hlist.forEach(H => mlist.forEach(M => wallInstants(tz, y, mo, d, H, M).forEach(t => day.push(t))));
-          day.sort((a, b) => a - b);
-          for (let k = 0; k < day.length && out.length < want; k++) push(day[k]);
-        }
-      }
-      return out.length ? out : null;
-    }
-    function minGapSeconds(runs) {
-      if (!runs || runs.length < 2) return null;
-      let g = Infinity;
-      for (let i = 1; i < runs.length; i++) g = Math.min(g, (runs[i] - runs[i - 1]) / 1000);
-      return g;
-    }
-    // Same shape as conductor's min_interval_seconds: sample the next firings and
-    // take the tightest adjacent gap. Feeds the <15min cost warning, so the only
-    // regime that has to be exact is the tight one — a monthly/yearly cron runs
-    // out of the 400-day horizon and reports a coarser gap (or none), which never
-    // changes the verdict.
-    const cronMinIntervalSeconds = (cron, tz) => minGapSeconds(cronNextRuns(cron, tz || 'UTC', 25));
 
     /* ---- plain-language rendering -------------------------------------- */
     const ordinal = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th');
@@ -744,7 +675,8 @@
     }
     const fmtGap = s => s % 3600 === 0 && s >= 3600 ? `${s / 3600} hour${s === 3600 ? '' : 's'}` : `${Math.round(s / 60)} minute${s === 60 ? '' : 's'}`;
     function costWarnHTML(gap) {
-      if (gap === null || gap >= 900) return '';
+      // 阈值判定在服务端（cron-preview 的 warning 字段）；此处只渲染文案
+      if (gap === null || gap === undefined) return '';
       const per = Math.round(2592000 / gap).toLocaleString('en-US');
       return `<div class="flagbar"><span>⚠️ Fires as often as every ${fmtGap(gap)} — roughly ${per} runs a month, and every run consumes credits. Frequent schedules get expensive fast.</span></div>`;
     }
@@ -755,12 +687,14 @@
       const cron = ($('f_sc_cron') ? $('f_sc_cron').value : '').trim();
       const tz = ($('f_sc_tz') && $('f_sc_tz').value) || 'UTC';
       if (!on || !cron) { box.hidden = true; box.innerHTML = ''; return; }
-      const runs = cronNextRuns(cron, tz, 25);
+      const pv = cronPreviewCached(cron, tz);
+      const runs = pv && pv.next_runs ? pv.next_runs : null;
       box.hidden = false;
       box.innerHTML = `<div class="ss-line">${esc(describeCron(cron, tz))}</div>`
-        + (runs ? `<div class="ss-next">Next: ${runs.slice(0, 3).map(d => esc(fmtRun(d, tz))).join(' · ')}</div>` : '')
+        + (runs && runs.length ? `<div class="ss-next">Next: ${runs.slice(0, 3).map(s => esc(fmtRun(new Date(s), tz))).join(' · ')}</div>` : '')
         + `<div class="ss-cron">cron <span class="mono">${esc(cron)}</span></div>`
-        + costWarnHTML(minGapSeconds(runs));
+        + (pv && pv.warning ? costWarnHTML(pv.min_interval_seconds) : '');
+      kickCronPreview(cron, tz, renderSchedSummary);
     }
     function switchTab(name, btn) {
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -1010,11 +944,12 @@
     function reviewScheduleHTML() {
       const s = spec.schedule;
       if (!s || s.enabled === false || !s.cron) return '<span class="empty">off</span>';
-      const tz = s.timezone || 'UTC', runs = cronNextRuns(s.cron, tz, 25);
-      const gap = minGapSeconds(runs);
+      const tz = s.timezone || 'UTC', pv = cronPreviewCached(s.cron, tz);
+      const runs = pv && pv.next_runs && pv.next_runs.length ? pv.next_runs : null;
+      kickCronPreview(s.cron, tz, fillReview);
       return `${s.mode === 'broadcast' ? 'Broadcast · ' : ''}${esc(describeCron(s.cron, tz))}${s.notify_channel ? ' → ' + esc(s.notify_channel) : ''}`
-        + `<div class="rev-sub">${runs ? 'Next ' + esc(fmtRun(runs[0], tz)) + ' · ' : ''}<span class="mono">${esc(s.cron)}</span>`
-        + `${gap !== null && gap < 900 ? ' · <span class="rev-warn">⚠️ frequent — cost risk</span>' : ''}</div>`;
+        + `<div class="rev-sub">${runs ? 'Next ' + esc(fmtRun(new Date(runs[0]), tz)) + ' · ' : ''}<span class="mono">${esc(s.cron)}</span>`
+        + `${pv && pv.warning ? ' · <span class="rev-warn">⚠️ frequent — cost risk</span>' : ''}</div>`;
     }
 
     /* validation — required fields + slug name format; gates Next + Deploy. Draft stays

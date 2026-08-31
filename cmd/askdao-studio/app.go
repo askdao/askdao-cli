@@ -69,12 +69,24 @@ func (a *App) StudioOptions() webstudio.Options {
 		OnLogin:         a.startLogin,
 		OnLoginPoll:     a.loginPoll,
 		OnLogout:        a.logout,
+		OnCronPreview:   a.cronPreview,
 		OnChat:          a.chat,
 		OnAssistant:     a.assistant,
 		OnOpenExternal:  a.openExternal,
 		OnSkillValidate: a.skillValidate,
 		OnSkillFix:      a.skillFix,
 	}
+}
+
+// cronPreview asks conductor for the authoritative next-run preview (B10).
+// Same credential source as deploy/chat; nil when logged out / offline /
+// invalid cron — the studio hides the "Next:" row.
+func (a *App) cronPreview(cron, tz string) *recommender.CronPreview {
+	url, token, err := deployflow.ResolveServerAndToken()
+	if err != nil {
+		return nil
+	}
+	return recommender.FetchCronPreviewOrNil(a.ctx, url, token, cron, tz)
 }
 
 // spec returns the current StudioData (placeholder until a folder is scanned).

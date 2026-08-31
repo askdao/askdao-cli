@@ -4,6 +4,8 @@
 
 ## 2026-08-30
 
+- **B10 cron 求解器单源化**（issue #93 第二期）：studio.js 删 101 行手写 croniter 复刻（cronFieldSet/cronNextRuns/wallInstants 等，零测试裸奔），「Next:」预览与 <15min 费用警示改调 conductor `POST /cli/cron-preview`（经 webstudio 新增 `/api/cron-preview` 本地代理 + `OnCronPreview` 回调，CLI 与桌面都注入）；离线/未登录/非法 cron 隐藏预览行（describeCron/schedFromCron 纯映射保留本地）。static_assets_test 守护求解器符号不回潮。
+
 - **B11 文档瘦身**（askdao-cloud /simplify 审查）：全部 CLAUDE.md 按 FATAL-005/006 规则精简；清除对已删代码（archetype / deployment_payload）的文档残留；本文件随本次瘦身新建。
 - **P2 结构收敛**（PR #95，issue #93）：新增 `internal/deployflow`（deploy 装配单源，修桌面版四处漂移）+ `internal/browser`；studio.html 拆分为 html/css/js 三文件各自 go:embed；recommender HTTP 样板收敛为泛型 `doJSON[T]`/`fetchOr[T]`。
 - **P1 纯删**（PR #94，issue #93）：删 `internal/render/{summary,payload,reasoning,lists}.go`（v0.8 命令精简后零调用残留，约 700 行）+ `scanner/{payload,archetype}.go` 及 `types` 的 `Archetype`/`DeploymentPayload`（服务端零消费）；修帮助文本与 flag 脱节（--bio 已不存在等）。
