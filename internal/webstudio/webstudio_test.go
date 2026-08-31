@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/askdao/askdao-cli/internal/recommender"
 	"github.com/askdao/askdao-cli/internal/types"
 )
 
@@ -590,5 +592,57 @@ func TestStudioDataServesModelsAndHarness(t *testing.T) {
 	}
 	if got.Harness != "openai_agents_sdk" || len(got.Models) != 1 || got.Models[0].HarnessID != "openai_agents_sdk" {
 		t.Errorf("/api/spec payload = %+v", got)
+	}
+}
+
+func TestCronPreviewRoute(t *testing.T) {
+	done := make(chan error, 1)
+	opts := Options{
+		Data: &StudioData{},
+		OnCronPreview: func(cron, tz string) *recommender.CronPreview {
+			if cron == "*/5 * * * *" {
+				return &recommender.CronPreview{
+					NextRuns:           []string{"2026-08-30T10:00:00+00:00"},
+					MinIntervalSeconds: 300,
+					Warning:            true,
+				}
+			}
+			return nil // offline / invalid → null body, frontend hides the row
+		},
+	}
+	srv := httptest.NewServer(buildMux(opts, done))
+	defer srv.Close()
+
+	r, err := http.Post(srv.URL+"/api/cron-preview", "application/json",
+		strings.NewReader(`{"cron":"*/5 * * * *","timezone":"UTC"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(r.Body)
+	if r.StatusCode != 200 || !strings.Contains(string(body), `"warning":true`) {
+		t.Fatalf("preview happy path: %d %s", r.StatusCode, body)
+	}
+
+	r2, _ := http.Post(srv.URL+"/api/cron-preview", "application/json",
+		strings.NewReader(`{"cron":"whatever","timezone":"UTC"}`))
+	b2, _ := io.ReadAll(r2.Body)
+	if r2.StatusCode != 200 || strings.TrimSpace(string(b2)) != "null" {
+		t.Fatalf("nil preview should serialize as null: %d %q", r2.StatusCode, b2)
+	}
+
+	r3, _ := http.Post(srv.URL+"/api/cron-preview", "application/json",
+		strings.NewReader(`{}`))
+	if r3.StatusCode != 400 {
+		t.Fatalf("empty cron should 400, got %d", r3.StatusCode)
+	}
+}
+
+func TestCronPreviewRouteAbsentWhenNil(t *testing.T) {
+	done := make(chan error, 1)
+	srv := httptest.NewServer(buildMux(Options{Data: &StudioData{}}, done))
+	defer srv.Close()
+	r, _ := http.Post(srv.URL+"/api/cron-preview", "application/json", nil)
+	if r.StatusCode != 404 {
+		t.Errorf("cron-preview should be 404 when callback nil, got %d", r.StatusCode)
 	}
 }

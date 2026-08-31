@@ -223,6 +223,39 @@ func (c *ConductorClient) FetchModelCatalog(ctx context.Context) ([]types.ModelE
 	return models, err
 }
 
+// CronPreview mirrors conductor POST /cli/cron-preview: server-authoritative
+// next-run preview (croniter semantics incl. DST) so the studio never re-solves
+// cron client-side (cli#78: hand-rolled solvers drift from croniter).
+type CronPreview struct {
+	NextRuns           []string `json:"next_runs"`
+	MinIntervalSeconds float64  `json:"min_interval_seconds"`
+	Warning            bool     `json:"warning"`
+}
+
+// DefaultCronPreviewPath is conductor's cron preview endpoint.
+const DefaultCronPreviewPath = "/api/v1/cli/cron-preview"
+
+// FetchCronPreview POSTs a cron + IANA timezone and returns the next firings,
+// min interval and the server-side frequent-schedule warning flag.
+func (c *ConductorClient) FetchCronPreview(ctx context.Context, cron, tz string) (*CronPreview, error) {
+	out, err := doJSON[CronPreview](ctx, c, http.MethodPost, DefaultCronPreviewPath,
+		map[string]string{"cron": cron, "timezone": tz})
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// FetchCronPreviewOrNil degrades like the other Fetch*Or* helpers: offline /
+// logged-out / invalid cron (conductor 400) → nil, and the studio hides the
+// "Next:" preview row (describeCron + raw cron stay, they need no time math).
+func FetchCronPreviewOrNil(ctx context.Context, baseURL, token, cron, tz string) *CronPreview {
+	return fetchOr[*CronPreview](ctx, baseURL, token, nil,
+		func(fctx context.Context, c *ConductorClient) (*CronPreview, error) {
+			return c.FetchCronPreview(fctx, cron, tz)
+		})
+}
+
 // FetchModelCatalogOrEmpty is FetchModelCatalog with the same offline / logged-out
 // degradation as FetchModelClassesOrFallback — but the whitelist has no bundled
 // fallback (the binary carries no model ids): an empty slice tells the studio to

@@ -5,6 +5,7 @@
 package webstudio
 
 import (
+	"bytes"
 	"io"
 	"net/http/httptest"
 	"strings"
@@ -51,5 +52,16 @@ func TestStaticAssetsServed(t *testing.T) {
 	}
 	if strings.Contains(html, "<script>") {
 		t.Error("studio.html still contains an inline <script> block")
+	}
+}
+
+// TestNoClientCronSolver guards the B10 convergence: next-run math must come
+// from conductor (/api/cron-preview), never a client-side croniter clone
+// (cli#78: hand-rolled solvers drift from what actually fires).
+func TestNoClientCronSolver(t *testing.T) {
+	for _, sym := range []string{"cronNextRuns", "cronFieldSet", "wallInstants", "cronMinIntervalSeconds"} {
+		if bytes.Contains(studioJS, []byte(sym)) {
+			t.Errorf("studio.js re-grew client cron solver symbol %q", sym)
+		}
 	}
 }
