@@ -1,7 +1,7 @@
 # internal/recommender/
 > L2 | 父级: ../../CLAUDE.md
 
-L4 推荐器 —— askdao-cli 的「模糊推断」边界。L1-L3 全确定性，本目录只有「策略 heuristic」和「conductor HTTP 客户端」两件事（LLM 走 conductor 中转，不 BYOK）。实现细节见各文件头注释；历史变更见 [../../CHANGELOG.md](../../CHANGELOG.md)。
+L4 推荐器 —— askdao-cli 的「模糊推断」边界。L1-L3 全确定性，本目录只有「策略 heuristic」和「conductor HTTP 客户端」两件事（LLM 走 conductor 中转，不 BYOK）。实现细节见各文件头注释；历史变更见 git log / PR。
 
 ## 成员清单
 

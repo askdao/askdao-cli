@@ -1,7 +1,7 @@
 # cmd/askdao-studio/
 > L2 | 父级: ../../CLAUDE.md
 
-AskDAO Studio 桌面 app（Wails v2 main）—— askdao-cli 第二入口，面向无 CLI 经验用户。复用 `internal/webstudio`：`AssetServer.Handler` 直接挂 webstudio 的 mux，零 sidecar、零前端构建链。桌面专属功能经 `StudioData.Desktop` flag 隔离，CLI `agent edit` 无感。实现细节见各文件头注释；历史变更见 [../../CHANGELOG.md](../../CHANGELOG.md)。
+AskDAO Studio 桌面 app（Wails v2 main）—— askdao-cli 第二入口，面向无 CLI 经验用户。复用 `internal/webstudio`：`AssetServer.Handler` 直接挂 webstudio 的 mux，零 sidecar、零前端构建链。桌面专属功能经 `StudioData.Desktop` flag 隔离，CLI `agent edit` 无感。实现细节见各文件头注释；历史变更见 git log / PR。
 
 ## 成员清单
 

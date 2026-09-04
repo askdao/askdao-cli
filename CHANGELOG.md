@@ -1,5 +1,7 @@
 # CHANGELOG
 
+> **Frozen as of 2026-09-05; no further entries.** See git log and pull requests for changes. This file is kept as a record of milestones before 2026-09-05.
+
 历史变更与版本演进 footnote（时间倒序）。GEB 规则：L1/L2 CLAUDE.md 只述现状，变更史（版本号 / issue 号 / 演进经过）一律落本文件；更细的历史见 git log 与各 PR。
 
 ## 2026-09-04

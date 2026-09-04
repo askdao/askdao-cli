@@ -1,7 +1,7 @@
 # internal/providers/
 > L2 | 父级: ../../CLAUDE.md
 
-L3 启发式层 —— 移植 railwayapp/nixpacks 的 Provider trait 抽象与探测逻辑，外加自研 dep→apt 反向映射表。Python / Node / Go / Rust 四个 provider。实现细节见各文件头注释；历史变更见 [../../CHANGELOG.md](../../CHANGELOG.md)。
+L3 启发式层 —— 移植 railwayapp/nixpacks 的 Provider trait 抽象与探测逻辑，外加自研 dep→apt 反向映射表。Python / Node / Go / Rust 四个 provider。实现细节见各文件头注释；历史变更见 git log / PR。
 
 ## 成员清单
 

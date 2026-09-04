@@ -1,7 +1,7 @@
 # internal/pipeline/
 > L2 | 父级: ../../CLAUDE.md
 
-唯一 orchestration 层 —— 把 scanner / dev_filter / providers / policy / recommender 串成 `pipeline.Run(ctx, opts)`。`agent edit` 的扫描路径（LLM 可为 nil）走这个入口。实现细节见文件头注释；历史变更见 [../../CHANGELOG.md](../../CHANGELOG.md)。
+唯一 orchestration 层 —— 把 scanner / dev_filter / providers / policy / recommender 串成 `pipeline.Run(ctx, opts)`。`agent edit` 的扫描路径（LLM 可为 nil）走这个入口。实现细节见文件头注释；历史变更见 git log / PR。
 
 ## 成员清单
 

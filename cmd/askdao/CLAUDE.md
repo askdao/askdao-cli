@@ -1,7 +1,7 @@
 # cmd/askdao/
 > L2 | 父级: ../../CLAUDE.md
 
-CLI 入口与用户命令（auth · mcp · agent edit/deploy · update）的实装。只做参数解析 + IO + 调用 internal/ 各层；审阅入口收敛为 `agent edit` 本地 Web 工作台。实现细节见各文件头注释；历史变更见 [../../CHANGELOG.md](../../CHANGELOG.md)。
+CLI 入口与用户命令（auth · mcp · agent edit/deploy · update）的实装。只做参数解析 + IO + 调用 internal/ 各层；审阅入口收敛为 `agent edit` 本地 Web 工作台。实现细节见各文件头注释；历史变更见 git log / PR。
 
 ## 成员清单
 
