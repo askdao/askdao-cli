@@ -1,7 +1,7 @@
 # internal/webstudio/
 > L2 | 父级: ../../CLAUDE.md
 
-本地 Web 工作台 —— `askdao agent edit` 拉起的 `127.0.0.1` HTTP server + `go:embed` 自包含前端。KOL 在浏览器审阅/编辑 Agent spec、按 scope 勾选 skill/MCP，一站式 Save/Deploy。写 yaml / deploy 由 cmd 层注入回调，webstudio 不依赖 pipeline/deploy。实现细节（路由清单、桌面专属端点、向导交互）见各文件头注释；历史变更见 [../../CHANGELOG.md](../../CHANGELOG.md)。
+本地 Web 工作台 —— `askdao agent edit` 拉起的 `127.0.0.1` HTTP server + `go:embed` 自包含前端。KOL 在浏览器审阅/编辑 Agent spec、按 scope 勾选 skill/MCP，一站式 Save/Deploy。写 yaml / deploy 由 cmd 层注入回调，webstudio 不依赖 pipeline/deploy。实现细节（路由清单、桌面专属端点、向导交互）见各文件头注释；历史变更见 git log / PR。
 
 ## 成员清单
 

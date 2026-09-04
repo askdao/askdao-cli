@@ -1,7 +1,7 @@
 # internal/scanner/
 > L2 | 父级: ../../CLAUDE.md
 
-L1-L3 流水线确定性扫描器（syft / enry / dockerfile 底座 + dev_filter / runtimes / mcp_config / skills_dir / secrets_hint / harness_signals / harness_scope）。所有函数返回 `internal/types.Detection` 的 sub-types，由 pipeline 装配落 `.askdao/detection.json`。实现细节见各文件头注释；历史变更见 [../../CHANGELOG.md](../../CHANGELOG.md)。
+L1-L3 流水线确定性扫描器（syft / enry / dockerfile 底座 + dev_filter / runtimes / mcp_config / skills_dir / secrets_hint / harness_signals / harness_scope）。所有函数返回 `internal/types.Detection` 的 sub-types，由 pipeline 装配落 `.askdao/detection.json`。实现细节见各文件头注释；历史变更见 git log / PR。
 
 ## 成员清单
 

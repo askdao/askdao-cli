@@ -1,7 +1,7 @@
 # internal/deployflow/
 > L2 | 父级: ../../CLAUDE.md
 
-部署编排层 —— deploy 装配单源（Prepare / Deploy / ResolveServerAndToken）+ skill 打包编排（枚举 + frontmatter 校验 + zip）。CLI 与桌面共用，杜绝双写漂移。放此包而非 `internal/deploy`：deploy 是 stdlib-only 客户端域，编排（依赖 types/scanner）归此层。实现细节见各文件头注释；历史变更见 [../../CHANGELOG.md](../../CHANGELOG.md)。
+部署编排层 —— deploy 装配单源（Prepare / Deploy / ResolveServerAndToken）+ skill 打包编排（枚举 + frontmatter 校验 + zip）。CLI 与桌面共用，杜绝双写漂移。放此包而非 `internal/deploy`：deploy 是 stdlib-only 客户端域，编排（依赖 types/scanner）归此层。实现细节见各文件头注释；历史变更见 git log / PR。
 
 ## 成员清单
 

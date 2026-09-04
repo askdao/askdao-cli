@@ -1,7 +1,7 @@
 # internal/deploy/
 > L2 | 父级: ../../CLAUDE.md
 
-`agent deploy` 的服务端客户端层 —— KOL 的 yaml（+ detection + custom skill zip）以 multipart POST 到 `POST /api/v1/cli/deploy`，需要时 PATCH KOL 资料。只做「HTTP 客户端 + skill 目录打包」两件事；命令行编排在 `cmd/askdao/deploy.go`。实现细节见各文件头注释；历史变更见 [../../CHANGELOG.md](../../CHANGELOG.md)。
+`agent deploy` 的服务端客户端层 —— KOL 的 yaml（+ detection + custom skill zip）以 multipart POST 到 `POST /api/v1/cli/deploy`，需要时 PATCH KOL 资料。只做「HTTP 客户端 + skill 目录打包」两件事；命令行编排在 `cmd/askdao/deploy.go`。实现细节见各文件头注释；历史变更见 git log / PR。
 
 ## 成员清单
 

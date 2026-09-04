@@ -5,7 +5,7 @@
 
 技术栈：Go 1.26 + anchore/syft + go-enry/enry + moby/buildkit (dockerfile parser)；桌面 app（`cmd/askdao-studio`）Wails v2。
 
-实现细节见各目录 L2 与文件头注释；历史变更见 [CHANGELOG.md](./CHANGELOG.md)。
+实现细节见各目录 L2 与文件头注释；变更史见 git log 与 PR；2026-09-05 前的 milestone 化石在 [CHANGELOG.md](./CHANGELOG.md)（已冻结）。
 
 ---
 

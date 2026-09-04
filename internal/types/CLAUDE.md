@@ -1,7 +1,7 @@
 # internal/types/
 > L2 | 父级: ../../CLAUDE.md
 
-askdao-cli pipeline 的两份 schema 真相源。所有上层模块依赖此包定义的结构契约；服务端镜像同一 schema（CI diff 校验对齐）。字段语义细节见各文件头注释；历史演进见 [../../CHANGELOG.md](../../CHANGELOG.md)。
+askdao-cli pipeline 的两份 schema 真相源。所有上层模块依赖此包定义的结构契约；服务端镜像同一 schema（CI diff 校验对齐）。字段语义细节见各文件头注释；历史演进见 git log / PR。
 
 ## 成员清单
 
