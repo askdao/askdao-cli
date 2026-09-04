@@ -1170,7 +1170,7 @@
         const j = await r.json();
         if (j.error) showDialog({ kind: 'error', title: failTitle, msg: j.error, terminal: false });
         else if (j.status === 'saved') showDialog({ kind: 'success', title: 'Draft saved', msg: 'askdao-agent.yml saved. Keep editing or deploy when ready.', terminal: false });
-        else if (j.status === 'deployed') { showDialog({ kind: 'success', title: 'Agent deployed', msg: j.message, link: j.group_link, terminal: true, agentId: j.agent_id, warn: j.schedule_warning }); return; }
+        else if (j.status === 'deployed') { showDialog({ kind: 'success', title: 'Agent deployed', msg: j.message, link: j.agent_url || j.group_link, terminal: true, agentId: j.agent_id, warn: j.schedule_warning }); return; }
         else { showDialog({ kind: 'success', title: 'Saved', msg: j.message || 'askdao-agent.yml saved.', terminal: true }); return; }
       } catch (e) { showDialog({ kind: 'error', title: failTitle, msg: String(e), terminal: false }); }
       finally { busy = false;['btnSaveDraft', 'btnBack', 'btnNext', 'btnDeploy', 'btnDone'].forEach(b => $(b).disabled = false); }
@@ -1181,8 +1181,9 @@
        means the server has exited (Deploy / Save & finish): show "close this tab" and
        no dismiss. terminal=false (Draft saved / any error): the server is still up, so
        offer a dismiss button (and click-outside) to return to editing. Deploy success
-       carries the clickable group link, the subscriber entry point the KOL wants. */
-    let groupLink = '', dialogTerminal = false, chatAgentID = '', chatSession = '';
+       carries the clickable agent page link (group_link is only the legacy
+       fallback for agents deployed before groups were retired server-side). */
+    let openLink = '', dialogTerminal = false, chatAgentID = '', chatSession = '';
     function showDialog({ kind, title, msg, link, terminal, agentId, warn }) {
       setStatus('');
       const ok = kind !== 'error';
@@ -1193,9 +1194,9 @@
       // estimate in the Automation tab is only the first check.
       $('doneWarn').hidden = !warn;
       $('doneWarn').firstElementChild.textContent = warn ? '⚠️ ' + warn : '';
-      groupLink = link || '';
-      $('doneLink').hidden = !groupLink;
-      if (groupLink) $('doneLinkOpen').href = groupLink;
+      openLink = link || '';
+      $('doneLink').hidden = !openLink;
+      if (openLink) $('doneLinkOpen').href = openLink;
       // "terminal" (Deploy / Save & finish) means no-dismiss ONLY in the CLI browser,
       // where the local server exits and the page goes dead, so the hint is "close the
       // tab". The desktop app keeps the Wails server alive (server.go Handler never
@@ -1214,9 +1215,9 @@
     }
     function closeDialog() { $('doneOverlay').hidden = true; setStatus(''); }
     function overlayClick(e) { if (e.target === $('doneOverlay') && !dialogTerminal) closeDialog(); }
-    function copyGroupLink() {
-      if (!groupLink) return;
-      navigator.clipboard.writeText(groupLink).then(() => { const b = $('doneLinkCopy'), t = b.textContent; b.textContent = 'Copied ✓'; setTimeout(() => { b.textContent = t; }, 1500); });
+    function copyOpenLink() {
+      if (!openLink) return;
+      navigator.clipboard.writeText(openLink).then(() => { const b = $('doneLinkCopy'), t = b.textContent; b.textContent = 'Copied ✓'; setTimeout(() => { b.textContent = t; }, 1500); });
     }
 
     // Desktop-only test chat: talk to the agent you just deployed. Streams
@@ -1385,7 +1386,7 @@
     }
 
     // Desktop: the webview ignores target=_blank / window.open, so route external-
-    // link clicks (the group page, any future external link) through the Go side —
+    // link clicks (the agent page, any future external link) through the Go side —
     // POST /api/open-external opens them in the real browser. Registered once;
     // guarded by data.desktop at click time. CLI keeps native target=_blank.
     document.addEventListener('click', (e) => {

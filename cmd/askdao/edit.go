@@ -150,6 +150,7 @@ func runEdit(ctx context.Context, args []string) int {
 			}
 			return &webstudio.DeployResult{
 				Message:         deployResultLine(resp),
+				AgentURL:        resp.AgentURL,
 				GroupLink:       resp.GroupLink,
 				AgentID:         resp.AgentID,
 				Created:         resp.Created,
@@ -343,8 +344,8 @@ func deployResultLine(resp *deploy.DeployResponse) string {
 		verb = "Created"
 	}
 	s := fmt.Sprintf("%s agent %s", verb, resp.AgentID)
-	if resp.GroupLink != "" {
-		s += " · " + resp.GroupLink
+	if link := deployOpenLink(resp); link != "" {
+		s += " · " + link
 	}
 	return s
 }

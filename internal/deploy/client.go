@@ -55,13 +55,19 @@ type DeployInput struct {
 //
 // Update-mode:
 //   - Created=true  → first deploy under this (owner, yaml.metadata.name).
-//   - Created=false → in-place update of an existing agent; AgentID and
-//     GroupID are reused, PreviousManagedVersion records the pre-bump
-//     Anthropic agent version (e.g. 1 → 2).
+//   - Created=false → in-place update of an existing agent; AgentID is reused
+//     and PreviousManagedVersion records the pre-bump Anthropic agent version
+//     (e.g. 1 → 2).
+//
+// AgentURL is the agent's own page and is always populated — it is the link to
+// hand the KOL after a deploy. GroupID/GroupLink are legacy: the server no
+// longer creates a group for a new agent, so they only come back for agents
+// deployed before that change, and are empty otherwise.
 type DeployResponse struct {
 	AgentID                string                   `json:"agent_id"`
 	AnthropicAgentID       string                   `json:"anthropic_agent_id"`
 	AnthropicEnvironmentID string                   `json:"anthropic_environment_id"`
+	AgentURL               string                   `json:"agent_url"`
 	GroupID                string                   `json:"group_id"`
 	GroupLink              string                   `json:"group_link"`
 	Skills                 []map[string]interface{} `json:"skills"`

@@ -110,7 +110,7 @@ func TestServerHandlers(t *testing.T) {
 		OnSave: func(*types.AgentSpec) error { saved = true; return nil },
 		OnDeploy: func(*types.AgentSpec) (*DeployResult, error) {
 			deployed = true
-			return &DeployResult{Message: "Created agent agt_1", GroupLink: "https://askdao.ai/g/x", AgentID: "agt_1", Created: true}, nil
+			return &DeployResult{Message: "Created agent agt_1", AgentURL: "https://askdao.ai/k/usr_1/a/agt_1", AgentID: "agt_1", Created: true}, nil
 		},
 	}
 	srv := httptest.NewServer(buildMux(opts, done))
@@ -138,8 +138,8 @@ func TestServerHandlers(t *testing.T) {
 	}
 	var dep map[string]interface{}
 	_ = json.NewDecoder(r.Body).Decode(&dep)
-	if dep["group_link"] != "https://askdao.ai/g/x" || dep["agent_id"] != "agt_1" || dep["created"] != true {
-		t.Errorf("/api/deploy must surface structured group_link/agent_id/created: %v", dep)
+	if dep["agent_url"] != "https://askdao.ai/k/usr_1/a/agt_1" || dep["agent_id"] != "agt_1" || dep["created"] != true {
+		t.Errorf("/api/deploy must surface structured agent_url/agent_id/created: %v", dep)
 	}
 	select {
 	case <-done:

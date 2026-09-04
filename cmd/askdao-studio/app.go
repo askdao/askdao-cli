@@ -219,6 +219,7 @@ func (a *App) deploy(spec *types.AgentSpec) (*webstudio.DeployResult, error) {
 	}
 	return &webstudio.DeployResult{
 		Message:         fmt.Sprintf("%s agent %s", verb, resp.AgentID),
+		AgentURL:        resp.AgentURL,
 		GroupLink:       resp.GroupLink,
 		AgentID:         resp.AgentID,
 		Created:         resp.Created,
