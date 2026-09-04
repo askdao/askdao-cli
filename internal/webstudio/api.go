@@ -43,13 +43,15 @@ type ObservedData struct {
 }
 
 // DeployResult is the structured outcome of a deploy, surfaced to the success
-// card. GroupLink travels as its own field (not buried in Message) so the card
-// can render a clickable button — the subscriber entry point the KOL wants.
-// ScheduleWarning carries conductor's authoritative frequent-schedule cost
-// notice (#303); `agent deploy` prints it in the terminal, and the studio would
-// otherwise drop it on the floor.
+// card. AgentURL travels as its own field (not buried in Message) so the card
+// can render a clickable button — the agent page the KOL wants. GroupLink is
+// the legacy fallback, only present for agents deployed before groups were
+// retired server-side. ScheduleWarning carries conductor's authoritative
+// frequent-schedule cost notice (#303); `agent deploy` prints it in the
+// terminal, and the studio would otherwise drop it on the floor.
 type DeployResult struct {
 	Message         string `json:"message"`
+	AgentURL        string `json:"agent_url,omitempty"`
 	GroupLink       string `json:"group_link,omitempty"`
 	AgentID         string `json:"agent_id,omitempty"`
 	Created         bool   `json:"created"`

@@ -91,7 +91,11 @@ type Metadata struct {
 	// adaptive: the agent follows the user's language and shows under every
 	// language filter on the discover page. The KOL picks it in the web
 	// studio (Identity step) or writes metadata.language in askdao-agent.yml.
-	Language  string            `json:"language,omitempty"   yaml:"language,omitempty"`
+	Language string `json:"language,omitempty"   yaml:"language,omitempty"`
+	// GroupName named the chat group a deploy used to create alongside the
+	// agent. Deploys no longer create one, so the server accepts the field but
+	// ignores it; it stays here only so an existing askdao-agent.yml still
+	// round-trips unchanged.
 	GroupName string            `json:"group_name,omitempty" yaml:"group_name,omitempty"`
 	Labels    map[string]string `json:"labels,omitempty"     yaml:"labels,omitempty"`
 }

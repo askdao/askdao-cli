@@ -1,5 +1,5 @@
 // [INPUT]: 标准库 + internal/deploy（Err* 类型）+ internal/deployflow（Prepare/Deploy/ResolveServerAndToken 装配单源）+ internal/render（Diff / TranslationWarnings）+ internal/types（AgentSpec）+ gopkg.in/yaml.v3
-// [OUTPUT]: runDeploy — `askdao agent deploy` 命令实装（装配走 internal/deployflow.Prepare+Deploy 单源，CLI / studio / 桌面共用）
+// [OUTPUT]: runDeploy — `askdao agent deploy` 命令实装（装配走 internal/deployflow.Prepare+Deploy 单源，CLI / studio / 桌面共用）+ deployOpenLink（回执落点单源，agent 页优先、存量 group 链接兜底；edit.go 共用）
 // [POS]: cmd/askdao 的 deploy 子命令；读 <dir>/askdao-agent.yml 原文 + 经 internal/deployflow.PackageSkills 按 skill.path（project 相对 / 绝对 / ~ / Scope=="user"）
 //
 //	统一解析 + 递归打 zip（harness 中性 invariant）→ 经 internal/deploy.Client 上传 conductor /cli/deploy；处理
@@ -33,7 +33,7 @@ import (
 // assembles the bundle via deployflow.Prepare (the single source the web studio
 // and desktop share), prints diff preview / progress, POSTs via deployflow
 // Deploy, handles the kol_profile_required handshake and the visibility
-// downgrade prompt, and prints the resulting agent / group IDs.
+// downgrade prompt, and prints the resulting agent id and page link.
 func runDeploy(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("deploy", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "KOL project root containing askdao-agent.yml")
@@ -207,6 +207,11 @@ func printDeployResult(resp *deploy.DeployResponse) {
 	fmt.Println()
 	fmt.Printf("  agent_id:    %s\n", resp.AgentID)
 	fmt.Printf("  anthropic:   agent=%s  environment=%s\n", resp.AnthropicAgentID, resp.AnthropicEnvironmentID)
+	if resp.AgentURL != "" {
+		fmt.Printf("  agent page:  %s\n", resp.AgentURL)
+	}
+	// Legacy group fields: only agents deployed before groups were retired
+	// still carry them, so nothing is printed for a fresh agent.
 	if resp.GroupID != "" {
 		fmt.Printf("  group_id:    %s\n", resp.GroupID)
 	}
@@ -243,11 +248,21 @@ func printDeployResult(resp *deploy.DeployResponse) {
 	// Trailing confirmation so the user has a clear "done" signal regardless
 	// of whether warnings are present.
 	fmt.Println()
-	if resp.GroupLink != "" {
-		fmt.Printf("✓ Deploy complete. Open %s to chat.\n", resp.GroupLink)
+	if link := deployOpenLink(resp); link != "" {
+		fmt.Printf("✓ Deploy complete. Open %s to chat.\n", link)
 	} else {
 		fmt.Println("✓ Deploy complete.")
 	}
+}
+
+// deployOpenLink is the single place that decides which URL a deploy hands
+// back. The agent's own page is the destination; GroupLink is only a fallback
+// for agents deployed before groups were retired server-side.
+func deployOpenLink(resp *deploy.DeployResponse) string {
+	if resp.AgentURL != "" {
+		return resp.AgentURL
+	}
+	return resp.GroupLink
 }
 
 // printDeployProgress prints expected scope + duration before the POST to

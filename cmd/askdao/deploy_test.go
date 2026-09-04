@@ -86,8 +86,7 @@ func TestDeploy_EndToEnd_HappyPath(t *testing.T) {
 			AgentID:                "agt_abc",
 			AnthropicAgentID:       "agent_x",
 			AnthropicEnvironmentID: "env_x",
-			GroupID:                "grp_def",
-			GroupLink:              "https://askdao.ai/k/usr_1/g/grp_def",
+			AgentURL:               "https://askdao.ai/k/usr_1/a/agt_abc",
 			Skills: []map[string]interface{}{{
 				"type": "custom_local", "path": "my-skill",
 				"anthropic_skill_id": "skill_xyz", "anthropic_skill_version": "1",
@@ -107,7 +106,7 @@ func TestDeploy_EndToEnd_HappyPath(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("deploy exit = %d\n--- output ---\n%s", code, got)
 	}
-	for _, want := range []string{"Created new agent.", "agt_abc", "grp_def", "https://askdao.ai/k/usr_1/g/grp_def", "my-skill", "skill_xyz"} {
+	for _, want := range []string{"Created new agent.", "agt_abc", "https://askdao.ai/k/usr_1/a/agt_abc", "my-skill", "skill_xyz"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output missing %q\n--- output ---\n%s", want, got)
 		}
@@ -127,8 +126,7 @@ func TestDeploy_EndToEnd_UpdateMode(t *testing.T) {
 			AgentID:                "agt_abc",
 			AnthropicAgentID:       "agent_x",
 			AnthropicEnvironmentID: "env_x",
-			GroupID:                "grp_def",
-			GroupLink:              "https://askdao.ai/k/usr_1/g/grp_def",
+			AgentURL:               "https://askdao.ai/k/usr_1/a/agt_abc",
 			TranslationReport:      deploy.TranslationReport{Harness: "anthropic_managed_agents"},
 			Created:                false,
 			PreviousManagedVersion: &prev,
@@ -145,10 +143,46 @@ func TestDeploy_EndToEnd_UpdateMode(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("deploy exit = %d\n--- output ---\n%s", code, got)
 	}
-	for _, want := range []string{"Updated existing agent (v1 → v2).", "agt_abc", "grp_def"} {
+	for _, want := range []string{"Updated existing agent (v1 → v2).", "agt_abc", "https://askdao.ai/k/usr_1/a/agt_abc"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output missing %q\n--- output ---\n%s", want, got)
 		}
+	}
+}
+
+func TestDeploy_LegacyGroupLinkStillPrinted(t *testing.T) {
+	// Agents deployed before groups were retired still come back with the group
+	// fields filled in; the cli keeps printing them and falls back to the group
+	// link when the server sends no agent page.
+	root := withWorkdir(t)
+	writeMinimalAgent(t, root, "test-agent")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, deploy.DeployResponse{
+			AgentID: "agt_legacy", AnthropicAgentID: "agent_l", AnthropicEnvironmentID: "env_l",
+			GroupID: "grp_legacy", GroupLink: "https://askdao.ai/k/usr_9/g/grp_legacy",
+			TranslationReport: deploy.TranslationReport{Harness: "anthropic_managed_agents"},
+			Created:           false,
+		})
+	}))
+	defer srv.Close()
+	t.Setenv("ASKDAO_CONDUCTOR_URL", srv.URL)
+	t.Setenv("ASKDAO_CONDUCTOR_TOKEN", "tok")
+
+	out, restore := captureStdout(t)
+	defer restore()
+	code := runDeploy(context.Background(), []string{"--dir", "test-agent"})
+	got := out()
+	if code != 0 {
+		t.Fatalf("deploy exit = %d\n--- output ---\n%s", code, got)
+	}
+	for _, want := range []string{"grp_legacy", "Open https://askdao.ai/k/usr_9/g/grp_legacy to chat."} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output missing %q\n--- output ---\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "agent page:") {
+		t.Errorf("no agent_url in the response, so no agent page line should print\n--- output ---\n%s", got)
 	}
 }
 

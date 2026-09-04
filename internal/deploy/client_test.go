@@ -68,8 +68,7 @@ func TestClient_Deploy_HappyPath(t *testing.T) {
 			AgentID:                "agt_x",
 			AnthropicAgentID:       "agent_x",
 			AnthropicEnvironmentID: "env_x",
-			GroupID:                "grp_x",
-			GroupLink:              "https://askdao.ai/k/usr_1/g/grp_x",
+			AgentURL:               "https://askdao.ai/k/usr_1/a/agt_x",
 			Skills: []map[string]interface{}{{
 				"type": "custom_local", "path": "my-skill",
 				"anthropic_skill_id": "skill_x", "anthropic_skill_version": "1",
@@ -91,7 +90,7 @@ func TestClient_Deploy_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
-	if resp.AgentID != "agt_x" || resp.GroupID != "grp_x" || resp.GroupLink == "" {
+	if resp.AgentID != "agt_x" || resp.AgentURL != "https://askdao.ai/k/usr_1/a/agt_x" {
 		t.Errorf("unexpected response: %+v", resp)
 	}
 	if len(resp.Skills) != 1 || resp.Skills[0]["anthropic_skill_id"] != "skill_x" {
