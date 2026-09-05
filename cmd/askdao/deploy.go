@@ -1,5 +1,5 @@
 // [INPUT]: 标准库 + internal/deploy（Err* 类型）+ internal/deployflow（Prepare/Deploy/ResolveServerAndToken 装配单源）+ internal/render（Diff / TranslationWarnings）+ internal/types（AgentSpec）+ gopkg.in/yaml.v3
-// [OUTPUT]: runDeploy — `askdao agent deploy` 命令实装（装配走 internal/deployflow.Prepare+Deploy 单源，CLI / studio / 桌面共用）+ deployOpenLink（回执落点单源，agent 页优先、存量 group 链接兜底；edit.go 共用）
+// [OUTPUT]: runDeploy — `askdao agent deploy` 命令实装（装配走 internal/deployflow.Prepare+Deploy 单源，CLI / studio / 桌面共用）+ deployOpenLink（回执落点单源，agent 页；edit.go 共用）
 // [POS]: cmd/askdao 的 deploy 子命令；读 <dir>/askdao-agent.yml 原文 + 经 internal/deployflow.PackageSkills 按 skill.path（project 相对 / 绝对 / ~ / Scope=="user"）
 //
 //	统一解析 + 递归打 zip（harness 中性 invariant）→ 经 internal/deploy.Client 上传 conductor /cli/deploy；处理
@@ -256,13 +256,9 @@ func printDeployResult(resp *deploy.DeployResponse) {
 }
 
 // deployOpenLink is the single place that decides which URL a deploy hands
-// back. The agent's own page is the destination; GroupLink is only a fallback
-// for agents deployed before groups were retired server-side.
+// back: the agent's own page, which conductor always fills in.
 func deployOpenLink(resp *deploy.DeployResponse) string {
-	if resp.AgentURL != "" {
-		return resp.AgentURL
-	}
-	return resp.GroupLink
+	return resp.AgentURL
 }
 
 // printDeployProgress prints expected scope + duration before the POST to

@@ -151,7 +151,6 @@ func runEdit(ctx context.Context, args []string) int {
 			return &webstudio.DeployResult{
 				Message:         deployResultLine(resp),
 				AgentURL:        resp.AgentURL,
-				GroupLink:       resp.GroupLink,
 				AgentID:         resp.AgentID,
 				Created:         resp.Created,
 				ScheduleWarning: resp.ScheduleWarning,
