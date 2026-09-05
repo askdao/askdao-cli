@@ -1,5 +1,5 @@
-// [INPUT]: 标准库 + internal/deploy（Err* 类型）+ internal/deployflow（Prepare/Deploy/ResolveServerAndToken 装配单源）+ internal/render（Diff / TranslationWarnings）+ internal/types（AgentSpec）+ gopkg.in/yaml.v3
-// [OUTPUT]: runDeploy — `askdao agent deploy` 命令实装（装配走 internal/deployflow.Prepare+Deploy 单源，CLI / studio / 桌面共用）+ deployOpenLink（回执落点单源，agent 页；edit.go 共用）
+// [INPUT]: 标准库 + internal/deploy（Err* 类型）+ internal/deployflow（Prepare/Deploy/ResolveServerAndToken 装配单源）+ internal/render（Diff / TranslationWarnings）+ internal/types（AgentSpec）+ internal/webstudio（DeployOpenLink 回执落点单源）+ gopkg.in/yaml.v3
+// [OUTPUT]: runDeploy — `askdao agent deploy` 命令实装（装配走 internal/deployflow.Prepare+Deploy 单源，CLI / studio / 桌面共用）
 // [POS]: cmd/askdao 的 deploy 子命令；读 <dir>/askdao-agent.yml 原文 + 经 internal/deployflow.PackageSkills 按 skill.path（project 相对 / 绝对 / ~ / Scope=="user"）
 //
 //	统一解析 + 递归打 zip（harness 中性 invariant）→ 经 internal/deploy.Client 上传 conductor /cli/deploy；处理
@@ -27,6 +27,7 @@ import (
 	"github.com/askdao/askdao-cli/internal/deployflow"
 	"github.com/askdao/askdao-cli/internal/render"
 	"github.com/askdao/askdao-cli/internal/types"
+	"github.com/askdao/askdao-cli/internal/webstudio"
 )
 
 // runDeploy implements `askdao agent deploy [--dir path] [--harness id] [--force]`:
@@ -248,17 +249,11 @@ func printDeployResult(resp *deploy.DeployResponse) {
 	// Trailing confirmation so the user has a clear "done" signal regardless
 	// of whether warnings are present.
 	fmt.Println()
-	if link := deployOpenLink(resp); link != "" {
+	if link := webstudio.DeployOpenLink(resp); link != "" {
 		fmt.Printf("✓ Deploy complete. Open %s to chat.\n", link)
 	} else {
 		fmt.Println("✓ Deploy complete.")
 	}
-}
-
-// deployOpenLink is the single place that decides which URL a deploy hands
-// back: the agent's own page, which conductor always fills in.
-func deployOpenLink(resp *deploy.DeployResponse) string {
-	return resp.AgentURL
 }
 
 // printDeployProgress prints expected scope + duration before the POST to
