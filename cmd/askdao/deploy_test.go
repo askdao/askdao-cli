@@ -152,8 +152,8 @@ func TestDeploy_EndToEnd_UpdateMode(t *testing.T) {
 
 func TestDeploy_LegacyGroupLinkStillPrinted(t *testing.T) {
 	// Agents deployed before groups were retired still come back with the group
-	// fields filled in; the cli keeps printing them and falls back to the group
-	// link when the server sends no agent page.
+	// fields filled in and the cli keeps printing them. The agent page is the
+	// only "open this" destination — no group-link fallback.
 	root := withWorkdir(t)
 	writeMinimalAgent(t, root, "test-agent")
 
@@ -176,13 +176,16 @@ func TestDeploy_LegacyGroupLinkStillPrinted(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("deploy exit = %d\n--- output ---\n%s", code, got)
 	}
-	for _, want := range []string{"grp_legacy", "Open https://askdao.ai/k/usr_9/g/grp_legacy to chat."} {
+	for _, want := range []string{"grp_legacy", "group link:  https://askdao.ai/k/usr_9/g/grp_legacy"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output missing %q\n--- output ---\n%s", want, got)
 		}
 	}
 	if strings.Contains(got, "agent page:") {
 		t.Errorf("no agent_url in the response, so no agent page line should print\n--- output ---\n%s", got)
+	}
+	if strings.Contains(got, "to chat.") {
+		t.Errorf("no agent_url in the response, so nothing to open\n--- output ---\n%s", got)
 	}
 }
 

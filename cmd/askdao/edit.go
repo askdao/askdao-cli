@@ -1,6 +1,6 @@
-// [INPUT]: internal/pipeline（Run）+ internal/webstudio（Serve / BuildStudioData / DefaultThemeForCategory）
+// [INPUT]: internal/pipeline（Run）+ internal/webstudio（Serve / BuildStudioData / DefaultThemeForCategory / NewDeployResult / DeployResultLine）
 //
-//   - internal/deploy（DeployResponse / Err* 类型）+ internal/observe（Install / SweepStale）+ internal/types（AgentSpec / Detection）+ internal/recommender（DefaultCapabilities / BuildVaultHints / FetchModelClassesOrFallback）+ yaml；
+//   - internal/deploy（Err* 类型）+ internal/observe（Install / SweepStale）+ internal/types（AgentSpec / Detection）+ internal/recommender（DefaultCapabilities / BuildVaultHints / FetchModelClassesOrFallback）+ yaml；
 //     复用同包 helper：chooseLLMClient / readSpec / resolveServerAndToken / ensureAskdaoDir /
 //     defaultAgentName / askdaoAgentFileName / askdaoDirName
 //
@@ -148,14 +148,7 @@ func runEdit(ctx context.Context, args []string) int {
 			if derr != nil {
 				return nil, studioDeployError(derr)
 			}
-			return &webstudio.DeployResult{
-				Message:         deployResultLine(resp),
-				AgentURL:        resp.AgentURL,
-				GroupLink:       resp.GroupLink,
-				AgentID:         resp.AgentID,
-				Created:         resp.Created,
-				ScheduleWarning: resp.ScheduleWarning,
-			}, nil
+			return webstudio.NewDeployResult(resp, webstudio.DeployResultLine(resp)), nil
 		},
 	})
 	if err != nil {
@@ -335,17 +328,4 @@ func studioDeployError(derr error) error {
 		return fmt.Errorf("deploy blocked: %s is live (%s, approved) — `visibility: private` would cut off subscribers and showcase pages, and going %s again needs a fresh platform review. Remove `visibility: private` from askdao-agent.yml (omitted = keep current), or run `askdao agent deploy --confirm-downgrade` to proceed deliberately", name, cur, cur)
 	}
 	return derr
-}
-
-// deployResultLine renders a one-line deploy summary for the studio status bar.
-func deployResultLine(resp *deploy.DeployResponse) string {
-	verb := "Updated"
-	if resp.Created {
-		verb = "Created"
-	}
-	s := fmt.Sprintf("%s agent %s", verb, resp.AgentID)
-	if link := deployOpenLink(resp); link != "" {
-		s += " · " + link
-	}
-	return s
 }

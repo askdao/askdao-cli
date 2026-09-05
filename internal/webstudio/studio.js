@@ -1170,7 +1170,7 @@
         const j = await r.json();
         if (j.error) showDialog({ kind: 'error', title: failTitle, msg: j.error, terminal: false });
         else if (j.status === 'saved') showDialog({ kind: 'success', title: 'Draft saved', msg: 'askdao-agent.yml saved. Keep editing or deploy when ready.', terminal: false });
-        else if (j.status === 'deployed') { showDialog({ kind: 'success', title: 'Agent deployed', msg: j.message, link: j.agent_url || j.group_link, terminal: true, agentId: j.agent_id, warn: j.schedule_warning }); return; }
+        else if (j.status === 'deployed') { showDialog({ kind: 'success', title: 'Agent deployed', msg: j.message, link: j.agent_url, terminal: true, agentId: j.agent_id, warn: j.schedule_warning }); return; }
         else { showDialog({ kind: 'success', title: 'Saved', msg: j.message || 'askdao-agent.yml saved.', terminal: true }); return; }
       } catch (e) { showDialog({ kind: 'error', title: failTitle, msg: String(e), terminal: false }); }
       finally { busy = false;['btnSaveDraft', 'btnBack', 'btnNext', 'btnDeploy', 'btnDone'].forEach(b => $(b).disabled = false); }
@@ -1181,8 +1181,7 @@
        means the server has exited (Deploy / Save & finish): show "close this tab" and
        no dismiss. terminal=false (Draft saved / any error): the server is still up, so
        offer a dismiss button (and click-outside) to return to editing. Deploy success
-       carries the clickable agent page link (group_link is only the legacy
-       fallback for agents deployed before groups were retired server-side). */
+       carries the clickable agent page link (agent_url, always sent by the server). */
     let openLink = '', dialogTerminal = false, chatAgentID = '', chatSession = '';
     function showDialog({ kind, title, msg, link, terminal, agentId, warn }) {
       setStatus('');

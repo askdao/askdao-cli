@@ -1,4 +1,4 @@
-// [INPUT]: context/errors/fmt/net·url/os/path·filepath/sync + gopkg.in/yaml.v3 + wails runtime；internal/{auth,chat,deploy,deployflow,pipeline,recommender,scanner,types,webstudio}
+// [INPUT]: context/errors/fmt/net·url/os/path·filepath/sync + gopkg.in/yaml.v3 + wails runtime；internal/{auth,browser,chat,deployflow,pipeline,recommender,scanner,types,webstudio}
 // [OUTPUT]: App（Wails bound-method 宿主 + 登录/项目态）+ StudioOptions（注入 webstudio 数据与桌面回调）
 // [POS]: cmd/askdao-studio 应用层 —— 桌面壳业务逻辑：登录(device flow)/扫描(pick 选文件夹→run 跑管线,Stop 可 cancel)/保存(写 yaml)/部署(deployflow.Prepare+Deploy 装配单源)/测试聊天(chat 流式转发 conductor /chat)/内嵌助手(assistant 流式转发官方 Studio 助手 agent,resolveOfficialAssistant 从 conductor /cli/config 读回 agent id + 缓存 + env override)/SKILL 校验+补全(skillValidate/skillFix)/外链桥接(openExternal)，全复用 internal 核心包
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -213,18 +213,7 @@ func (a *App) deploy(spec *types.AgentSpec) (*webstudio.DeployResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	verb := "Updated"
-	if resp.Created {
-		verb = "Created"
-	}
-	return &webstudio.DeployResult{
-		Message:         fmt.Sprintf("%s agent %s", verb, resp.AgentID),
-		AgentURL:        resp.AgentURL,
-		GroupLink:       resp.GroupLink,
-		AgentID:         resp.AgentID,
-		Created:         resp.Created,
-		ScheduleWarning: resp.ScheduleWarning,
-	}, nil
+	return webstudio.NewDeployResult(resp, webstudio.DeployMessage(resp)), nil
 }
 
 // chat forwards one test-chat turn to conductor's /chat and streams each raw SSE
