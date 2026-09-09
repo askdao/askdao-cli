@@ -129,6 +129,27 @@ schedule:
   task: "生成上周工作周报并交付 xlsx"
   notify_channel: telegram
 
+lab:
+  producers:
+    - id: kalshi-paper
+      entrypoint: .claude/skills/kalshi-trading/scripts/entry.py
+      runtime: python:3.11-slim
+      default_cron: "30 8-16,18-20 * * 1-5"
+      timezone: America/New_York
+      state_version: 3
+      params_schema:
+        type: object
+        properties:
+          market: { type: string }
+      credentials:
+        - KALSHI_API_KEY_ID
+        - KALSHI_PRIVATE_KEY
+  provides:
+    - station: collect
+      contract: lab-digest/v1
+      producer: kalshi-paper
+      output: lab/digest
+
 provenance:
   detection_report: .askdao/detection.json
   reasoning_summary: |

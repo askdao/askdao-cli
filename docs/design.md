@@ -675,7 +675,8 @@ agent.yml (apiVersion: askdao.ai/v1)
 ├── vault_hints        # 订阅者 onboarding 必填 secrets
 ├── preferred_harness  # auto / anthropic_managed_agents / openai_agents_sdk
 ├── fallback_harnesses # Phase 2 启用
-└── harness_specific   # escape hatch: { anthropic: {...}, openai: {...} }
+├── harness_specific   # escape hatch: { anthropic: {...}, openai: {...} }
+└── lab                # 可选：包内纯脚本生产入口 + 它们满足的实验室契约（§5.6）
 ```
 
 **与 Anthropic / OpenAI SDK 的映射**（服务端 adapter 完成）：
@@ -1032,6 +1033,54 @@ status:
 - `action: ignored` —— 字段完全无效
 - `action: partial` —— 部分能力降级（如 setup_commands 抽出 apt/pip 名）
 - `fallback_attempted` —— adapter 已尝试的兜底动作（透明告诉 KOL）
+
+### 5.6 `lab` 段（可选）—— 包内脚本生产入口
+
+包里如果带一个**纯脚本**的生产入口（自己跑、不进 agent loop、不调 LLM），用 `lab` 段把它声明出来：一半说「这个脚本是什么、怎么跑」（`producers`），一半说「它的产出算哪一份实验室契约」（`provides`）。声明了，实验室才能在不了解包内部结构的前提下把它接到一个工位上。
+
+段整体可选：包里没有这种入口就整段不写。**旧 yaml 零改动** —— 不含 `lab` 的 spec 解析后该块为空，行为与从前完全一致。
+
+```yaml
+lab:
+  producers:
+    - id: kalshi-paper            # 包内唯一稳定标识，[a-z0-9-]{1,40}，被 provides 引用
+      entrypoint: .claude/skills/kalshi-trading/scripts/entry.py   # 包内相对路径，必填
+      runtime: python:3.11-slim   # 可选，不写沿用包顶层 workspace 运行时
+      default_cron: "30 8-16,18-20 * * 1-5"   # 可选，脚本的建议节律
+      timezone: America/New_York  # 可选，IANA 时区，解释 default_cron 的墙钟
+      state_version: 3            # 可选，脚本读写的状态文件格式版本，整数 ≥ 1
+      params_schema: {}           # 可选，JSON schema 对象，原样保存
+      credentials: [KALSHI_API_KEY_ID, KALSHI_PRIVATE_KEY]   # 可选，**只写凭据名，永不写值**
+  provides:
+    - station: collect            # 工位：collect | verify
+      contract: lab-digest/v1     # 契约：lab-digest/v1 | lab-verdicts/v1
+      producer: kalshi-paper      # 必须是同段内某个 producers[].id
+      output: lab/digest          # 产物名，脚本按此名写文件
+```
+
+**字段表**
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `producers[].id` | 是 | 包内唯一，`[a-z0-9-]{1,40}` |
+| `producers[].entrypoint` | 是 | 包内相对路径，非空 |
+| `producers[].runtime` | 否 | 缺省沿用包顶层运行时 |
+| `producers[].default_cron` | 否 | 标准 5 段 cron，建议节律 |
+| `producers[].timezone` | 否 | IANA 时区名 |
+| `producers[].state_version` | 否 | 整数 ≥ 1 |
+| `producers[].params_schema` | 否 | JSON schema 对象，原样透传 |
+| `producers[].credentials` | 否 | 凭据**名**列表 |
+| `provides[].station` | 是 | `collect` \| `verify` |
+| `provides[].contract` | 是 | `lab-digest/v1` \| `lab-verdicts/v1` |
+| `provides[].producer` | 是 | 引用同段 `producers[].id` |
+| `provides[].output` | 是 | 产物名 |
+
+**deploy 前本地校验**（`askdao agent deploy` 在打包前就报错，不必等服务端返回）：
+
+- `producers` 非空、`id` 唯一且合法、`entrypoint` 非空
+- `provides` 的 `station` / `contract` 必须在上表词表内
+- `provides[].producer` 必须能在 `producers` 里找到（打错字当场报错）
+- 同一对 `(station, contract)` 不能出现两次
 
 ---
 
