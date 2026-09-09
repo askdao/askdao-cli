@@ -4,7 +4,8 @@
 //
 // [OUTPUT]: 对外提供 TestAgentSpecRoundTripValid / TestAgentSpecRejectInvalid /
 //
-//	TestAgentSpecAPIVersionStamp 测试
+//	TestAgentSpecAPIVersionStamp / TestAgentSpecToggleBlocksSurvive /
+//	TestAgentSpecLabBlockSurvives / TestAgentSpecWithoutLabStaysNil 测试
 //
 // [POS]: internal/types 的 agent.yml schema 验证；保证 fixture YAML
 //
@@ -85,6 +86,7 @@ func diagnoseSpecDiff(t *testing.T, a, b AgentSpec) {
 		{"Guardrails", a.Guardrails, b.Guardrails},
 		{"Outcomes", a.Outcomes, b.Outcomes},
 		{"Schedule", a.Schedule, b.Schedule},
+		{"Lab", a.Lab, b.Lab},
 		{"Provenance", a.Provenance, b.Provenance},
 		{"Status", a.Status, b.Status},
 	}
@@ -150,6 +152,83 @@ func TestAgentSpecToggleBlocksSurvive(t *testing.T) {
 	}
 	if strings.Contains(string(bareOut), "wiki:") {
 		t.Errorf("empty spec emitted a wiki block:\n%s", bareOut)
+	}
+}
+
+// TestAgentSpecLabBlockSurvives pins the optional `lab` block through a yaml
+// round trip: every producer / provide field must come back byte-identical,
+// because the whole block travels to the server verbatim.
+func TestAgentSpecLabBlockSurvives(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "valid_agent.yml"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	var spec AgentSpec
+	if err := yaml.Unmarshal(raw, &spec); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if spec.Lab == nil {
+		t.Fatalf("lab block lost")
+	}
+	if len(spec.Lab.Producers) != 1 || spec.Lab.Producers[0].ID != "kalshi-paper" {
+		t.Fatalf("lab.producers wrong: %+v", spec.Lab.Producers)
+	}
+	p := spec.Lab.Producers[0]
+	if p.Entrypoint == "" || p.Runtime == "" || p.DefaultCron == "" ||
+		p.Timezone == "" || p.StateVersion != 3 ||
+		len(p.ParamsSchema) == 0 || len(p.Credentials) != 2 {
+		t.Fatalf("lab.producers[0] fields lost: %+v", p)
+	}
+	if len(spec.Lab.Provides) != 1 {
+		t.Fatalf("lab.provides wrong: %+v", spec.Lab.Provides)
+	}
+	pv := spec.Lab.Provides[0]
+	if pv.Station != "collect" || pv.Contract != "lab-digest/v1" ||
+		pv.Producer != "kalshi-paper" || pv.Output != "lab/digest" {
+		t.Fatalf("lab.provides[0] fields lost: %+v", pv)
+	}
+
+	out, err := yaml.Marshal(&spec)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var back AgentSpec
+	if err := yaml.Unmarshal(out, &back); err != nil {
+		t.Fatalf("re-unmarshal: %v", err)
+	}
+	if !reflect.DeepEqual(spec.Lab, back.Lab) {
+		t.Fatalf("lab block drifted:\n a=%+v\n b=%+v", spec.Lab, back.Lab)
+	}
+}
+
+// TestAgentSpecWithoutLabStaysNil is the zero-change guarantee for existing yaml: a
+// spec with no `lab:` key parses fine, Lab stays nil, and an empty spec never
+// grows an empty block on the way out.
+func TestAgentSpecWithoutLabStaysNil(t *testing.T) {
+	const noLab = `
+apiVersion: askdao.ai/v1
+kind: AgentSpec
+metadata:
+  name: legacy-agent
+  version: 0.1.0
+persona:
+  model_class: balanced
+preferred_harness: anthropic_managed_agents
+`
+	var spec AgentSpec
+	if err := yaml.Unmarshal([]byte(noLab), &spec); err != nil {
+		t.Fatalf("unmarshal legacy yaml: %v", err)
+	}
+	if spec.Lab != nil {
+		t.Fatalf("lab should stay nil for a yaml without the block: %+v", spec.Lab)
+	}
+
+	out, err := yaml.Marshal(&AgentSpec{})
+	if err != nil {
+		t.Fatalf("marshal bare: %v", err)
+	}
+	if strings.Contains(string(out), "lab:") {
+		t.Fatalf("empty spec emitted a lab block:\n%s", out)
 	}
 }
 

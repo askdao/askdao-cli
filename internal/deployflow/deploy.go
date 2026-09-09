@@ -1,5 +1,5 @@
-// [INPUT]: 依赖 context/errors/fmt/os/path·filepath/strings + gopkg.in/yaml.v3；internal/auth（Load / ErrNoCredentials）、internal/deploy（Client / DeployInput）、internal/types（AgentSpec）；同包 PackageSkills
-// [OUTPUT]: 对外提供 Prepare(dir, harnessOverride) → *Prepared（读 yaml + 打包 skill + 读 detection + harness 默认链）+ (*Prepared).Deploy(ctx, url, token, force, confirmDowngrade) + ResolveServerAndToken（env pair > credentials.json）
+// [INPUT]: 依赖 context/errors/fmt/os/path·filepath/strings + gopkg.in/yaml.v3；internal/auth（Load / ErrNoCredentials）、internal/deploy（Client / DeployInput）、internal/types（AgentSpec）；同包 PackageSkills / ValidateLab
+// [OUTPUT]: 对外提供 Prepare(dir, harnessOverride) → *Prepared（读 yaml + 校验 lab 段 + 打包 skill + 读 detection + harness 默认链）+ (*Prepared).Deploy(ctx, url, token, force, confirmDowngrade) + ResolveServerAndToken（env pair > credentials.json）
 // [POS]: internal/deployflow 部署装配单源 —— 此前「读 yaml → 打包 skill → 取凭据 → Deploy」在
 //
 //	cmd/askdao runDeploy / deployFromDirWithConfirm / 桌面 App.deploy 三处各写一份，桌面版
@@ -53,6 +53,9 @@ func Prepare(dir, harnessOverride string) (*Prepared, error) {
 	}
 	var spec types.AgentSpec
 	if err := yaml.Unmarshal(agentYAML, &spec); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", AgentFileName, err)
+	}
+	if err := ValidateLab(spec.Lab); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", AgentFileName, err)
 	}
 	skillZips, err := PackageSkills(dir, &spec)

@@ -48,6 +48,7 @@ type AgentSpec struct {
 	Guardrails *Guardrails `json:"guardrails,omitempty" yaml:"guardrails,omitempty"`
 	Outcomes   *Outcomes   `json:"outcomes,omitempty"   yaml:"outcomes,omitempty"`
 	Schedule   *Schedule   `json:"schedule,omitempty"   yaml:"schedule,omitempty"`
+	Lab        *Lab        `json:"lab,omitempty"        yaml:"lab,omitempty"`
 	Provenance *Provenance `json:"provenance,omitempty" yaml:"provenance,omitempty"`
 	Status     *Status     `json:"status,omitempty"     yaml:"status,omitempty"`
 }
@@ -346,6 +347,50 @@ type Schedule struct {
 	Timezone      string `json:"timezone,omitempty"       yaml:"timezone,omitempty"` // IANA, empty = UTC
 	Task          string `json:"task"                     yaml:"task"`
 	NotifyChannel string `json:"notify_channel,omitempty" yaml:"notify_channel,omitempty"`
+}
+
+// Lab declares the package's script-only production entrypoints and the lab
+// contracts their outputs satisfy. Optional: a package with no such entrypoint
+// omits the block entirely and Lab stays nil.
+//
+// A producer is a plain script (no agent loop, no LLM) shipped inside the
+// package; a provide says "running producer X at station S yields an artifact
+// conforming to contract C under name `output`". The pair is what lets a lab
+// wire the package into a station without knowing anything about its internals.
+type Lab struct {
+	Producers []LabProducer `json:"producers"           yaml:"producers"`
+	Provides  []LabProvide  `json:"provides,omitempty"  yaml:"provides,omitempty"`
+}
+
+// LabProducer is one script production entrypoint.
+//
+// ID is a package-unique stable identifier ([a-z0-9-]{1,40}) that Provides
+// reference. Entrypoint is a package-relative path to the script. Runtime is
+// optional and falls back to the package's top-level workspace runtime.
+// StateVersion is the format version of the state file the script reads/writes
+// (>= 1; 0 = not declared). ParamsSchema is a JSON-schema object stored as-is.
+// Credentials names the secrets the script needs — names only, never values.
+type LabProducer struct {
+	ID           string                 `json:"id"                      yaml:"id"`
+	Entrypoint   string                 `json:"entrypoint"              yaml:"entrypoint"`
+	Runtime      string                 `json:"runtime,omitempty"       yaml:"runtime,omitempty"`
+	DefaultCron  string                 `json:"default_cron,omitempty"  yaml:"default_cron,omitempty"`
+	Timezone     string                 `json:"timezone,omitempty"      yaml:"timezone,omitempty"`
+	StateVersion int                    `json:"state_version,omitempty" yaml:"state_version,omitempty"`
+	ParamsSchema map[string]interface{} `json:"params_schema,omitempty" yaml:"params_schema,omitempty"`
+	Credentials  []string               `json:"credentials,omitempty"   yaml:"credentials,omitempty"`
+}
+
+// LabProvide binds one producer to one lab contract at one station.
+//
+// Station ∈ {collect, verify}; Contract ∈ {lab-digest/v1, lab-verdicts/v1};
+// Producer must match a LabProducer.ID in the same block; Output is the
+// artifact name the script writes under.
+type LabProvide struct {
+	Station  string `json:"station"  yaml:"station"`
+	Contract string `json:"contract" yaml:"contract"`
+	Producer string `json:"producer" yaml:"producer"`
+	Output   string `json:"output"   yaml:"output"`
 }
 
 // Provenance carries the why-trail for transparency: which detection report,
