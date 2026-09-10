@@ -1052,10 +1052,14 @@ lab:
       params_schema: {}           # 可选，JSON schema 对象，原样保存
       credentials: [KALSHI_API_KEY_ID, KALSHI_PRIVATE_KEY]   # 可选，**只写凭据名，永不写值**
   provides:
-    - station: collect            # 工位：collect | verify
-      contract: lab-digest/v1     # 契约：lab-digest/v1 | lab-verdicts/v1
+    - station: collect            # 工位：collect | verify | report
+      contract: lab-digest/v1     # 契约：lab-digest/v1 | lab-verdicts/v1 | lab-notice/v1
       producer: kalshi-paper      # 必须是同段内某个 producers[].id
       output: lab/digest          # 产物名，脚本按此名写文件
+    - station: report             # 「告」工位：每轮播报一句话
+      contract: lab-notice/v1
+      producer: kalshi-paper
+      output: headline.txt
 ```
 
 **字段表**
@@ -1070,10 +1074,12 @@ lab:
 | `producers[].state_version` | 否 | 整数 ≥ 1 |
 | `producers[].params_schema` | 否 | JSON schema 对象，原样透传 |
 | `producers[].credentials` | 否 | 凭据**名**列表 |
-| `provides[].station` | 是 | `collect` \| `verify` |
-| `provides[].contract` | 是 | `lab-digest/v1` \| `lab-verdicts/v1` |
+| `provides[].station` | 是 | `collect`（收）\| `verify`（验）\| `report`（告） |
+| `provides[].contract` | 是 | `lab-digest/v1` \| `lab-verdicts/v1` \| `lab-notice/v1`（纯文本播报） |
 | `provides[].producer` | 是 | 引用同段 `producers[].id` |
 | `provides[].output` | 是 | 产物名 |
+
+`lab-notice/v1` 是最轻的一份契约：产物就是一个 UTF-8 **纯文本文件**（无信封、无 JSON），实验室每轮把它原样播报给成员，超过 1800 字符截断。脚本每轮写一句人话即可。
 
 **deploy 前本地校验**（`askdao agent deploy` 在打包前就报错，不必等服务端返回）：
 

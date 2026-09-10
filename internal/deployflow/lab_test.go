@@ -50,6 +50,26 @@ func TestValidateLab(t *testing.T) {
 			lab:  &types.Lab{Producers: []types.LabProducer{okProducer()}},
 		},
 		{
+			name: "report station",
+			lab: &types.Lab{
+				Producers: []types.LabProducer{okProducer()},
+				Provides: []types.LabProvide{{
+					Station: "report", Contract: "lab-digest/v1",
+					Producer: "kalshi-paper", Output: "lab/digest",
+				}},
+			},
+		},
+		{
+			name: "lab-notice contract",
+			lab: &types.Lab{
+				Producers: []types.LabProducer{okProducer()},
+				Provides: []types.LabProvide{{
+					Station: "report", Contract: "lab-notice/v1",
+					Producer: "kalshi-paper", Output: "headline.txt",
+				}},
+			},
+		},
+		{
 			name:    "empty producers",
 			lab:     &types.Lab{},
 			wantErr: "must not be empty",

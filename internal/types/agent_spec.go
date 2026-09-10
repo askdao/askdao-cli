@@ -383,9 +383,9 @@ type LabProducer struct {
 
 // LabProvide binds one producer to one lab contract at one station.
 //
-// Station ∈ {collect, verify}; Contract ∈ {lab-digest/v1, lab-verdicts/v1};
-// Producer must match a LabProducer.ID in the same block; Output is the
-// artifact name the script writes under.
+// Station ∈ {collect, verify, report}; Contract ∈ {lab-digest/v1,
+// lab-verdicts/v1, lab-notice/v1}; Producer must match a LabProducer.ID in the
+// same block; Output is the artifact name the script writes under.
 type LabProvide struct {
 	Station  string `json:"station"  yaml:"station"`
 	Contract string `json:"contract" yaml:"contract"`
