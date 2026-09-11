@@ -70,6 +70,16 @@ func TestValidateLab(t *testing.T) {
 			},
 		},
 		{
+			name: "lab-notice/v2 contract",
+			lab: &types.Lab{
+				Producers: []types.LabProducer{okProducer()},
+				Provides: []types.LabProvide{{
+					Station: "report", Contract: "lab-notice/v2",
+					Producer: "kalshi-paper", Output: "notice.json",
+				}},
+			},
+		},
+		{
 			name:    "empty producers",
 			lab:     &types.Lab{},
 			wantErr: "must not be empty",
@@ -123,6 +133,17 @@ func TestValidateLab(t *testing.T) {
 				}},
 			},
 			wantErr: "contract \"lab-digest/v2\" must be one of",
+		},
+		{
+			name: "unreleased notice revision",
+			lab: &types.Lab{
+				Producers: []types.LabProducer{okProducer()},
+				Provides: []types.LabProvide{{
+					Station: "report", Contract: "lab-notice/v3",
+					Producer: "kalshi-paper", Output: "notice.json",
+				}},
+			},
+			wantErr: "contract \"lab-notice/v3\" must be one of",
 		},
 		{
 			name: "producer reference not declared",

@@ -1053,7 +1053,7 @@ lab:
       credentials: [KALSHI_API_KEY_ID, KALSHI_PRIVATE_KEY]   # 可选，**只写凭据名，永不写值**
   provides:
     - station: collect            # 工位：collect | verify | report
-      contract: lab-digest/v1     # 契约：lab-digest/v1 | lab-verdicts/v1 | lab-notice/v1
+      contract: lab-digest/v1     # 契约：lab-digest/v1 | lab-verdicts/v1 | lab-notice/v1 | lab-notice/v2
       producer: kalshi-paper      # 必须是同段内某个 producers[].id
       output: lab/digest          # 产物名，脚本按此名写文件
     - station: report             # 「告」工位：每轮播报一句话
@@ -1075,11 +1075,13 @@ lab:
 | `producers[].params_schema` | 否 | JSON schema 对象，原样透传 |
 | `producers[].credentials` | 否 | 凭据**名**列表 |
 | `provides[].station` | 是 | `collect`（收）\| `verify`（验）\| `report`（告） |
-| `provides[].contract` | 是 | `lab-digest/v1` \| `lab-verdicts/v1` \| `lab-notice/v1`（纯文本播报） |
+| `provides[].contract` | 是 | `lab-digest/v1` \| `lab-verdicts/v1` \| `lab-notice/v1`（纯文本播报）\| `lab-notice/v2`（带信封 JSON） |
 | `provides[].producer` | 是 | 引用同段 `producers[].id` |
 | `provides[].output` | 是 | 产物名 |
 
 `lab-notice/v1` 是最轻的一份契约：产物就是一个 UTF-8 **纯文本文件**（无信封、无 JSON），实验室每轮把它原样播报给成员，超过 1800 字符截断。脚本每轮写一句人话即可。
+
+`lab-notice/v2` 是它的带信封版本：产物是一个 JSON 文件 `{contract, product_key, revision, generated_at, data: {title, blocks}}`，脚本只写结构化内容，由平台按渠道各自渲染。v1 与 v2 并存，包按需二选一。
 
 **deploy 前本地校验**（`askdao agent deploy` 在打包前就报错，不必等服务端返回）：
 
