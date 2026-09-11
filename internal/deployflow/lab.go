@@ -22,7 +22,11 @@ var LabStations = []string{"collect", "verify", "report"}
 // LabContracts is the closed vocabulary for lab.provides[].contract.
 // lab-notice/v1 is the plain-text one: the output file is UTF-8 text (no
 // envelope), broadcast as-is, truncated past 1800 characters.
-var LabContracts = []string{"lab-digest/v1", "lab-verdicts/v1", "lab-notice/v1"}
+// lab-notice/v2 is the enveloped JSON one: {contract, product_key, revision,
+// generated_at, data:{title, blocks}}, rendered per channel by the platform.
+var LabContracts = []string{
+	"lab-digest/v1", "lab-verdicts/v1", "lab-notice/v1", "lab-notice/v2",
+}
 
 var labProducerID = regexp.MustCompile(`^[a-z0-9-]{1,40}$`)
 
