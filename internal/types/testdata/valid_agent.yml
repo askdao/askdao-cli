@@ -134,6 +134,7 @@ lab:
     - id: kalshi-paper
       entrypoint: .claude/skills/kalshi-trading/scripts/entry.py
       runtime: python:3.11-slim
+      mode: shared
       default_cron: "30 8-16,18-20 * * 1-5"
       timezone: America/New_York
       state_version: 3

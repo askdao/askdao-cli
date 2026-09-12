@@ -179,6 +179,9 @@ func TestAgentSpecLabBlockSurvives(t *testing.T) {
 		len(p.ParamsSchema) == 0 || len(p.Credentials) != 2 {
 		t.Fatalf("lab.producers[0] fields lost: %+v", p)
 	}
+	if p.Mode != "shared" {
+		t.Fatalf("lab.producers[0].mode = %q, want %q", p.Mode, "shared")
+	}
 	if len(spec.Lab.Provides) != 1 {
 		t.Fatalf("lab.provides wrong: %+v", spec.Lab.Provides)
 	}

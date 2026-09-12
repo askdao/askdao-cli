@@ -367,6 +367,9 @@ type Lab struct {
 // ID is a package-unique stable identifier ([a-z0-9-]{1,40}) that Provides
 // reference. Entrypoint is a package-relative path to the script. Runtime is
 // optional and falls back to the package's top-level workspace runtime.
+// Mode is the instance topology: empty or "dedicated" — one instance per
+// consuming space; "shared" — the producer's owner runs a single instance and
+// many spaces consume its output.
 // StateVersion is the format version of the state file the script reads/writes
 // (>= 1; 0 = not declared). ParamsSchema is a JSON-schema object stored as-is.
 // Credentials names the secrets the script needs — names only, never values.
@@ -374,6 +377,7 @@ type LabProducer struct {
 	ID           string                 `json:"id"                      yaml:"id"`
 	Entrypoint   string                 `json:"entrypoint"              yaml:"entrypoint"`
 	Runtime      string                 `json:"runtime,omitempty"       yaml:"runtime,omitempty"`
+	Mode         string                 `json:"mode,omitempty"          yaml:"mode,omitempty"`
 	DefaultCron  string                 `json:"default_cron,omitempty"  yaml:"default_cron,omitempty"`
 	Timezone     string                 `json:"timezone,omitempty"      yaml:"timezone,omitempty"`
 	StateVersion int                    `json:"state_version,omitempty" yaml:"state_version,omitempty"`

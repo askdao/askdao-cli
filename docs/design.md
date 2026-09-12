@@ -1046,6 +1046,7 @@ lab:
     - id: kalshi-paper            # 包内唯一稳定标识，[a-z0-9-]{1,40}，被 provides 引用
       entrypoint: .claude/skills/kalshi-trading/scripts/entry.py   # 包内相对路径，必填
       runtime: python:3.11-slim   # 可选，不写沿用包顶层 workspace 运行时
+      mode: shared                # 可选，dedicated（缺省，每个消费空间各一台）| shared（生产方所有一台、多空间消费）
       default_cron: "30 8-16,18-20 * * 1-5"   # 可选，脚本的建议节律
       timezone: America/New_York  # 可选，IANA 时区，解释 default_cron 的墙钟
       state_version: 3            # 可选，脚本读写的状态文件格式版本，整数 ≥ 1
@@ -1069,6 +1070,7 @@ lab:
 | `producers[].id` | 是 | 包内唯一，`[a-z0-9-]{1,40}` |
 | `producers[].entrypoint` | 是 | 包内相对路径，非空 |
 | `producers[].runtime` | 否 | 缺省沿用包顶层运行时 |
+| `producers[].mode` | 否 | `dedicated`（缺省，每个消费空间各起一台）\| `shared`（生产方所有一台、多空间消费） |
 | `producers[].default_cron` | 否 | 标准 5 段 cron，建议节律 |
 | `producers[].timezone` | 否 | IANA 时区名 |
 | `producers[].state_version` | 否 | 整数 ≥ 1 |
@@ -1085,7 +1087,7 @@ lab:
 
 **deploy 前本地校验**（`askdao agent deploy` 在打包前就报错，不必等服务端返回）：
 
-- `producers` 非空、`id` 唯一且合法、`entrypoint` 非空
+- `producers` 非空、`id` 唯一且合法、`entrypoint` 非空、`mode` 为空或在词表内
 - `provides` 的 `station` / `contract` 必须在上表词表内
 - `provides[].producer` 必须能在 `producers` 里找到（打错字当场报错）
 - 同一对 `(station, contract)` 不能出现两次

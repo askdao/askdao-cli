@@ -1,5 +1,5 @@
 // [INPUT]: 依赖 fmt/regexp/slices + internal/types（Lab / LabProducer / LabProvide）
-// [OUTPUT]: 对外提供 ValidateLab(*types.Lab) error + LabStations / LabContracts 词表
+// [OUTPUT]: 对外提供 ValidateLab(*types.Lab) error + LabStations / LabContracts / LabProducerModes 词表
 // [POS]: internal/deployflow 的 lab 段结构校验 —— Prepare 在打包前调用，让 Builder
 //
 //	在本地就看到「producer 引用打错 / contract 不在词表」，而不是等 deploy 回 400。
@@ -28,6 +28,11 @@ var LabContracts = []string{
 	"lab-digest/v1", "lab-verdicts/v1", "lab-notice/v1", "lab-notice/v2",
 }
 
+// LabProducerModes is the closed vocabulary for lab.producers[].mode.
+// dedicated (also the empty default) = one instance per consuming space;
+// shared = the producer's owner runs a single instance, many spaces consume it.
+var LabProducerModes = []string{"dedicated", "shared"}
+
 var labProducerID = regexp.MustCompile(`^[a-z0-9-]{1,40}$`)
 
 // ValidateLab checks the optional `lab` block's internal consistency. A nil
@@ -53,6 +58,9 @@ func ValidateLab(lab *types.Lab) error {
 		}
 		if p.StateVersion < 0 {
 			return fmt.Errorf("lab.producers[%d] (%s): state_version must be >= 1", i, p.ID)
+		}
+		if p.Mode != "" && !slices.Contains(LabProducerModes, p.Mode) {
+			return fmt.Errorf("lab.producers[%d] (%s): mode %q must be one of %v", i, p.ID, p.Mode, LabProducerModes)
 		}
 	}
 	seenSlot := make(map[string]bool, len(lab.Provides))

@@ -7,7 +7,7 @@
 
 - **deploy.go** — `Prepare(dir, harnessOverride)` + `(*Prepared).Deploy(...)` + `ResolveServerAndToken`（env pair > credentials.json > error）；CLI / web studio / 桌面三入口共用
 - **skills.go** — `PackageSkills`（frontmatter name/description 必填 + 跨 skill 唯一 fail-fast → ZipDir）+ `ResolveSkillDir`（`~` 展开 / 绝对 / user scope / project 相对四分支）+ `UpsertSkillFrontmatter`（行级写回，供桌面一键补全）
-- **lab.go** — `ValidateLab`（可选 lab 段结构校验：producers 非空/id 唯一合法/entrypoint 非空、provides 词表 + producer 引用 + (station,contract) 唯一）+ `LabStations` / `LabContracts` 词表
+- **lab.go** — `ValidateLab`（可选 lab 段结构校验：producers 非空/id 唯一合法/entrypoint 非空/mode 词表、provides 词表 + producer 引用 + (station,contract) 唯一）+ `LabStations` / `LabContracts` / `LabProducerModes` 词表
 - **skills_test.go** — 四分支表驱动 + frontmatter 校验/补全 round-trip
 - **lab_test.go** — ValidateLab 表驱动用例（合法 / 各类拒收）
 
