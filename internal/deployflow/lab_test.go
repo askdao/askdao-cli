@@ -80,6 +80,18 @@ func TestValidateLab(t *testing.T) {
 			},
 		},
 		{
+			name: "shared mode producer",
+			lab: &types.Lab{Producers: []types.LabProducer{
+				{ID: "kalshi-paper", Entrypoint: "x.py", Mode: "shared"},
+			}},
+		},
+		{
+			name: "dedicated mode producer",
+			lab: &types.Lab{Producers: []types.LabProducer{
+				{ID: "kalshi-paper", Entrypoint: "x.py", Mode: "dedicated"},
+			}},
+		},
+		{
 			name:    "empty producers",
 			lab:     &types.Lab{},
 			wantErr: "must not be empty",
@@ -111,6 +123,13 @@ func TestValidateLab(t *testing.T) {
 				{ID: "kalshi-paper", Entrypoint: "x.py", StateVersion: -1},
 			}},
 			wantErr: "state_version must be >= 1",
+		},
+		{
+			name: "unknown mode",
+			lab: &types.Lab{Producers: []types.LabProducer{
+				{ID: "kalshi-paper", Entrypoint: "x.py", Mode: "singleton"},
+			}},
+			wantErr: "mode \"singleton\" must be one of",
 		},
 		{
 			name: "unknown station",
