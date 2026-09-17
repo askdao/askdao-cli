@@ -28,7 +28,7 @@ import (
 const AgentFileName = "askdao-agent.yml"
 
 // DefaultHarnessID is the fallback when neither the flag nor the yaml names one.
-const DefaultHarnessID = "anthropic_managed_agents"
+const DefaultHarnessID = HarnessManagedAgents
 
 // Prepared is the deploy bundle, assembled once. CLI callers can print diffs /
 // progress between Prepare and Deploy; the desktop calls both back-to-back.
@@ -55,7 +55,7 @@ func Prepare(dir, harnessOverride string) (*Prepared, error) {
 	if err := yaml.Unmarshal(agentYAML, &spec); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", AgentFileName, err)
 	}
-	if err := ValidateLab(spec.Lab); err != nil {
+	if err := ValidateLab(spec.Lab, spec.PreferredHarness); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", AgentFileName, err)
 	}
 	skillZips, err := PackageSkills(dir, &spec)

@@ -38,7 +38,7 @@ import (
 func runDeploy(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("deploy", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "KOL project root containing askdao-agent.yml")
-	harness := fs.String("harness", "", "Override preferred_harness from askdao-agent.yml")
+	harness := fs.String("harness", "", "Override preferred_harness for this deploy only, without rewriting askdao-agent.yml (anthropic_managed_agents | openai_agents_sdk)")
 	force := fs.Bool("force", false, "Deploy even if the translation report has blocking (deploy-fatal) warnings")
 	confirmDowngrade := fs.Bool("confirm-downgrade", false, "Acknowledge taking an approved shared/public agent private (subscribers and showcase pages lose access; going public again requires re-review)")
 	if err := fs.Parse(args); err != nil {

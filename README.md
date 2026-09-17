@@ -80,7 +80,7 @@ You get a link like `https://askdao.ai/k/<you>/g/...` — open it and chat with 
 | `askdao auth status` / `logout` | Show identity / delete local credentials |
 | `askdao mcp setup [--print]` | Re-run the askdao-mcp configuration for Claude Code / Codex; `--print` emits copy-paste snippets instead of writing files |
 | `askdao agent edit [--dir path] [--no-ui] [--observe]` | Scan + open the local studio to review, edit, and deploy; `--no-ui` writes a draft `askdao-agent.yml` and exits (CI / headless) |
-| `askdao agent deploy [--dir path] [--force] [--confirm-downgrade]` | Package selected skills + push `askdao-agent.yml` to askdao.ai |
+| `askdao agent deploy [--dir path] [--harness id] [--force] [--confirm-downgrade]` | Package selected skills + push `askdao-agent.yml` to askdao.ai; `--harness` overrides `preferred_harness` for this one deploy without rewriting the yaml |
 | `askdao update [--force]` | Self-update to the latest release (checksum-verified) |
 | `askdao version` | Print version |
 
