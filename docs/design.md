@@ -387,6 +387,8 @@ KOL 项目演进后想刷新 yaml 推荐。读 `.askdao/detection.json` 做 diff
 - **AnthropicAdapter**（Phase 1 + 之后）：environment.create → agent.create → 写回服务端记录
 - **OpenAIAdapter**（Phase 2 启用）：上传 manifest 到服务端 → 服务端内存实例化 SandboxAgent → 写回服务端记录
 
+`--spec <file>`（可选，缺省包目录下的 `askdao-agent.yml`）指定本次部署读哪一份 spec：路径相对 `--dir` 且必须落在包目录内；本地校验、skill 打包、请求体一律以它为准，包 zip 内容不变（skill 仍按包目录解析）。一个包要同时上两条运行时线时就出两份 spec —— `askdao-agent.yml` 走 OAS 线（`kind: script`），`askdao-agent.managed.yml` 走 Managed 线（`kind: turn`），各自 `provides` 完整（见 §5.6）。
+
 **v0.5 加 diff preview**：KOL 改了 yaml 后，deploy 时显示与原推荐版本的差异：
 
 ```
@@ -1042,6 +1044,8 @@ status:
 
 - `kind: script`（缺省）—— 入口是包内脚本，在平台的沙箱里跑一轮。要调模型的步骤**经平台的委托插槽**：脚本请平台代调一次，模型与计费都在平台侧（按实验室计费、走模型目录与日上限），包里不带模型 key。
 - `kind: turn` —— 一轮就是一个 Managed Agent turn。平台把本轮快照作为 turn 的输入交给 Agent，Agent 用自己的沙箱与工具加工，并把产物按 `provides[].output` 写出来。只有 `preferred_harness: anthropic_managed_agents` 能跑这条线。
+
+一个包要同时上两条线，就为每条线各出一份 spec（`askdao-agent.yml` 走 OAS 线、`askdao-agent.managed.yml` 走 Managed 线，各自 `provides` 完整），deploy 时用 `--spec` 指定（§3.5）。
 
 段整体可选：包里没有这种入口就整段不写。**旧 yaml 零改动** —— 不含 `lab` 的 spec 解析后该块为空，不写 `kind` 即 `script`，行为与从前完全一致。
 
