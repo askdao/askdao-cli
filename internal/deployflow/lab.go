@@ -27,8 +27,13 @@ var LabStations = []string{"collect", "verify", "report"}
 // envelope), broadcast as-is, truncated past 1800 characters.
 // lab-notice/v2 is the enveloped JSON one: {contract, product_key, revision,
 // generated_at, data:{title, blocks}}, rendered per channel by the platform.
+// lab-report/v1 is the daily-report one, also enveloped JSON: {contract,
+// product_key, revision, generated_at, data:{date, rules_version, budget,
+// fallback, sections[]}} — the platform reads the sections and lays them out
+// as one daily card per lab.
 var LabContracts = []string{
 	"lab-digest/v1", "lab-verdicts/v1", "lab-notice/v1", "lab-notice/v2",
+	"lab-report/v1",
 }
 
 // LabProducerModes is the closed vocabulary for lab.producers[].mode.

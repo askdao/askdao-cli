@@ -84,6 +84,16 @@ func TestValidateLab(t *testing.T) {
 			},
 		},
 		{
+			name: "lab-report/v1 contract",
+			lab: &types.Lab{
+				Producers: []types.LabProducer{okProducer()},
+				Provides: []types.LabProvide{{
+					Station: "report", Contract: "lab-report/v1",
+					Producer: "kalshi-paper", Output: "report.json",
+				}},
+			},
+		},
+		{
 			name: "shared mode producer",
 			lab: &types.Lab{Producers: []types.LabProducer{
 				{ID: "kalshi-paper", Entrypoint: "x.py", Mode: "shared"},
