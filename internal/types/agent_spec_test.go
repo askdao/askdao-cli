@@ -5,7 +5,8 @@
 // [OUTPUT]: 对外提供 TestAgentSpecRoundTripValid / TestAgentSpecRejectInvalid /
 //
 //	TestAgentSpecAPIVersionStamp / TestAgentSpecToggleBlocksSurvive /
-//	TestAgentSpecLabBlockSurvives / TestAgentSpecWithoutLabStaysNil 测试
+//	TestAgentSpecLabBlockSurvives / TestAgentSpecWithoutLabStaysNil /
+//	TestAgentSpecLabProducerKindSurvives 测试
 //
 // [POS]: internal/types 的 agent.yml schema 验证；保证 fixture YAML
 //
@@ -232,6 +233,58 @@ preferred_harness: anthropic_managed_agents
 	}
 	if strings.Contains(string(out), "lab:") {
 		t.Fatalf("empty spec emitted a lab block:\n%s", out)
+	}
+}
+
+// TestAgentSpecLabProducerKindSurvives pins lab.producers[].kind: a producer
+// with no `kind:` reads back empty (which the validator reads as script), an
+// explicit `kind: turn` survives a yaml round trip, and a spec that never
+// declared the field does not grow one on the way out.
+func TestAgentSpecLabProducerKindSurvives(t *testing.T) {
+	const twoKinds = `
+apiVersion: askdao.ai/v1
+kind: AgentSpec
+metadata:
+  name: invest-desk
+  version: 0.2.0
+persona:
+  model_class: balanced
+preferred_harness: anthropic_managed_agents
+lab:
+  producers:
+    - id: desk-script
+      entrypoint: .claude/skills/invest-desk/scripts/entry.py
+    - id: desk-turn
+      entrypoint: .claude/skills/invest-desk/SKILL.md
+      kind: turn
+`
+	var spec AgentSpec
+	if err := yaml.Unmarshal([]byte(twoKinds), &spec); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if spec.Lab == nil || len(spec.Lab.Producers) != 2 {
+		t.Fatalf("lab.producers wrong: %+v", spec.Lab)
+	}
+	if got := spec.Lab.Producers[0].Kind; got != "" {
+		t.Fatalf("undeclared kind = %q, want empty", got)
+	}
+	if got := spec.Lab.Producers[1].Kind; got != "turn" {
+		t.Fatalf("kind = %q, want %q", got, "turn")
+	}
+
+	out, err := yaml.Marshal(&spec)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var back AgentSpec
+	if err := yaml.Unmarshal(out, &back); err != nil {
+		t.Fatalf("re-unmarshal: %v", err)
+	}
+	if !reflect.DeepEqual(spec.Lab, back.Lab) {
+		t.Fatalf("lab block drifted:\n a=%+v\n b=%+v", spec.Lab, back.Lab)
+	}
+	if strings.Contains(string(out), "kind: script") {
+		t.Fatalf("an undeclared kind must not be written back as script:\n%s", out)
 	}
 }
 

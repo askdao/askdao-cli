@@ -349,34 +349,42 @@ type Schedule struct {
 	NotifyChannel string `json:"notify_channel,omitempty" yaml:"notify_channel,omitempty"`
 }
 
-// Lab declares the package's script-only production entrypoints and the lab
-// contracts their outputs satisfy. Optional: a package with no such entrypoint
-// omits the block entirely and Lab stays nil.
+// Lab declares the package's production entrypoints and the lab contracts
+// their outputs satisfy. Optional: a package with no such entrypoint omits the
+// block entirely and Lab stays nil.
 //
-// A producer is a plain script (no agent loop, no LLM) shipped inside the
-// package; a provide says "running producer X at station S yields an artifact
-// conforming to contract C under name `output`". The pair is what lets a lab
-// wire the package into a station without knowing anything about its internals.
+// A producer is one production entrypoint shipped inside the package; a provide
+// says "running producer X at station S yields an artifact conforming to
+// contract C under name `output`". The pair is what lets a lab wire the package
+// into a station without knowing anything about its internals.
 type Lab struct {
 	Producers []LabProducer `json:"producers"           yaml:"producers"`
 	Provides  []LabProvide  `json:"provides,omitempty"  yaml:"provides,omitempty"`
 }
 
-// LabProducer is one script production entrypoint.
+// LabProducer is one production entrypoint.
 //
 // ID is a package-unique stable identifier ([a-z0-9-]{1,40}) that Provides
-// reference. Entrypoint is a package-relative path to the script. Runtime is
-// optional and falls back to the package's top-level workspace runtime.
+// reference. Entrypoint is a package-relative path to the script (Kind
+// "script") or to the turn instruction file (Kind "turn"). Runtime is optional
+// and falls back to the package's top-level workspace runtime.
+// Kind is how one production round runs: empty or "script" — a script in the
+// platform's sandbox, whose model steps go through the platform delegation slot
+// (the platform makes the call and bills the lab); "turn" — one round is one
+// Managed Agent turn, the snapshot arrives as the turn's input and the Agent
+// writes the artifact with its own tools. "turn" requires the package's
+// preferred_harness to be anthropic_managed_agents.
 // Mode is the instance topology: empty or "dedicated" — one instance per
 // consuming space; "shared" — the producer's owner runs a single instance and
 // many spaces consume its output.
-// StateVersion is the format version of the state file the script reads/writes
+// StateVersion is the format version of the state file the round reads/writes
 // (>= 1; 0 = not declared). ParamsSchema is a JSON-schema object stored as-is.
-// Credentials names the secrets the script needs — names only, never values.
+// Credentials names the secrets the round needs — names only, never values.
 type LabProducer struct {
 	ID           string                 `json:"id"                      yaml:"id"`
 	Entrypoint   string                 `json:"entrypoint"              yaml:"entrypoint"`
 	Runtime      string                 `json:"runtime,omitempty"       yaml:"runtime,omitempty"`
+	Kind         string                 `json:"kind,omitempty"          yaml:"kind,omitempty"`
 	Mode         string                 `json:"mode,omitempty"          yaml:"mode,omitempty"`
 	DefaultCron  string                 `json:"default_cron,omitempty"  yaml:"default_cron,omitempty"`
 	Timezone     string                 `json:"timezone,omitempty"      yaml:"timezone,omitempty"`
@@ -389,7 +397,7 @@ type LabProducer struct {
 //
 // Station ∈ {collect, verify, report}; Contract ∈ {lab-digest/v1,
 // lab-verdicts/v1, lab-notice/v1, lab-notice/v2}; Producer must match a
-// LabProducer.ID in the same block; Output is the artifact name the script
+// LabProducer.ID in the same block; Output is the artifact name the producer
 // writes under.
 type LabProvide struct {
 	Station  string `json:"station"  yaml:"station"`

@@ -113,6 +113,195 @@ func TestDeploy_EndToEnd_HappyPath(t *testing.T) {
 	}
 }
 
+func TestDeploy_HarnessFlagOverridesYAML(t *testing.T) {
+	// `--harness` redirects this one deploy: the request body carries the flag's
+	// harness even though the yaml declares anthropic_managed_agents, and the
+	// yaml on disk is left alone (it is what the next deploy falls back to).
+	root := withWorkdir(t)
+	writeMinimalAgent(t, root, "test-agent")
+
+	var gotHarness string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			t.Errorf("ParseMultipartForm: %v", err)
+			return
+		}
+		gotHarness = r.FormValue("harness_id")
+		writeJSON(w, http.StatusOK, deploy.DeployResponse{
+			AgentID: "agt_oas", AnthropicAgentID: "agent_o", AnthropicEnvironmentID: "env_o",
+			TranslationReport: deploy.TranslationReport{Harness: "openai_agents_sdk"},
+			Created:           true,
+		})
+	}))
+	defer srv.Close()
+	t.Setenv("ASKDAO_CONDUCTOR_URL", srv.URL)
+	t.Setenv("ASKDAO_CONDUCTOR_TOKEN", "tok")
+
+	out, restore := captureStdout(t)
+	defer restore()
+	code := runDeploy(context.Background(), []string{"--dir", "test-agent", "--harness", "openai_agents_sdk"})
+	got := out()
+	if code != 0 {
+		t.Fatalf("deploy exit = %d\n--- output ---\n%s", code, got)
+	}
+	if gotHarness != "openai_agents_sdk" {
+		t.Errorf("harness_id = %q, want the --harness value", gotHarness)
+	}
+	yml, err := os.ReadFile(filepath.Join(root, "test-agent", "askdao-agent.yml"))
+	if err != nil {
+		t.Fatalf("read back yaml: %v", err)
+	}
+	if !strings.Contains(string(yml), "preferred_harness: anthropic_managed_agents") {
+		t.Errorf("--harness must not rewrite the yaml:\n%s", yml)
+	}
+}
+
+// writeTwoLineAgentDir lays out a package that ships one spec per runtime line:
+// askdao-agent.yml is the sandbox line (openai_agents_sdk + a kind: script
+// producer), askdao-agent.managed.yml the Managed line (anthropic_managed_agents
+// + a kind: turn producer), each with its own complete provides.
+func writeTwoLineAgentDir(t *testing.T, root, name string) {
+	t.Helper()
+	dir := filepath.Join(root, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	labBlock := func(kind, entrypoint string) string {
+		return "lab:\n  producers:\n    - id: desk\n      entrypoint: " + entrypoint +
+			"\n      kind: " + kind +
+			"\n  provides:\n    - station: report\n      contract: lab-notice/v2\n" +
+			"      producer: desk\n      output: notice.json\n"
+	}
+	oas := strings.Replace(minimalAgentYAML(name, ""),
+		"preferred_harness: anthropic_managed_agents\n",
+		"preferred_harness: openai_agents_sdk\n"+labBlock("script", "scripts/entry.py"), 1)
+	managed := minimalAgentYAML(name, "") + labBlock("turn", "SKILL.md")
+	if err := os.WriteFile(filepath.Join(dir, "askdao-agent.yml"), []byte(oas), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "askdao-agent.managed.yml"), []byte(managed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDeploy_SpecFlagPicksTheManagedLineYAML(t *testing.T) {
+	// --spec deploys the named spec inside the package: its preferred_harness and
+	// its kind: turn producer are what travel. The same package's default
+	// askdao-agent.yml (sandbox line, kind: script) still decides a deploy
+	// without the flag.
+	root := withWorkdir(t)
+	writeTwoLineAgentDir(t, root, "invest-desk")
+
+	var gotHarness, gotYAML string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			t.Errorf("ParseMultipartForm: %v", err)
+			return
+		}
+		gotHarness = r.FormValue("harness_id")
+		gotYAML = r.FormValue("agent_yaml")
+		writeJSON(w, http.StatusOK, deploy.DeployResponse{
+			AgentID: "agt_two", AnthropicAgentID: "agent_t", AnthropicEnvironmentID: "env_t",
+			TranslationReport: deploy.TranslationReport{Harness: "anthropic_managed_agents"},
+			Created:           true,
+		})
+	}))
+	defer srv.Close()
+	t.Setenv("ASKDAO_CONDUCTOR_URL", srv.URL)
+	t.Setenv("ASKDAO_CONDUCTOR_TOKEN", "tok")
+
+	out, restore := captureStdout(t)
+	code := runDeploy(context.Background(), []string{"--dir", "invest-desk", "--spec", "askdao-agent.managed.yml"})
+	got := out()
+	restore()
+	if code != 0 {
+		t.Fatalf("deploy exit = %d\n--- output ---\n%s", code, got)
+	}
+	if gotHarness != "anthropic_managed_agents" {
+		t.Errorf("harness_id = %q, want the managed spec's harness", gotHarness)
+	}
+	if !strings.Contains(gotYAML, "kind: turn") {
+		t.Errorf("request body is not the managed spec:\n%s", gotYAML)
+	}
+	if !strings.Contains(got, filepath.Join("invest-desk", "askdao-agent.managed.yml")) {
+		t.Errorf("output should name the spec actually read:\n%s", got)
+	}
+
+	out2, restore2 := captureStdout(t)
+	code = runDeploy(context.Background(), []string{"--dir", "invest-desk"})
+	got2 := out2()
+	restore2()
+	if code != 0 {
+		t.Fatalf("default-spec deploy exit = %d\n--- output ---\n%s", code, got2)
+	}
+	if gotHarness != "openai_agents_sdk" {
+		t.Errorf("default spec harness_id = %q", gotHarness)
+	}
+	if !strings.Contains(gotYAML, "kind: script") || strings.Contains(gotYAML, "kind: turn") {
+		t.Errorf("default spec body is not the sandbox line:\n%s", gotYAML)
+	}
+}
+
+func TestDeploy_SpecFlagRefusesPathOutsidePackage(t *testing.T) {
+	root := withWorkdir(t)
+	writeMinimalAgent(t, root, "test-agent")
+	if err := os.WriteFile(filepath.Join(root, "elsewhere.yml"), []byte(minimalAgentYAML("x", "")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ASKDAO_CONDUCTOR_URL", "http://localhost:1")
+	t.Setenv("ASKDAO_CONDUCTOR_TOKEN", "tok")
+
+	outStdout, restoreOut := captureStdout(t)
+	defer restoreOut()
+	errOut, restoreErr := captureStderr(t)
+	defer restoreErr()
+	code := runDeploy(context.Background(), []string{"--dir", "test-agent", "--spec", "../elsewhere.yml"})
+	_ = outStdout()
+	gotErr := errOut()
+	if code != 1 {
+		t.Fatalf("deploy should refuse a spec outside the package, got %d", code)
+	}
+	if !strings.Contains(gotErr, "must name a file inside the package directory") {
+		t.Errorf("stderr should explain the containment rule, got:\n%s", gotErr)
+	}
+}
+
+func TestDeploy_TurnProducerRejectedOnSandboxHarness(t *testing.T) {
+	// A `kind: turn` producer only runs as a Managed Agent turn: declaring one in
+	// a package whose preferred_harness is the sandbox runtime fails locally,
+	// before anything is packaged or uploaded.
+	root := withWorkdir(t)
+	dir := filepath.Join(root, "oas-agent")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yml := strings.Replace(
+		minimalAgentYAML("oas-agent", ""),
+		"preferred_harness: anthropic_managed_agents\n",
+		"preferred_harness: openai_agents_sdk\n"+
+			"lab:\n  producers:\n    - id: desk\n      entrypoint: x.py\n      kind: turn\n",
+		1)
+	if err := os.WriteFile(filepath.Join(dir, "askdao-agent.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ASKDAO_CONDUCTOR_URL", "http://localhost:1")
+	t.Setenv("ASKDAO_CONDUCTOR_TOKEN", "tok")
+
+	outStdout, restoreOut := captureStdout(t)
+	defer restoreOut()
+	errOut, restoreErr := captureStderr(t)
+	defer restoreErr()
+	code := runDeploy(context.Background(), []string{"--dir", "oas-agent"})
+	_ = outStdout()
+	gotErr := errOut()
+	if code != 1 {
+		t.Fatalf("deploy should refuse a turn producer on the sandbox harness, got %d", code)
+	}
+	if !strings.Contains(gotErr, "kind: turn needs preferred_harness: anthropic_managed_agents") {
+		t.Errorf("stderr should name the harness rule, got:\n%s", gotErr)
+	}
+}
+
 func TestDeploy_EndToEnd_UpdateMode(t *testing.T) {
 	// Update-mode: the server signals an in-place agent update via
 	// `created: false` + previous_managed_version. The cli should print the

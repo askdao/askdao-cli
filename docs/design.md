@@ -348,7 +348,7 @@ $ askdao agent init my-agent --auto
 - `openai_agents_sdk`（**已启用**，conductor #342：备份运行时——OpenAI Agents SDK loop 在 Conductor × OpenAI 兼容端点模型（OpenAI 官方 gpt-5.x / SiliconFlow 开源模型 / 其它直连，conductor #366）× E2B 执行器；`model_preferences[].provider` 原样写目录行 provider（openai / siliconflow / …）；KOL 自己的 `custom_local` skill 自 conductor #372 起**支持**（部署期落 S3 真源，运行时解进沙箱 `<WORKSPACE>/.skills/<name>/` + system prompt 索引，正文由模型命中时自读）；`builtin`（Anthropic 预置 xlsx/pdf…）与 `git_repo` 仍出 translation warning 并在部署时忽略；schedule 自 conductor #352 起支持）
 - `auto`（默认，按 detected_harness_signals 推断）
 
-对 `askdao agent edit`（Studio）而言 `--harness` 只是**初始种子**：Studio 第二步的模型下拉框（conductor `GET /cli/model-classes?harness=all` 的 `models[]` 白名单，Admin 后台维护、附 $/MTok 原价）**选模型即切 harness**——选 Claude 写 `preferred_harness: anthropic_managed_agents`，选 OpenAI 官方或开源模型（SiliconFlow 等兼容端点）写 `openai_agents_sdk`，并把 `model_preferences[0] = {provider, id}` 钉到该条目；deploy 从 yaml 读 harness，不再被 flag 覆盖。离线/旧 conductor 时回退三档 `model_class` 药丸。切到备份运行时时 Studio 只在**勾了 Anthropic 内建 skill** 时才提示（自己的 skill 在该运行时照跑，conductor #372）；schedule 两 harness 皆可配置。
+对 `askdao agent edit`（Studio）而言 `--harness` 只是**初始种子**：Studio 第二步的模型下拉框（conductor `GET /cli/model-classes?harness=all` 的 `models[]` 白名单，Admin 后台维护、附 $/MTok 原价）**选模型即切 harness**——选 Claude 写 `preferred_harness: anthropic_managed_agents`，选 OpenAI 官方或开源模型（SiliconFlow 等兼容端点）写 `openai_agents_sdk`，并把 `model_preferences[0] = {provider, id}` 钉到该条目；deploy 缺省从 yaml 读 harness，`deploy --harness <id>` 仍能按次覆盖（见 §3.5）。离线/旧 conductor 时回退三档 `model_class` 药丸。切到备份运行时时 Studio 只在**勾了 Anthropic 内建 skill** 时才提示（自己的 skill 在该运行时照跑，conductor #372）；schedule 两 harness 皆可配置。
 
 ### 3.2 `askdao detect [path]`（仅诊断）
 
@@ -382,10 +382,12 @@ KOL 项目演进后想刷新 yaml 推荐。读 `.askdao/detection.json` 做 diff
 
 ### 3.5 `askdao agent deploy [--harness <id>]`
 
-按 yaml 的 `preferred_harness`（或命令行 `--harness` 覆盖）选择服务端 adapter：
+按 yaml 的 `preferred_harness`（或命令行 `--harness` 覆盖）选择服务端 adapter。优先级 `--harness` > yaml `preferred_harness` > `anthropic_managed_agents`；`--harness anthropic_managed_agents|openai_agents_sdk` **只改这一次 deploy 请求的落点**，不回写 yaml，也不影响 `lab` 段的本地校验（同一个包分别部署到两条运行时线时用它）：
 
 - **AnthropicAdapter**（Phase 1 + 之后）：environment.create → agent.create → 写回服务端记录
 - **OpenAIAdapter**（Phase 2 启用）：上传 manifest 到服务端 → 服务端内存实例化 SandboxAgent → 写回服务端记录
+
+`--spec <file>`（可选，缺省包目录下的 `askdao-agent.yml`）指定本次部署读哪一份 spec：路径相对 `--dir` 且必须落在包目录内；本地校验、skill 打包、请求体一律以它为准，包 zip 内容不变（skill 仍按包目录解析）。一个包要同时上两条运行时线时就出两份 spec —— `askdao-agent.yml` 走 OAS 线（`kind: script`），`askdao-agent.managed.yml` 走 Managed 线（`kind: turn`），各自 `provides` 完整（见 §5.6）。
 
 **v0.5 加 diff preview**：KOL 改了 yaml 后，deploy 时显示与原推荐版本的差异：
 
@@ -676,7 +678,7 @@ agent.yml (apiVersion: askdao.ai/v1)
 ├── preferred_harness  # auto / anthropic_managed_agents / openai_agents_sdk
 ├── fallback_harnesses # Phase 2 启用
 ├── harness_specific   # escape hatch: { anthropic: {...}, openai: {...} }
-└── lab                # 可选：包内纯脚本生产入口 + 它们满足的实验室契约（§5.6）
+└── lab                # 可选：包内生产入口（script 沙箱脚本 | turn Managed Agent 一轮）+ 它们满足的实验室契约（§5.6）
 ```
 
 **与 Anthropic / OpenAI SDK 的映射**（服务端 adapter 完成）：
@@ -1034,11 +1036,18 @@ status:
 - `action: partial` —— 部分能力降级（如 setup_commands 抽出 apt/pip 名）
 - `fallback_attempted` —— adapter 已尝试的兜底动作（透明告诉 KOL）
 
-### 5.6 `lab` 段（可选）—— 包内脚本生产入口
+### 5.6 `lab` 段（可选）—— 包内生产入口
 
-包里如果带一个**纯脚本**的生产入口（自己跑、不进 agent loop、不调 LLM），用 `lab` 段把它声明出来：一半说「这个脚本是什么、怎么跑」（`producers`），一半说「它的产出算哪一份实验室契约」（`provides`）。声明了，实验室才能在不了解包内部结构的前提下把它接到一个工位上。
+包里如果带一个**生产入口**（实验室按节律让它跑一轮，产出一份实验室契约的产物），用 `lab` 段把它声明出来：一半说「这个入口是什么、怎么跑一轮」（`producers`），一半说「它的产出算哪一份实验室契约」（`provides`）。声明了，实验室才能在不了解包内部结构的前提下把它接到一个工位上。
 
-段整体可选：包里没有这种入口就整段不写。**旧 yaml 零改动** —— 不含 `lab` 的 spec 解析后该块为空，行为与从前完全一致。
+一轮怎么跑，由 `producers[].kind` 定，两条线：
+
+- `kind: script`（缺省）—— 入口是包内脚本，在平台的沙箱里跑一轮。要调模型的步骤**经平台的委托插槽**：脚本请平台代调一次，模型与计费都在平台侧（按实验室计费、走模型目录与日上限），包里不带模型 key。
+- `kind: turn` —— 一轮就是一个 Managed Agent turn。平台把本轮快照作为 turn 的输入交给 Agent，Agent 用自己的沙箱与工具加工，并把产物按 `provides[].output` 写出来。只有 `preferred_harness: anthropic_managed_agents` 能跑这条线。
+
+一个包要同时上两条线，就为每条线各出一份 spec（`askdao-agent.yml` 走 OAS 线、`askdao-agent.managed.yml` 走 Managed 线，各自 `provides` 完整），deploy 时用 `--spec` 指定（§3.5）。
+
+段整体可选：包里没有这种入口就整段不写。**旧 yaml 零改动** —— 不含 `lab` 的 spec 解析后该块为空，不写 `kind` 即 `script`，行为与从前完全一致。
 
 ```yaml
 lab:
@@ -1046,6 +1055,7 @@ lab:
     - id: kalshi-paper            # 包内唯一稳定标识，[a-z0-9-]{1,40}，被 provides 引用
       entrypoint: .claude/skills/kalshi-trading/scripts/entry.py   # 包内相对路径，必填
       runtime: python:3.11-slim   # 可选，不写沿用包顶层 workspace 运行时
+      kind: script                # 可选，script（缺省，沙箱脚本 + 委托插槽）| turn（一轮 = 一个 Managed Agent turn）
       mode: shared                # 可选，dedicated（缺省，每个消费空间各一台）| shared（生产方所有一台、多空间消费）
       default_cron: "30 8-16,18-20 * * 1-5"   # 可选，脚本的建议节律
       timezone: America/New_York  # 可选，IANA 时区，解释 default_cron 的墙钟
@@ -1068,8 +1078,9 @@ lab:
 | 字段 | 必填 | 说明 |
 |---|---|---|
 | `producers[].id` | 是 | 包内唯一，`[a-z0-9-]{1,40}` |
-| `producers[].entrypoint` | 是 | 包内相对路径，非空 |
+| `producers[].entrypoint` | 是 | 包内相对路径，非空（`script` 指脚本，`turn` 指本轮动作的说明文件） |
 | `producers[].runtime` | 否 | 缺省沿用包顶层运行时 |
+| `producers[].kind` | 否 | `script`（缺省，沙箱脚本，模型步经委托插槽由平台代调、按实验室计费）\| `turn`（一轮 = 一个 Managed Agent turn，快照作输入，Agent 用自身工具写产物；只许 `preferred_harness: anthropic_managed_agents`） |
 | `producers[].mode` | 否 | `dedicated`（缺省，每个消费空间各起一台）\| `shared`（生产方所有一台、多空间消费） |
 | `producers[].default_cron` | 否 | 标准 5 段 cron，建议节律 |
 | `producers[].timezone` | 否 | IANA 时区名 |
@@ -1087,7 +1098,8 @@ lab:
 
 **deploy 前本地校验**（`askdao agent deploy` 在打包前就报错，不必等服务端返回）：
 
-- `producers` 非空、`id` 唯一且合法、`entrypoint` 非空、`mode` 为空或在词表内
+- `producers` 非空、`id` 唯一且合法、`entrypoint` 非空、`mode` / `kind` 为空或在词表内
+- `kind: turn` 的 producer，包的 `preferred_harness` 必须是 `anthropic_managed_agents`（报错里带可照抄的两种修法）；这里看的是 yaml 里的 `preferred_harness`，不是 `--harness` 本次覆盖值——`kind` 是包自带的性质，`--harness` 只改一次请求的落点
 - `provides` 的 `station` / `contract` 必须在上表词表内
 - `provides[].producer` 必须能在 `producers` 里找到（打错字当场报错）
 - 同一对 `(station, contract)` 不能出现两次

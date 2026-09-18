@@ -1,5 +1,8 @@
 // [INPUT]: 依赖 fmt/regexp/slices + internal/types（Lab / LabProducer / LabProvide）
-// [OUTPUT]: 对外提供 ValidateLab(*types.Lab) error + LabStations / LabContracts / LabProducerModes 词表
+// [OUTPUT]: 对外提供 ValidateLab(*types.Lab, preferredHarness) error + LabStations / LabContracts /
+//
+//	LabProducerModes / LabProducerKinds 词表 + HarnessManagedAgents 常量
+//
 // [POS]: internal/deployflow 的 lab 段结构校验 —— Prepare 在打包前调用，让 Builder
 //
 //	在本地就看到「producer 引用打错 / contract 不在词表」，而不是等 deploy 回 400。
@@ -33,13 +36,40 @@ var LabContracts = []string{
 // shared = the producer's owner runs a single instance, many spaces consume it.
 var LabProducerModes = []string{"dedicated", "shared"}
 
+// LabProducerKinds is the closed vocabulary for lab.producers[].kind — the two
+// ways one production round can run.
+// script (also the empty default) = a script in the platform's sandbox; its
+// model steps go through the platform delegation slot, so the platform makes
+// the call and bills the lab.
+// turn = one round is one Managed Agent turn: the snapshot is the turn's input
+// and the Agent writes the artifact with its own tools. Only the
+// anthropic_managed_agents harness can run it.
+var LabProducerKinds = []string{"script", "turn"}
+
+// LabProducerKindTurn is the kind that only HarnessManagedAgents can run.
+const LabProducerKindTurn = "turn"
+
+// HarnessManagedAgents is the harness id whose rounds run as Anthropic-side
+// Managed Agent turns.
+const HarnessManagedAgents = "anthropic_managed_agents"
+
 var labProducerID = regexp.MustCompile(`^[a-z0-9-]{1,40}$`)
 
 // ValidateLab checks the optional `lab` block's internal consistency. A nil
-// block is valid — packages without a script production entrypoint omit it.
-func ValidateLab(lab *types.Lab) error {
+// block is valid — packages without a production entrypoint omit it.
+//
+// preferredHarness is the package's own `preferred_harness` (empty = the
+// DefaultHarnessID the deploy would fall back to); a `kind: turn` producer is
+// only runnable on HarnessManagedAgents. The per-deploy `--harness` override is
+// deliberately NOT what is checked here: it only redirects one request body,
+// while `kind` is a property the package ships.
+func ValidateLab(lab *types.Lab, preferredHarness string) error {
 	if lab == nil {
 		return nil
+	}
+	harness := preferredHarness
+	if harness == "" {
+		harness = DefaultHarnessID
 	}
 	if len(lab.Producers) == 0 {
 		return fmt.Errorf("lab.producers must not be empty")
@@ -61,6 +91,16 @@ func ValidateLab(lab *types.Lab) error {
 		}
 		if p.Mode != "" && !slices.Contains(LabProducerModes, p.Mode) {
 			return fmt.Errorf("lab.producers[%d] (%s): mode %q must be one of %v", i, p.ID, p.Mode, LabProducerModes)
+		}
+		if p.Kind != "" && !slices.Contains(LabProducerKinds, p.Kind) {
+			return fmt.Errorf("lab.producers[%d] (%s): kind %q must be one of %v", i, p.ID, p.Kind, LabProducerKinds)
+		}
+		if p.Kind == LabProducerKindTurn && harness != HarnessManagedAgents {
+			return fmt.Errorf(
+				"lab.producers[%d] (%s): kind: turn needs preferred_harness: %s, this package declares %q — "+
+					"either set `preferred_harness: %s` at the top level of askdao-agent.yml, "+
+					"or give this producer `kind: script` so its model steps go through the delegation slot",
+				i, p.ID, HarnessManagedAgents, harness, HarnessManagedAgents)
 		}
 	}
 	seenSlot := make(map[string]bool, len(lab.Provides))

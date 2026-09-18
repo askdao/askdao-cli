@@ -1,6 +1,6 @@
-// [INPUT]: 标准库 + internal/deploy（Err* 类型）+ internal/deployflow（Prepare/Deploy/ResolveServerAndToken 装配单源）+ internal/render（Diff / TranslationWarnings）+ internal/types（AgentSpec）+ internal/webstudio（DeployOpenLink 回执落点单源）+ gopkg.in/yaml.v3
-// [OUTPUT]: runDeploy — `askdao agent deploy` 命令实装（装配走 internal/deployflow.Prepare+Deploy 单源，CLI / studio / 桌面共用）
-// [POS]: cmd/askdao 的 deploy 子命令；读 <dir>/askdao-agent.yml 原文 + 经 internal/deployflow.PackageSkills 按 skill.path（project 相对 / 绝对 / ~ / Scope=="user"）
+// [INPUT]: 标准库 + internal/deploy（Err* 类型）+ internal/deployflow（PrepareSpec/Deploy/ResolveServerAndToken 装配单源）+ internal/render（Diff / TranslationWarnings）+ internal/types（AgentSpec）+ internal/webstudio（DeployOpenLink 回执落点单源）+ gopkg.in/yaml.v3
+// [OUTPUT]: runDeploy — `askdao agent deploy` 命令实装（装配走 internal/deployflow.PrepareSpec+Deploy 单源，CLI / studio / 桌面共用）
+// [POS]: cmd/askdao 的 deploy 子命令；读 <dir>/askdao-agent.yml（或 --spec 指的同目录内 spec）原文 + 经 internal/deployflow.PackageSkills 按 skill.path（project 相对 / 绝对 / ~ / Scope=="user"）
 //
 //	统一解析 + 递归打 zip（harness 中性 invariant）→ 经 internal/deploy.Client 上传 conductor /cli/deploy；处理
 //	kol_profile_required 时引导去 askdao.ai/dashboard/subscription（kol_join_mode 在订阅模式页设置，KOL profile 归云端）+ blocking-warning gating（仅 REJECTED 阻断，severity 不 gate）
@@ -30,28 +30,29 @@ import (
 	"github.com/askdao/askdao-cli/internal/webstudio"
 )
 
-// runDeploy implements `askdao agent deploy [--dir path] [--harness id] [--force]`:
-// assembles the bundle via deployflow.Prepare (the single source the web studio
-// and desktop share), prints diff preview / progress, POSTs via deployflow
-// Deploy, handles the kol_profile_required handshake and the visibility
-// downgrade prompt, and prints the resulting agent id and page link.
+// runDeploy implements `askdao agent deploy [--dir path] [--spec file] [--harness id] [--force]`:
+// assembles the bundle via deployflow.PrepareSpec (the single source the web
+// studio and desktop share), prints diff preview / progress, POSTs via
+// deployflow Deploy, handles the kol_profile_required handshake and the
+// visibility downgrade prompt, and prints the resulting agent id and page link.
 func runDeploy(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("deploy", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "KOL project root containing askdao-agent.yml")
-	harness := fs.String("harness", "", "Override preferred_harness from askdao-agent.yml")
+	spec := fs.String("spec", "", "Spec file to deploy, relative to --dir and inside it (default askdao-agent.yml) — for a package shipping one spec per runtime line")
+	harness := fs.String("harness", "", "Override preferred_harness for this deploy only, without rewriting askdao-agent.yml (anthropic_managed_agents | openai_agents_sdk)")
 	force := fs.Bool("force", false, "Deploy even if the translation report has blocking (deploy-fatal) warnings")
 	confirmDowngrade := fs.Bool("confirm-downgrade", false, "Acknowledge taking an approved shared/public agent private (subscribers and showcase pages lose access; going public again requires re-review)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 
-	// 装配单源（deployflow.Prepare）：读 yaml + PackageSkills + detection + harness 默认链。
-	p, err := deployflow.Prepare(*dir, *harness)
+	// 装配单源（deployflow.PrepareSpec）：读 yaml + PackageSkills + detection + harness 默认链。
+	p, err := deployflow.PrepareSpec(*dir, *spec, *harness)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "deploy:", err)
 		return 1
 	}
-	fmt.Println("→ Reading", filepath.Join(*dir, askdaoAgentFileName))
+	fmt.Println("→ Reading", p.SpecPath)
 
 	// Optional diff preview against the frozen recommendation snapshot
 	// (`init --auto` writes it; a from-scratch agent.yml won't have one).

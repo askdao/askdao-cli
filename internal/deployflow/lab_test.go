@@ -1,6 +1,9 @@
 // [INPUT]: 依赖同包 ValidateLab、internal/types 的 Lab/LabProducer/LabProvide、标准库 strings/testing
 // [OUTPUT]: 对外提供 TestValidateLab 表驱动用例
-// [POS]: internal/deployflow 的 lab 段校验用例；钉死「nil 合法 / 引用不存在报错 / 词表外拒收」
+// [POS]: internal/deployflow 的 lab 段校验用例；钉死「nil 合法 / 引用不存在报错 / 词表外拒收 /
+//
+//	kind 缺省即 script / turn 只在 managed harness 上通过」
+//
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package deployflow
 
@@ -32,6 +35,7 @@ func TestValidateLab(t *testing.T) {
 	cases := []struct {
 		name    string
 		lab     *types.Lab
+		harness string // the package's preferred_harness; "" = deploy's default
 		wantErr string // "" = expect success
 	}{
 		{
@@ -90,6 +94,51 @@ func TestValidateLab(t *testing.T) {
 			lab: &types.Lab{Producers: []types.LabProducer{
 				{ID: "kalshi-paper", Entrypoint: "x.py", Mode: "dedicated"},
 			}},
+		},
+		{
+			// An undeclared kind is script, so the sandbox harness accepts it.
+			name:    "empty kind on the sandbox harness",
+			lab:     &types.Lab{Producers: []types.LabProducer{okProducer()}},
+			harness: "openai_agents_sdk",
+		},
+		{
+			name: "explicit script kind on the sandbox harness",
+			lab: &types.Lab{Producers: []types.LabProducer{
+				{ID: "invest-desk", Entrypoint: "x.py", Kind: "script"},
+			}},
+			harness: "openai_agents_sdk",
+		},
+		{
+			name: "turn kind on the managed harness",
+			lab: &types.Lab{Producers: []types.LabProducer{
+				{ID: "invest-desk", Entrypoint: "TURN.md", Kind: "turn"},
+			}},
+			harness: HarnessManagedAgents,
+		},
+		{
+			// preferred_harness omitted = the managed default deploy would use.
+			name: "turn kind with no declared harness",
+			lab: &types.Lab{Producers: []types.LabProducer{
+				{ID: "invest-desk", Entrypoint: "TURN.md", Kind: "turn"},
+			}},
+		},
+		{
+			name: "turn kind on the sandbox harness",
+			lab: &types.Lab{Producers: []types.LabProducer{
+				{ID: "invest-desk", Entrypoint: "TURN.md", Kind: "turn"},
+			}},
+			harness: "openai_agents_sdk",
+			// Pins the copy-pasteable fix, not just the complaint.
+			wantErr: "kind: turn needs preferred_harness: anthropic_managed_agents, " +
+				"this package declares \"openai_agents_sdk\" — " +
+				"either set `preferred_harness: anthropic_managed_agents`",
+		},
+		{
+			name: "unknown kind",
+			lab: &types.Lab{Producers: []types.LabProducer{
+				{ID: "invest-desk", Entrypoint: "x.py", Kind: "agent"},
+			}},
+			wantErr: "kind \"agent\" must be one of",
 		},
 		{
 			name:    "empty producers",
@@ -198,7 +247,7 @@ func TestValidateLab(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := ValidateLab(tc.lab)
+			err := ValidateLab(tc.lab, tc.harness)
 			if tc.wantErr == "" {
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
