@@ -1064,7 +1064,7 @@ lab:
       credentials: [KALSHI_API_KEY_ID, KALSHI_PRIVATE_KEY]   # 可选，**只写凭据名，永不写值**
   provides:
     - station: collect            # 工位：collect | verify | report
-      contract: lab-digest/v1     # 契约：lab-digest/v1 | lab-verdicts/v1 | lab-notice/v1 | lab-notice/v2
+      contract: lab-digest/v1     # 契约：lab-digest/v1 | lab-verdicts/v1 | lab-notice/v1 | lab-notice/v2 | lab-report/v1
       producer: kalshi-paper      # 必须是同段内某个 producers[].id
       output: lab/digest          # 产物名，脚本按此名写文件
     - station: report             # 「告」工位：每轮播报一句话
@@ -1088,7 +1088,7 @@ lab:
 | `producers[].params_schema` | 否 | JSON schema 对象，原样透传 |
 | `producers[].credentials` | 否 | 凭据**名**列表 |
 | `provides[].station` | 是 | `collect`（收）\| `verify`（验）\| `report`（告） |
-| `provides[].contract` | 是 | `lab-digest/v1` \| `lab-verdicts/v1` \| `lab-notice/v1`（纯文本播报）\| `lab-notice/v2`（带信封 JSON） |
+| `provides[].contract` | 是 | `lab-digest/v1` \| `lab-verdicts/v1` \| `lab-notice/v1`（纯文本播报）\| `lab-notice/v2`（带信封 JSON）\| `lab-report/v1`（带信封 JSON 日报） |
 | `provides[].producer` | 是 | 引用同段 `producers[].id` |
 | `provides[].output` | 是 | 产物名 |
 
