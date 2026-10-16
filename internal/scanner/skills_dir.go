@@ -1,19 +1,17 @@
-// [INPUT]: 依赖 标准库 (crypto/sha256, encoding/hex, encoding/json, io/fs, os, path/filepath, sort, strings),
+// [INPUT]: 依赖 标准库 (encoding/json, io/fs, os, path/filepath, sort, strings),
 //
 //	internal/types 的 DetectedSkill / SkillRef / Package / ImpliedAnthropicSkill
 //
 // [OUTPUT]: 对外提供 DetectSkills（custom_local skill 枚举 + bundle 体积 + lockfile 关联 + builtin 反向推）、
 //
 //	LoadSkillsLock（skills-lock.json → name→SkillRef map）、SkillDirCandidates、ParseSkillFrontmatter
-//	（SKILL.md frontmatter name/description 行级解析，deploy 前置校验共用）、hashFile
+//	（SKILL.md frontmatter name/description 行级解析，deploy 前置校验共用）
 //
 // [POS]: internal/scanner 的 skill 探测器；产物喂 recommender 做 L4 推荐
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package scanner
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -275,17 +273,6 @@ func dirSize(root string) (bytes int64, files int) {
 		return nil
 	})
 	return bytes, files
-}
-
-// hashFile returns the hex sha256 of a file's contents, or "" on error. Used to
-// compare a vendored skill's on-disk SKILL.md against its locked computedHash.
-func hashFile(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
 }
 
 // inferBuiltinSkills walks builtinSkillRules; emits one ImpliedAnthropicSkill

@@ -81,12 +81,10 @@ type Metadata map[string]string
 // FindFiles calls are cheap (nixpacks-pattern §2: ~50ms first scan on 5K-file
 // projects).
 type App struct {
-	root      string
-	once      sync.Once
-	files     []string          // forward slashes, relative to root
-	fileSet   map[string]bool   // for O(1) IncludesFile
-	readCache map[string]string // memoize ReadFile contents (small files only)
-	readMu    sync.Mutex
+	root    string
+	once    sync.Once
+	files   []string        // forward slashes, relative to root
+	fileSet map[string]bool // for O(1) IncludesFile
 }
 
 // NewApp constructs an App rooted at the given path. The first method call
@@ -99,7 +97,7 @@ func NewApp(root string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &App{root: abs, readCache: map[string]string{}}, nil
+	return &App{root: abs}, nil
 }
 
 // Root returns the absolute root path.
