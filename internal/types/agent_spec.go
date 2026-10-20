@@ -270,9 +270,12 @@ type HarnessSpecific struct {
 
 // AnthropicSpecific is the Anthropic Managed Agents-only field bag.
 type AnthropicSpecific struct {
-	FastMode       bool              `json:"fast_mode,omitempty"       yaml:"fast_mode,omitempty"`
-	CallableAgents []string          `json:"callable_agents,omitempty" yaml:"callable_agents,omitempty"`
-	Metadata       map[string]string `json:"metadata,omitempty"        yaml:"metadata,omitempty"`
+	FastMode       bool     `json:"fast_mode,omitempty"       yaml:"fast_mode,omitempty"`
+	CallableAgents []string `json:"callable_agents,omitempty" yaml:"callable_agents,omitempty"`
+	// Multiagent is Anthropic's `multiagent` block, passed through verbatim by the
+	// conductor adapter (e.g. type multiagent_20261001, workflows disabled).
+	Multiagent map[string]interface{} `json:"multiagent,omitempty" yaml:"multiagent,omitempty"`
+	Metadata   map[string]string      `json:"metadata,omitempty"   yaml:"metadata,omitempty"`
 }
 
 // OpenAISpecific is the OpenAI Agents SDK-only field bag (Phase 2).

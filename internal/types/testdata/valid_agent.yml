@@ -92,6 +92,10 @@ preferred_harness: anthropic_managed_agents
 harness_specific:
   anthropic:
     fast_mode: false
+    multiagent:
+      type: multiagent_20261001
+      workflows:
+        type: disabled
     metadata:
       askdao.kol_id: kol_example
   openai:
