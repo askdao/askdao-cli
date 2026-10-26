@@ -380,6 +380,10 @@ type Lab struct {
 // Mode is the instance topology: empty or "dedicated" — one instance per
 // consuming space; "shared" — the producer's owner runs a single instance and
 // many spaces consume its output.
+// Upgrade is how an existing instance moves to a redeployed package: empty —
+// it switches to the current version before its next round; "manual" — it is
+// held on the version it runs until a human confirms the upgrade (for entries
+// such as real-money trading, where unreviewed code must not go live by itself).
 // StateVersion is the format version of the state file the round reads/writes
 // (>= 1; 0 = not declared). ParamsSchema is a JSON-schema object stored as-is.
 // Credentials names the secrets the round needs — names only, never values.
@@ -389,6 +393,7 @@ type LabProducer struct {
 	Runtime      string                 `json:"runtime,omitempty"       yaml:"runtime,omitempty"`
 	Kind         string                 `json:"kind,omitempty"          yaml:"kind,omitempty"`
 	Mode         string                 `json:"mode,omitempty"          yaml:"mode,omitempty"`
+	Upgrade      string                 `json:"upgrade,omitempty"       yaml:"upgrade,omitempty"`
 	DefaultCron  string                 `json:"default_cron,omitempty"  yaml:"default_cron,omitempty"`
 	Timezone     string                 `json:"timezone,omitempty"      yaml:"timezone,omitempty"`
 	StateVersion int                    `json:"state_version,omitempty" yaml:"state_version,omitempty"`
