@@ -1057,6 +1057,7 @@ lab:
       runtime: python:3.11-slim   # 可选，不写沿用包顶层 workspace 运行时
       kind: script                # 可选，script（缺省，沙箱脚本 + 委托插槽）| turn（一轮 = 一个 Managed Agent turn）
       mode: shared                # 可选，dedicated（缺省，每个消费空间各一台）| shared（生产方所有一台、多空间消费）
+      upgrade: manual             # 可选，不写 = 包重新部署后已有实例下一轮自动换到新版；manual = 停住等人点「升级到最新」
       default_cron: "30 8-16,18-20 * * 1-5"   # 可选，脚本的建议节律
       timezone: America/New_York  # 可选，IANA 时区，解释 default_cron 的墙钟
       state_version: 3            # 可选，脚本读写的状态文件格式版本，整数 ≥ 1
@@ -1082,6 +1083,7 @@ lab:
 | `producers[].runtime` | 否 | 缺省沿用包顶层运行时 |
 | `producers[].kind` | 否 | `script`（缺省，沙箱脚本，模型步经委托插槽由平台代调、按实验室计费）\| `turn`（一轮 = 一个 Managed Agent turn，快照作输入，Agent 用自身工具写产物；只许 `preferred_harness: anthropic_managed_agents`） |
 | `producers[].mode` | 否 | `dedicated`（缺省，每个消费空间各起一台）\| `shared`（生产方所有一台、多空间消费） |
+| `producers[].upgrade` | 否 | 不写（缺省，包重新部署后已有实例在下一轮开跑前自动换到当下这一版）\| `manual`（停在原来那一版，等人点「升级到最新」确认；实盘交易这类入口用） |
 | `producers[].default_cron` | 否 | 标准 5 段 cron，建议节律 |
 | `producers[].timezone` | 否 | IANA 时区名 |
 | `producers[].state_version` | 否 | 整数 ≥ 1 |
@@ -1098,7 +1100,7 @@ lab:
 
 **deploy 前本地校验**（`askdao agent deploy` 在打包前就报错，不必等服务端返回）：
 
-- `producers` 非空、`id` 唯一且合法、`entrypoint` 非空、`mode` / `kind` 为空或在词表内
+- `producers` 非空、`id` 唯一且合法、`entrypoint` 非空、`mode` / `kind` / `upgrade` 为空或在词表内
 - `kind: turn` 的 producer，包的 `preferred_harness` 必须是 `anthropic_managed_agents`（报错里带可照抄的两种修法）；这里看的是 yaml 里的 `preferred_harness`，不是 `--harness` 本次覆盖值——`kind` 是包自带的性质，`--harness` 只改一次请求的落点
 - `provides` 的 `station` / `contract` 必须在上表词表内
 - `provides[].producer` 必须能在 `producers` 里找到（打错字当场报错）

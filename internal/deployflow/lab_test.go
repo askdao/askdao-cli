@@ -2,7 +2,7 @@
 // [OUTPUT]: 对外提供 TestValidateLab 表驱动用例
 // [POS]: internal/deployflow 的 lab 段校验用例；钉死「nil 合法 / 引用不存在报错 / 词表外拒收 /
 //
-//	kind 缺省即 script / turn 只在 managed harness 上通过」
+//	kind 缺省即 script / turn 只在 managed harness 上通过 / upgrade 只许缺省或 manual」
 //
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 package deployflow
@@ -189,6 +189,28 @@ func TestValidateLab(t *testing.T) {
 				{ID: "kalshi-paper", Entrypoint: "x.py", Mode: "singleton"},
 			}},
 			wantErr: "mode \"singleton\" must be one of",
+		},
+		{
+			name: "manual upgrade producer",
+			lab: &types.Lab{Producers: []types.LabProducer{
+				{ID: "kalshi-paper", Entrypoint: "x.py", Upgrade: "manual"},
+			}},
+		},
+		{
+			// Absent is the only way to say "follow the latest"; no spelled-out value.
+			name: "unknown upgrade",
+			lab: &types.Lab{Producers: []types.LabProducer{
+				{ID: "kalshi-paper", Entrypoint: "x.py", Upgrade: "auto"},
+			}},
+			wantErr: "upgrade \"auto\" must be one of [manual] (or omitted)",
+		},
+		{
+			// Same closed vocabulary as the server: the value is case-sensitive.
+			name: "upgrade with the wrong case",
+			lab: &types.Lab{Producers: []types.LabProducer{
+				{ID: "kalshi-paper", Entrypoint: "x.py", Upgrade: "Manual"},
+			}},
+			wantErr: "upgrade \"Manual\" must be one of",
 		},
 		{
 			name: "unknown station",

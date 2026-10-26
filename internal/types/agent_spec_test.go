@@ -1,12 +1,12 @@
 // [INPUT]: 依赖 internal/types 的 AgentSpec schema、testdata 下 fixtures、
 //
-//	标准库 bytes/os/reflect/testing、gopkg.in/yaml.v3
+//	标准库 bytes/encoding·json/os/reflect/testing、gopkg.in/yaml.v3
 //
 // [OUTPUT]: 对外提供 TestAgentSpecRoundTripValid / TestAgentSpecRejectInvalid /
 //
 //	TestAgentSpecAPIVersionStamp / TestAgentSpecToggleBlocksSurvive /
 //	TestAgentSpecLabBlockSurvives / TestAgentSpecWithoutLabStaysNil /
-//	TestAgentSpecLabProducerKindSurvives 测试
+//	TestAgentSpecLabProducerKindSurvives / TestAgentSpecLabProducerUpgradeSurvives 测试
 //
 // [POS]: internal/types 的 agent.yml schema 验证；保证 fixture YAML
 //
@@ -17,6 +17,7 @@ package types
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -285,6 +286,77 @@ lab:
 	}
 	if strings.Contains(string(out), "kind: script") {
 		t.Fatalf("an undeclared kind must not be written back as script:\n%s", out)
+	}
+}
+
+// TestAgentSpecLabProducerUpgradeSurvives pins lab.producers[].upgrade through
+// both save paths: `agent edit` re-marshals the struct to yaml, and the studio
+// hands the spec to the browser and back as JSON. An explicit `upgrade: manual`
+// must come back on both, and a producer that never declared the field must not
+// grow one — the server treats absent as "follow the latest".
+func TestAgentSpecLabProducerUpgradeSurvives(t *testing.T) {
+	const twoProducers = `
+apiVersion: askdao.ai/v1
+kind: AgentSpec
+metadata:
+  name: kalshi-trading
+  version: 0.4.0
+persona:
+  model_class: fast
+preferred_harness: openai_agents_sdk
+lab:
+  producers:
+    - id: follows-latest
+      entrypoint: scripts/a.py
+    - id: kalshi-paper
+      entrypoint: scripts/entry.py
+      upgrade: manual
+`
+	var spec AgentSpec
+	if err := yaml.Unmarshal([]byte(twoProducers), &spec); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if spec.Lab == nil || len(spec.Lab.Producers) != 2 {
+		t.Fatalf("lab.producers wrong: %+v", spec.Lab)
+	}
+	if got := spec.Lab.Producers[0].Upgrade; got != "" {
+		t.Fatalf("undeclared upgrade = %q, want empty", got)
+	}
+	if got := spec.Lab.Producers[1].Upgrade; got != "manual" {
+		t.Fatalf("upgrade = %q, want %q", got, "manual")
+	}
+
+	out, err := yaml.Marshal(&spec)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if n := strings.Count(string(out), "upgrade:"); n != 1 {
+		t.Fatalf("yaml carries %d upgrade keys, want exactly the declared one:\n%s", n, out)
+	}
+	if !strings.Contains(string(out), "upgrade: manual") {
+		t.Fatalf("upgrade: manual lost on the way out:\n%s", out)
+	}
+	var back AgentSpec
+	if err := yaml.Unmarshal(out, &back); err != nil {
+		t.Fatalf("re-unmarshal: %v", err)
+	}
+	if !reflect.DeepEqual(spec.Lab, back.Lab) {
+		t.Fatalf("lab block drifted through yaml:\n a=%+v\n b=%+v", spec.Lab, back.Lab)
+	}
+
+	js, err := json.Marshal(&spec)
+	if err != nil {
+		t.Fatalf("json marshal: %v", err)
+	}
+	if n := strings.Count(string(js), `"upgrade":`); n != 1 {
+		t.Fatalf("json carries %d upgrade keys, want 1: %s", n, js)
+	}
+	var fromJSON AgentSpec
+	if err := json.Unmarshal(js, &fromJSON); err != nil {
+		t.Fatalf("json unmarshal: %v", err)
+	}
+	if !reflect.DeepEqual(spec.Lab, fromJSON.Lab) {
+		t.Fatalf("lab block drifted through json:\n a=%+v\n b=%+v", spec.Lab, fromJSON.Lab)
 	}
 }
 

@@ -1,7 +1,7 @@
 // [INPUT]: 依赖 fmt/regexp/slices + internal/types（Lab / LabProducer / LabProvide）
 // [OUTPUT]: 对外提供 ValidateLab(*types.Lab, preferredHarness) error + LabStations / LabContracts /
 //
-//	LabProducerModes / LabProducerKinds 词表 + HarnessManagedAgents 常量
+//	LabProducerModes / LabProducerKinds / LabProducerUpgrades 词表 + HarnessManagedAgents 常量
 //
 // [POS]: internal/deployflow 的 lab 段结构校验 —— Prepare 在打包前调用，让 Builder
 //
@@ -51,6 +51,12 @@ var LabProducerModes = []string{"dedicated", "shared"}
 // anthropic_managed_agents harness can run it.
 var LabProducerKinds = []string{"script", "turn"}
 
+// LabProducerUpgrades is the closed vocabulary for lab.producers[].upgrade —
+// how an existing instance moves to a redeployed package.
+// empty (the default) = it switches to the current version before its next round;
+// manual = it is held until a human confirms the upgrade.
+var LabProducerUpgrades = []string{"manual"}
+
 // LabProducerKindTurn is the kind that only HarnessManagedAgents can run.
 const LabProducerKindTurn = "turn"
 
@@ -99,6 +105,9 @@ func ValidateLab(lab *types.Lab, preferredHarness string) error {
 		}
 		if p.Kind != "" && !slices.Contains(LabProducerKinds, p.Kind) {
 			return fmt.Errorf("lab.producers[%d] (%s): kind %q must be one of %v", i, p.ID, p.Kind, LabProducerKinds)
+		}
+		if p.Upgrade != "" && !slices.Contains(LabProducerUpgrades, p.Upgrade) {
+			return fmt.Errorf("lab.producers[%d] (%s): upgrade %q must be one of %v (or omitted)", i, p.ID, p.Upgrade, LabProducerUpgrades)
 		}
 		if p.Kind == LabProducerKindTurn && harness != HarnessManagedAgents {
 			return fmt.Errorf(
